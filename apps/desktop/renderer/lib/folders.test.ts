@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { Feed, Folder } from "@rss-reader/shared";
-import { feedsForFolder, feedsNotInFolder, normalizeFolderName, unassignedFeeds } from "./folders";
+import {
+  FEED_DRAG_MIME,
+  feedIdFromDropData,
+  feedsForFolder,
+  feedsNotInFolder,
+  folderFeedIds,
+  isFeedDragTypes,
+  normalizeFolderName,
+  unassignedFeeds,
+  withFeedAssigned,
+  withFeedUnassigned,
+} from "./folders";
 
 function feed(partial: Partial<Feed> & Pick<Feed, "id">): Feed {
   return {
@@ -62,5 +73,33 @@ describe("folder feed grouping", () => {
 
   test("offers remaining feeds when adding to a folder", () => {
     expect(feedsNotInFolder([nyt, bbc, hn, later], news).map((f) => f.id)).toEqual(["hn"]);
+  });
+
+  test("keeps an assigned feed visible even if list omitted feedIds", () => {
+    const empty = folder({ id: "news", name: "News", feedIds: [] });
+    const next = withFeedAssigned([empty], "news", "hn");
+    expect(feedsForFolder([nyt, bbc, hn], next[0]!).map((f) => f.id)).toEqual(["hn"]);
+  });
+
+  test("does not duplicate an already assigned feed", () => {
+    const next = withFeedAssigned([news], "news", "nyt");
+    expect(folderFeedIds(next[0]!)).toEqual(["nyt", "bbc"]);
+  });
+
+  test("removes a feed from a folder", () => {
+    const next = withFeedUnassigned([news], "news", "nyt");
+    expect(feedsForFolder([nyt, bbc, hn], next[0]!).map((f) => f.id)).toEqual(["bbc"]);
+  });
+});
+
+describe("feed drag payload", () => {
+  test("recognizes the internal feed mime type so window URL-drop does not steal it", () => {
+    expect(isFeedDragTypes(["text/plain", FEED_DRAG_MIME])).toBe(true);
+    expect(isFeedDragTypes(["text/plain", "text/uri-list"])).toBe(false);
+  });
+
+  test("reads the feed id from the internal mime type, not text/plain", () => {
+    const id = feedIdFromDropData((type) => (type === FEED_DRAG_MIME ? "feed-1" : "https://example.com"));
+    expect(id).toBe("feed-1");
   });
 });

@@ -15,7 +15,17 @@ import {
   isEditableDropTarget,
   normalizeDroppedUrl,
 } from "./lib/droppedUrl";
-import { feedsForFolder, feedsNotInFolder, normalizeFolderName, unassignedFeeds } from "./lib/folders";
+import {
+  FEED_DRAG_MIME,
+  feedIdFromDropData,
+  feedsForFolder,
+  feedsNotInFolder,
+  isFeedDragTypes,
+  normalizeFolderName,
+  unassignedFeeds,
+  withFeedAssigned,
+  withFeedUnassigned,
+} from "./lib/folders";
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
@@ -138,10 +148,12 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       backend.folders.list(),
       backend.settings.get(),
     ]);
+    const nextFolders = foldersList ?? [];
     setFeeds(f ?? []);
-    setFolders(foldersList ?? []);
+    setFolders(nextFolders);
     setSettings(s);
     applyTheme(s.theme);
+    return nextFolders;
   }, [backend, applyTheme]);
 
   const loadArticles = useCallback(
@@ -533,11 +545,14 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
       if (!e.dataTransfer) return;
+      if (isFeedDragTypes(e.dataTransfer.types)) return;
       if (isEditableDropTarget(e.target)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
     };
     const onDrop = (e: DragEvent) => {
+      if (!e.dataTransfer) return;
+      if (isFeedDragTypes(e.dataTransfer.types)) return;
       if (isEditableDropTarget(e.target)) return;
       const text = extractDropText(e.dataTransfer);
       if (!text.trim()) return;
@@ -691,6 +706,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
 
   const visibleFeeds = feeds.filter((f) => !f.isReadLater);
   const sidebarFeeds = unassignedFeeds(feeds, folders);
+  const selectedFolder = selected.type === "folder" ? (folders.find((folder) => folder.id === selected.id) ?? null) : null;
   const assignFolder = folders.find((folder) => folder.id === assignFolderId) ?? null;
   const assignableFeeds = assignFolder ? feedsNotInFolder(feeds, assignFolder) : [];
 
@@ -831,7 +847,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     setError(null);
     try {
       await backend.folders.assignFeed(folderId, feedId);
-      await loadFeeds();
+      const listed = await loadFeeds();
+      setFolders(withFeedAssigned(listed, folderId, feedId));
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add feed to folder");
@@ -846,7 +863,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     setError(null);
     try {
       await backend.folders.unassignFeed(folderId, feedId);
-      await loadFeeds();
+      const listed = await loadFeeds();
+      setFolders(withFeedUnassigned(listed, folderId, feedId));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not remove feed from folder");
     } finally {
@@ -854,14 +872,32 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     }
   };
 
+  const openAssignModal = (folderId: string) => {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    const options = feedsNotInFolder(feeds, folder);
+    setError(null);
+    setAssignFolderId(folderId);
+    setAssignFeedId(options[0]?.id ?? "");
+  };
+
   const onFeedDragStart = (event: ReactDragEvent, feedId: string) => {
-    event.dataTransfer.setData("text/plain", feedId);
-    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(FEED_DRAG_MIME, feedId);
+    event.dataTransfer.effectAllowed = "copyMove";
+  };
+
+  const onFolderDragOver = (event: ReactDragEvent) => {
+    if (!isFeedDragTypes(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
   };
 
   const onFolderDrop = (event: ReactDragEvent, folderId: string) => {
+    if (!isFeedDragTypes(event.dataTransfer.types)) return;
     event.preventDefault();
-    const feedId = event.dataTransfer.getData("text/plain").trim();
+    event.stopPropagation();
+    const feedId = feedIdFromDropData((type) => event.dataTransfer.getData(type));
     if (!feedId) return;
     void assignFeedToFolder(folderId, feedId);
   };
@@ -1097,51 +1133,45 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             const nestedFeeds = feedsForFolder(feeds, folder);
             const canAdd = feedsNotInFolder(feeds, folder).length > 0;
             return (
-              <div key={folder.id}>
+              <div key={folder.id} onDragOver={onFolderDragOver} onDrop={(e) => onFolderDrop(e, folder.id)}>
                 <button
                   type="button"
                   className={`nav-item ${selected.type === "folder" && selected.id === folder.id ? "active" : ""}`}
                   onClick={() => setSelected({ type: "folder", id: folder.id })}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(e) => onFolderDrop(e, folder.id)}
                   title="Drop a feed here to add it to this folder"
                 >
                   {folder.name}
                 </button>
                 {nestedFeeds.map((feed) => (
-                  <button
+                  <div
                     key={`${folder.id}-${feed.id}`}
-                    type="button"
-                    className={`nav-item nav-item-nested ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
-                    onClick={() => setSelected({ type: "feed", id: feed.id })}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      void unassignFeedFromFolder(folder.id, feed.id);
-                    }}
+                    className="feed-drag"
                     draggable
                     onDragStart={(e) => onFeedDragStart(e, feed.id)}
-                    title={feed.lastError || feed.url}
                   >
-                    <span>
-                      {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
-                      {feed.title || feed.url}
-                    </span>
-                    <span className="count">{feed.unreadCount || ""}</span>
-                  </button>
+                    <button
+                      type="button"
+                      className={`nav-item nav-item-nested ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
+                      onClick={() => setSelected({ type: "feed", id: feed.id })}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        void unassignFeedFromFolder(folder.id, feed.id);
+                      }}
+                      title={feed.lastError || feed.url}
+                    >
+                      <span>
+                        {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
+                        {feed.title || feed.url}
+                      </span>
+                      <span className="count">{feed.unreadCount || ""}</span>
+                    </button>
+                  </div>
                 ))}
                 {canAdd && (
                   <button
                     type="button"
                     className="nav-item nav-item-nested"
-                    onClick={() => {
-                      const options = feedsNotInFolder(feeds, folder);
-                      setError(null);
-                      setAssignFolderId(folder.id);
-                      setAssignFeedId(options[0]?.id ?? "");
-                    }}
+                    onClick={() => openAssignModal(folder.id)}
                   >
                     + Add feed
                   </button>
@@ -1157,25 +1187,42 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             </div>
           )}
           {sidebarFeeds.map((feed) => (
-            <button
+            <div
               key={feed.id}
-              type="button"
-              className={`feed-item ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
-              onClick={() => setSelected({ type: "feed", id: feed.id })}
+              className="feed-drag"
               draggable
               onDragStart={(e) => onFeedDragStart(e, feed.id)}
-              title={feed.lastError || feed.url}
             >
-              <span>
-                {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
-                {feed.title || feed.url}
-              </span>
-              <span className="count">{feed.unreadCount || ""}</span>
-            </button>
+              <button
+                type="button"
+                className={`feed-item ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
+                onClick={() => setSelected({ type: "feed", id: feed.id })}
+                title={feed.lastError || feed.url}
+              >
+                <span>
+                  {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
+                  {feed.title || feed.url}
+                </span>
+                <span className="count">{feed.unreadCount || ""}</span>
+              </button>
+            </div>
           ))}
         </aside>
 
         <section className="pane article-list">
+          {selectedFolder && (
+            <div className="folder-toolbar">
+              <span className="folder-toolbar-label">{selectedFolder.name}</span>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || feedsNotInFolder(feeds, selectedFolder).length === 0}
+                onClick={() => openAssignModal(selectedFolder.id)}
+              >
+                Add feed
+              </button>
+            </div>
+          )}
           {isStoriesMode ? (
             stories.length === 0 ? (
               <div className="empty">
@@ -1201,8 +1248,22 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             )
           ) : articles.length === 0 ? (
             <div className="empty">
-              <h2>Nothing here</h2>
-              <p>Add a feed or widen your filters.</p>
+              <h2>{selectedFolder ? "No feeds in this folder" : "Nothing here"}</h2>
+              <p>
+                {selectedFolder
+                  ? "Add a feed to this folder to see its articles."
+                  : "Add a feed or widen your filters."}
+              </p>
+              {selectedFolder && feedsNotInFolder(feeds, selectedFolder).length > 0 ? (
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={busy}
+                  onClick={() => openAssignModal(selectedFolder.id)}
+                >
+                  Add feed
+                </button>
+              ) : null}
             </div>
           ) : (
             articles.map((article) => (
