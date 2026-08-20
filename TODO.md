@@ -75,6 +75,7 @@ Track phase completion and follow-ups. Check items as they land.
 - [x] Bundle Go binary
 - [x] Cross-compile script (`scripts/build-backend-all.sh`)
 - [x] electron-builder config + `bun run package`
+- [x] GitHub Actions release workflow (mac/win/linux deb+rpm+pacman+AppImage)
 - [x] README complete
 
 

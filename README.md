@@ -57,13 +57,31 @@ Writes `apps/desktop/resources/bin/rss-backend` (or `.exe` on Windows).
 bun run package
 ```
 
-Cross-compile helpers:
+Cross-compile Go backends:
 
 ```bash
 ./scripts/build-backend-all.sh
 ```
 
-Targets: macOS arm64/x64, Windows x64, Linux x64. Electron packaging uses `electron-builder` when configured; see `apps/desktop/electron-builder.yml`.
+Stage the backend binary electron-builder expects for the current (or given) platform:
+
+```bash
+./scripts/stage-backend.sh darwin arm64   # → apps/desktop/resources/bin/rss-backend
+./scripts/stage-backend.sh windows amd64  # → apps/desktop/resources/bin/rss-backend.exe
+```
+
+### GitHub Releases (CI)
+
+Push a version tag to build and publish installers for macOS (arm64 + x64), Windows (x64), and Linux (`.deb` Ubuntu/Debian, `.rpm` Fedora/RHEL, `.pacman` Arch, plus AppImage):
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Workflow: `.github/workflows/release.yml` (also runnable via **Actions → Release → Run workflow**).
+
+Targets: macOS arm64/x64, Windows x64, Linux x64. Electron packaging uses `electron-builder`; see `apps/desktop/electron-builder.yml`.
 
 ## Where is the database?
 

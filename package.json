@@ -10,7 +10,8 @@
     "lint": "bun run --filter '*' lint",
     "backend:build": "mkdir -p apps/desktop/resources/bin && cd backend && go build -o ../apps/desktop/resources/bin/rss-backend ./cmd/desktop",
     "backend:test": "cd backend && go test ./...",
-    "backend:all": "bash scripts/build-backend-all.sh"
+    "backend:all": "bash scripts/build-backend-all.sh",
+    "backend:stage": "bash scripts/stage-backend.sh"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

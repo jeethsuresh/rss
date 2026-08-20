@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create/update (e.g. v0.1.0). Leave empty to only upload workflow artifacts."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Skip code-signing discovery so unsigned CI builds do not hang.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  package:
+    name: Package (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mac-arm64
+            runs-on: macos-14
+            goos: darwin
+            goarch: arm64
+            electron_args: --mac --arm64
+            artifact_glob: |
+              apps/desktop/release/*.dmg
+              apps/desktop/release/*.zip
+              apps/desktop/release/latest-mac.yml
+
+          - name: mac-x64
+            runs-on: macos-13
+            goos: darwin
+            goarch: amd64
+            electron_args: --mac --x64
+            artifact_glob: |
+              apps/desktop/release/*.dmg
+              apps/desktop/release/*.zip
+              apps/desktop/release/latest-mac.yml
+
+          - name: windows-x64
+            runs-on: windows-latest
+            goos: windows
+            goarch: amd64
+            electron_args: --win --x64
+            artifact_glob: |
+              apps/desktop/release/*.exe
+              apps/desktop/release/*.msi
+              apps/desktop/release/latest.yml
+
+          - name: linux-x64
+            # Pin 22.04 for broader glibc compatibility of AppImage/deb/rpm.
+            runs-on: ubuntu-22.04
+            goos: linux
+            goarch: amd64
+            electron_args: --linux deb rpm pacman AppImage --x64
+            artifact_glob: |
+              apps/desktop/release/*.deb
+              apps/desktop/release/*.rpm
+              apps/desktop/release/*.pacman
+              apps/desktop/release/*.AppImage
+              apps/desktop/release/latest-linux.yml
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (electron-builder)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Linux packagers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            rpm \
+            libarchive-tools \
+            libfuse2 \
+            fakeroot
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Stage Go backend
+        shell: bash
+        run: |
+          chmod +x scripts/stage-backend.sh
+          ./scripts/stage-backend.sh "${{ matrix.goos }}" "${{ matrix.goarch }}"
+
+      - name: Build desktop (renderer + electron)
+        run: bun run --filter @rss-reader/desktop build
+
+      - name: Package with electron-builder
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          bun x electron-builder --config electron-builder.yml ${{ matrix.electron_args }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List release outputs
+        shell: bash
+        run: ls -la apps/desktop/release || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-reader-${{ matrix.name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: rss-reader-*
+          merge-multiple: true
+
+      - name: Show bundled files
+        run: find dist -type f | sort
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: RSS Reader ${{ steps.tag.outputs.name }}
+          draft: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/**
+          body: |
+            ## Install notes
+
+            | Platform | Artifact |
+            |----------|----------|
+            | macOS Apple Silicon | `*-mac-arm64.dmg` |
+            | macOS Intel | `*-mac-x64.dmg` |
+            | Windows | `*-win-x64.exe` (NSIS) |
+            | Ubuntu / Debian | `*.deb` |
+            | Fedora / RHEL | `*.rpm` |
+            | Arch / Manjaro | `*.pacman` (`pacman -U ./…`) |
+            | Any Linux | `*.AppImage` (chmod +x, then run) |
+
+            Data is stored locally in the app userData directory as SQLite (`rss.db`). Builds are **unsigned** unless signing secrets are configured.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
