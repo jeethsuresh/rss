@@ -70,3 +70,11 @@ Track phase completion and follow-ups. Check items as they land.
 - [ ] OPML import/export
 - [ ] Per-feed notification rules polish
 - [ ] Archive / recently-read smart views
+
+## Settings + AI triage (2026-08-20)
+
+- [x] Settings page (General / Feeds / AI)
+- [x] Feed import/export newline URL lists
+- [x] Article priority via LM Studio
+- [x] Meta-stories + Stories sidebar + cascade flags
+- [x] Scan 24h/7d + auto on new articles
