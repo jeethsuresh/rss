@@ -126,6 +126,7 @@ type DotaGame struct {
 	ID              string         `json:"id"`
 	MatchID         int            `json:"matchId"`
 	GameIndex       int            `json:"gameIndex"`
+	StartedAt       *string        `json:"startedAt,omitempty"`
 	DurationSeconds *int           `json:"durationSeconds,omitempty"`
 	Winner          DotaSide       `json:"winner,omitempty"`
 	RadiantTeam     *DotaTeam      `json:"radiantTeam,omitempty"`

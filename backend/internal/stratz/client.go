@@ -207,8 +207,6 @@ func (c *Client) GetMatchDetail(ctx context.Context, steamMatchID int64) (*domai
 			ID              int64 `json:"id"`
 			DurationSeconds int   `json:"durationSeconds"`
 			DidRadiantWin   bool  `json:"didRadiantWin"`
-			RadiantKills    int   `json:"radiantKills"`
-			DireKills       int   `json:"direKills"`
 			RadiantTeam     *struct {
 				ID   int    `json:"id"`
 				Name string `json:"name"`
@@ -249,8 +247,6 @@ func (c *Client) GetMatchDetail(ctx context.Context, steamMatchID int64) (*domai
     id
     durationSeconds
     didRadiantWin
-    radiantKills
-    direKills
     radiantTeam { id name }
     direTeam { id name }
     players {
@@ -284,15 +280,22 @@ func (c *Client) GetMatchDetail(ctx context.Context, steamMatchID int64) (*domai
 	_ = c.ensureHeroes(ctx)
 
 	dur := m.DurationSeconds
-	rk, dk := m.RadiantKills, m.DireKills
+	rk, dk := 0, 0
+	for _, p := range m.Players {
+		if p.IsRadiant {
+			rk += p.Kills
+		} else {
+			dk += p.Kills
+		}
+	}
 	g := &domain.DotaGame{
-		ID:              strconv.FormatInt(m.ID, 10),
-		DurationSeconds: &dur,
-		RadiantScore:    &rk,
-		DireScore:       &dk,
-		StratzMatchID:   &steamMatchID,
+		ID:                strconv.FormatInt(m.ID, 10),
+		DurationSeconds:   &dur,
+		RadiantScore:      &rk,
+		DireScore:         &dk,
+		StratzMatchID:     &steamMatchID,
 		MappingConfidence: "exact",
-		DetailAvailable: true,
+		DetailAvailable:   true,
 	}
 	if m.DidRadiantWin {
 		g.Winner = domain.DotaRadiant

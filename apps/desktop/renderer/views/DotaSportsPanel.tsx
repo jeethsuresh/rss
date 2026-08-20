@@ -801,7 +801,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
         ) : matchDetail ? (
           <div className="empty">
             <h2>Series</h2>
-            <p>Select a game for STRATZ stats when a Steam match id is known.</p>
+            <p>Select a game for hero picks, bans, and player stats.</p>
           </div>
         ) : (
           <div className="empty" />

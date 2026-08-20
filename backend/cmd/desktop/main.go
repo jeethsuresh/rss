@@ -15,6 +15,7 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/crawl"
 	"github.com/jeeth/rss-reader/backend/internal/ipc"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
+	"github.com/jeeth/rss-reader/backend/internal/opendota"
 	"github.com/jeeth/rss-reader/backend/internal/openf1"
 	"github.com/jeeth/rss-reader/backend/internal/pandascore"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
@@ -72,6 +73,7 @@ func main() {
 		openf1.NewClient(),
 		pandascore.NewClientFromEnv(),
 		stratz.NewClientFromEnv(),
+		opendota.NewClient(),
 	)
 
 	svc := &application.Service{

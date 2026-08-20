@@ -529,6 +529,7 @@ export interface DotaGame {
   matchId: number;
   gameIndex: number;
   durationSeconds?: number;
+  startedAt?: string;
   winner?: DotaSide;
   radiantTeam?: DotaTeam;
   direTeam?: DotaTeam;

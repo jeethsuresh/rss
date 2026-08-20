@@ -458,6 +458,7 @@ func gamesFromPS(matchID int, games []psGame, teamA, teamB domain.DotaTeam) []do
 			ID:                strconv.Itoa(g.ID),
 			MatchID:           matchID,
 			GameIndex:         idx,
+			StartedAt:         g.BeginAt,
 			DurationSeconds:   g.Length,
 			MappingConfidence: "unknown",
 			DetailAvailable:   false,

@@ -198,11 +198,11 @@ func (s *Service) SportsDotaGameGet(ctx context.Context, matchID int, gameIndex 
 	}
 	if base == nil {
 		return &domain.DotaGame{
-			ID:              fmt.Sprintf("%d:%d", matchID, gameIndex),
-			MatchID:         matchID,
-			GameIndex:       gameIndex,
-			DetailAvailable: false,
-			DetailError:     "Game not found for this series",
+			ID:                fmt.Sprintf("%d:%d", matchID, gameIndex),
+			MatchID:           matchID,
+			GameIndex:         gameIndex,
+			DetailAvailable:   false,
+			DetailError:       "Game not found for this series",
 			MappingConfidence: "unknown",
 		}, nil
 	}
@@ -215,10 +215,93 @@ func (s *Service) SportsDotaGameGet(ctx context.Context, matchID int, gameIndex 
 		base.DetailAvailable = false
 		return base, nil
 	}
+
+	// PandaScore does not expose Steam match ids — infer via OpenDota pro matches, then load STRATZ.
+	steamID, conf := s.resolveSteamMatchID(ctx, detail, base)
+	if steamID > 0 {
+		base.StratzMatchID = &steamID
+		base.MappingConfidence = conf
+		if s.Sports.Stratz != nil && s.Sports.Stratz.Configured() {
+			enriched, err := s.fetchStratzGame(ctx, steamID, matchID, base.GameIndex)
+			if err == nil {
+				enriched.MappingConfidence = conf
+				return enriched, nil
+			}
+			base.DetailError = err.Error()
+			base.DetailAvailable = false
+			return base, nil
+		}
+		base.DetailAvailable = false
+		base.DetailError = "STRATZ token not configured — Steam match found but stats unavailable"
+		return base, nil
+	}
+
 	base.DetailAvailable = false
-	base.DetailError = "STRATZ match id unknown — detailed stats unavailable"
 	base.MappingConfidence = "unknown"
+	if base.DurationSeconds == nil || *base.DurationSeconds <= 0 {
+		base.DetailError = "Game not finished yet — detailed stats unavailable"
+	} else {
+		base.DetailError = "Could not map this game to a Steam match — detailed stats unavailable"
+	}
 	return base, nil
+}
+
+func dotaMapKey(psGameID string) string {
+	return fmt.Sprintf("dota.map.psgame.%s", psGameID)
+}
+
+func (s *Service) resolveSteamMatchID(ctx context.Context, detail *domain.DotaMatchDetail, game *domain.DotaGame) (int64, string) {
+	if s.Sports == nil || game == nil {
+		return 0, ""
+	}
+	// Cached mapping from a prior successful resolve.
+	if game.ID != "" {
+		var cached struct {
+			SteamID    int64  `json:"steamId"`
+			Confidence string `json:"confidence"`
+		}
+		if _, ok := s.Sports.readCache(ctx, dotaMapKey(game.ID), &cached); ok && cached.SteamID > 0 {
+			return cached.SteamID, cached.Confidence
+		}
+	}
+	if s.Sports.OpenDota == nil || detail == nil {
+		return 0, ""
+	}
+	var startUnix int64
+	if game.StartedAt != nil && *game.StartedAt != "" {
+		if t, err := time.Parse(time.RFC3339, *game.StartedAt); err == nil {
+			startUnix = t.Unix()
+		}
+	}
+	dur := 0
+	if game.DurationSeconds != nil {
+		dur = *game.DurationSeconds
+	}
+	if startUnix == 0 && dur == 0 {
+		return 0, ""
+	}
+	steamID, conf, ok := s.Sports.OpenDota.FindProMatch(
+		ctx,
+		startUnix,
+		dur,
+		detail.Match.TeamA.Name,
+		detail.Match.TeamA.ShortName,
+		detail.Match.TeamB.Name,
+		detail.Match.TeamB.ShortName,
+	)
+	if !ok || steamID <= 0 {
+		return 0, ""
+	}
+	if conf == "" {
+		conf = "inferred"
+	}
+	if game.ID != "" {
+		s.Sports.writeCache(ctx, dotaMapKey(game.ID), map[string]any{
+			"steamId":    steamID,
+			"confidence": conf,
+		})
+	}
+	return steamID, conf
 }
 
 func (s *Service) fetchStratzGame(ctx context.Context, steamID int64, matchID, gameIndex int) (*domain.DotaGame, error) {
