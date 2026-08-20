@@ -379,6 +379,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                         {p.half === "top" ? "Top" : "Bot"} {p.inning}
                       </span>
                       <span>{p.event}</span>
+                      {p.isScoringPlay ? <span className="sports-scoring-badge">Scoring</span> : null}
                       {p.awayScore != null && p.homeScore != null ? (
                         <span>
                           {p.awayScore}–{p.homeScore}

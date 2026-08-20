@@ -319,6 +319,7 @@ type liveFeed struct {
 					Description string `json:"description"`
 					AwayScore   int    `json:"awayScore"`
 					HomeScore   int    `json:"homeScore"`
+					RBI         int    `json:"rbi"`
 				} `json:"result"`
 				About struct {
 					AtBatIndex    int    `json:"atBatIndex"`
@@ -410,7 +411,7 @@ func normalizeLiveFeed(raw liveFeed) *domain.MlbGameDetail {
 			Half:          half,
 			Event:         p.Result.Event,
 			Description:   p.Result.Description,
-			IsScoringPlay: p.About.IsScoringPlay,
+			IsScoringPlay: p.About.IsScoringPlay || p.Result.RBI > 0,
 			AwayScore:     &away,
 			HomeScore:     &home,
 			AtBatIndex:    &idx,
