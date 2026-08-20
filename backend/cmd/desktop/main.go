@@ -62,7 +62,8 @@ func main() {
 	aiSvc := ai.New(articles, stories, settings, feeds, queue, aiLogs, log)
 
 	sportsRepo := sqlite.NewSportsRepo(db)
-	sportsSvc := application.NewSportsService(sportsRepo, mlb.NewClient(), openf1.NewClient())
+	sportsCache := sqlite.NewSportsCacheRepo(db)
+	sportsSvc := application.NewSportsService(sportsRepo, sportsCache, mlb.NewClient(), openf1.NewClient())
 
 	svc := &application.Service{
 		Feeds:    feeds,

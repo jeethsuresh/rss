@@ -983,6 +983,49 @@ button {
   color: var(--danger);
 }
 
+.sports-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.sports-spinner-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-top-color: var(--accent);
+  animation: sports-spin 0.7s linear infinite;
+}
+
+.sports-spinner-label {
+  letter-spacing: 0.02em;
+}
+
+.sports-refresh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.sports-league-toggle .sports-spinner {
+  margin-left: auto;
+}
+
+@keyframes sports-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 200px 1fr;

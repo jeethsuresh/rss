@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   F1Race,
   F1RaceDetail,
@@ -13,7 +13,10 @@ import type {
   MlbStandings,
   MlbTeam,
   ReaderBackend,
+  SportsCacheUpdatedEvent,
+  SportsRefreshEvent,
 } from "@rss-reader/shared";
+import { SportsSpinner } from "../components/SportsSpinner";
 import { SPORTS_REGISTRY, type SportId } from "../lib/sportsRegistry";
 
 type Props = {
@@ -155,11 +158,44 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [significantOnly, setSignificantOnly] = useState(true);
   const [f1Standings, setF1Standings] = useState<F1Standings | null>(null);
 
-  const [busy, setBusy] = useState(false);
+  const [refreshingKeys, setRefreshingKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const syncRefreshKeys = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [expandedSports, setExpandedSports] = useState<ReadonlySet<SportId>>(
     () => new Set<SportId>(["mlb"]),
   );
+
+  const setKeyRefreshing = useCallback((key: string, on: boolean) => {
+    setRefreshingKeys((prev) => {
+      const has = prev.has(key);
+      if (on === has) return prev;
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const beginFetch = useCallback(
+    (key: string) => {
+      syncRefreshKeys.current.add(key);
+      setKeyRefreshing(key, true);
+    },
+    [setKeyRefreshing],
+  );
+
+  const endFetchIfSync = useCallback(
+    (key: string) => {
+      queueMicrotask(() => {
+        if (!syncRefreshKeys.current.has(key)) return;
+        syncRefreshKeys.current.delete(key);
+        setKeyRefreshing(key, false);
+      });
+    },
+    [setKeyRefreshing],
+  );
+
+  const isRefreshing = (...keys: string[]) => keys.some((k) => refreshingKeys.has(k));
 
   const toggleSportExpanded = (id: SportId) => {
     setExpandedSports((prev) => {
@@ -195,43 +231,69 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const f1StandingsMode = f1Mode === "wdc" || f1Mode === "wcc";
 
   const reloadMlbMeta = useCallback(async () => {
-    const [t, f, s] = await Promise.all([
-      backend.sports.teams(),
-      backend.sports.followedGet(),
-      backend.sports.seasons(),
-    ]);
-    setTeams(t ?? []);
-    setFollowed(f ?? []);
-    setSeasons(s ?? []);
-    setSeason((prev) => prev ?? s?.[0]?.seasonId ?? new Date().getFullYear());
-  }, [backend]);
+    beginFetch("mlb.teams");
+    beginFetch("mlb.seasons");
+    try {
+      const [t, f, s] = await Promise.all([
+        backend.sports.teams(),
+        backend.sports.followedGet(),
+        backend.sports.seasons(),
+      ]);
+      setTeams(t ?? []);
+      setFollowed(f ?? []);
+      setSeasons(s ?? []);
+      setSeason((prev) => prev ?? s?.[0]?.seasonId ?? new Date().getFullYear());
+    } finally {
+      endFetchIfSync("mlb.teams");
+      endFetchIfSync("mlb.seasons");
+    }
+  }, [backend, beginFetch, endFetchIfSync]);
 
   const reloadF1Meta = useCallback(async () => {
-    const years = await backend.sports.f1Years();
-    setF1Years(years ?? []);
-    setF1Year((prev) => prev ?? years?.[0]?.year ?? new Date().getFullYear());
-  }, [backend]);
+    beginFetch("f1.years");
+    try {
+      const years = await backend.sports.f1Years();
+      setF1Years(years ?? []);
+      setF1Year((prev) => prev ?? years?.[0]?.year ?? new Date().getFullYear());
+    } finally {
+      endFetchIfSync("f1.years");
+    }
+  }, [backend, beginFetch, endFetchIfSync]);
 
   const scheduleTeamId = selection.type === "team" ? selection.id : undefined;
 
+  const mlbScheduleKey =
+    season == null ? "" : `mlb.schedule.${season}.${scheduleTeamId ?? 0}`;
+  const mlbStandingsKey = season == null ? "" : `mlb.standings.${season}`;
+  const f1RacesKey = f1Year == null ? "" : `f1.races.${f1Year}`;
+  const f1StandingsKey = f1Year == null ? "" : `f1.standings.${f1Year}`;
+
   const reloadMlbSchedule = useCallback(async () => {
-    if (season == null || activeSport !== "mlb" || mlbStandingsMode) return;
-    setBusy(true);
+    if (season == null || activeSport !== "mlb" || mlbStandingsMode || !mlbScheduleKey) return;
+    beginFetch(mlbScheduleKey);
     setError(null);
     try {
       const list = await backend.sports.schedule({ teamId: scheduleTeamId, season });
       setGames(list ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load schedule");
-      setGames([]);
     } finally {
-      setBusy(false);
+      endFetchIfSync(mlbScheduleKey);
     }
-  }, [backend, season, scheduleTeamId, activeSport, mlbStandingsMode]);
+  }, [
+    backend,
+    season,
+    scheduleTeamId,
+    activeSport,
+    mlbStandingsMode,
+    mlbScheduleKey,
+    beginFetch,
+    endFetchIfSync,
+  ]);
 
   const reloadMlbStandings = useCallback(async () => {
-    if (season == null || activeSport !== "mlb" || !mlbStandingsMode) return;
-    setBusy(true);
+    if (season == null || activeSport !== "mlb" || !mlbStandingsMode || !mlbStandingsKey) return;
+    beginFetch(mlbStandingsKey);
     setError(null);
     try {
       const data = await backend.sports.standings({ season });
@@ -244,41 +306,38 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load standings");
-      setMlbStandings(null);
     } finally {
-      setBusy(false);
+      endFetchIfSync(mlbStandingsKey);
     }
-  }, [backend, season, activeSport, mlbStandingsMode]);
+  }, [backend, season, activeSport, mlbStandingsMode, mlbStandingsKey, beginFetch, endFetchIfSync]);
 
   const reloadF1Races = useCallback(async () => {
-    if (f1Year == null || activeSport !== "f1" || f1StandingsMode) return;
-    setBusy(true);
+    if (f1Year == null || activeSport !== "f1" || f1StandingsMode || !f1RacesKey) return;
+    beginFetch(f1RacesKey);
     setError(null);
     try {
       const list = await backend.sports.f1Races({ year: f1Year });
       setF1Races(list ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load races");
-      setF1Races([]);
     } finally {
-      setBusy(false);
+      endFetchIfSync(f1RacesKey);
     }
-  }, [backend, f1Year, activeSport, f1StandingsMode]);
+  }, [backend, f1Year, activeSport, f1StandingsMode, f1RacesKey, beginFetch, endFetchIfSync]);
 
   const reloadF1Standings = useCallback(async () => {
-    if (f1Year == null || activeSport !== "f1" || !f1StandingsMode) return;
-    setBusy(true);
+    if (f1Year == null || activeSport !== "f1" || !f1StandingsMode || !f1StandingsKey) return;
+    beginFetch(f1StandingsKey);
     setError(null);
     try {
       const data = await backend.sports.f1Standings({ year: f1Year });
       setF1Standings(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load championship");
-      setF1Standings(null);
     } finally {
-      setBusy(false);
+      endFetchIfSync(f1StandingsKey);
     }
-  }, [backend, f1Year, activeSport, f1StandingsMode]);
+  }, [backend, f1Year, activeSport, f1StandingsMode, f1StandingsKey, beginFetch, endFetchIfSync]);
 
   const visibleGames = useMemo(() => {
     if (selection.type === "standings") return [];
@@ -337,7 +396,9 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       if (activeSport !== "mlb" || mlbStandingsMode) setDetail(null);
       return;
     }
+    const key = `mlb.game.${activePk}`;
     let cancelled = false;
+    beginFetch(key);
     void backend.sports
       .gameWatch(activePk)
       .then((d) => {
@@ -345,19 +406,24 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load game");
+      })
+      .finally(() => {
+        if (!cancelled) endFetchIfSync(key);
       });
     return () => {
       cancelled = true;
       void backend.sports.gameUnwatch(activePk);
     };
-  }, [activePk, backend, activeSport, mlbStandingsMode]);
+  }, [activePk, backend, activeSport, mlbStandingsMode, beginFetch, endFetchIfSync]);
 
   useEffect(() => {
     if (activeSport !== "f1" || f1StandingsMode || !activeSessionKey) {
       if (activeSport !== "f1" || f1StandingsMode) setF1Detail(null);
       return;
     }
+    const key = `f1.race.${activeSessionKey}`;
     let cancelled = false;
+    beginFetch(key);
     void backend.sports
       .f1RaceWatch(activeSessionKey)
       .then((d) => {
@@ -365,12 +431,15 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load race");
+      })
+      .finally(() => {
+        if (!cancelled) endFetchIfSync(key);
       });
     return () => {
       cancelled = true;
       void backend.sports.f1RaceUnwatch(activeSessionKey);
     };
-  }, [activeSessionKey, backend, activeSport, f1StandingsMode]);
+  }, [activeSessionKey, backend, activeSport, f1StandingsMode, beginFetch, endFetchIfSync]);
 
   useEffect(() => {
     setScoringOnly(false);
@@ -382,6 +451,66 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   useEffect(() => {
     return backend.onEvent((ev) => {
+      if (ev.event === "sports.refresh") {
+        const payload = ev.payload as SportsRefreshEvent;
+        if (!payload?.key) return;
+        if (payload.phase === "started") {
+          syncRefreshKeys.current.delete(payload.key);
+          setKeyRefreshing(payload.key, true);
+        } else {
+          syncRefreshKeys.current.delete(payload.key);
+          setKeyRefreshing(payload.key, false);
+        }
+        return;
+      }
+      if (ev.event === "sports.cache.updated") {
+        const payload = ev.payload as SportsCacheUpdatedEvent;
+        switch (payload.resource) {
+          case "mlb.schedule":
+            if (
+              payload.season === season &&
+              (payload.teamId ?? 0) === (scheduleTeamId ?? 0) &&
+              Array.isArray(payload.games)
+            ) {
+              setGames(payload.games);
+            } else if (Array.isArray(payload.data)) {
+              // fallback raw data field
+            }
+            break;
+          case "mlb.standings":
+            if (payload.season === season && payload.standings && "sections" in payload.standings) {
+              setMlbStandings(payload.standings as MlbStandings);
+            }
+            break;
+          case "f1.races":
+            if (payload.year === f1Year && Array.isArray(payload.races)) {
+              setF1Races(payload.races);
+            }
+            break;
+          case "f1.standings":
+            if (payload.year === f1Year && payload.standings && "drivers" in payload.standings) {
+              setF1Standings(payload.standings as F1Standings);
+            }
+            break;
+          case "mlb.game": {
+            const d = (payload.detail ?? payload.data) as MlbGameDetail | undefined;
+            if (d?.game?.id === activePk) setDetail(d);
+            break;
+          }
+          case "f1.race": {
+            const d = (payload.detail ?? payload.data) as F1RaceDetail | undefined;
+            if (d?.race?.sessionKey === activeSessionKey) setF1Detail(d);
+            break;
+          }
+          case "mlb.teams":
+          case "mlb.seasons":
+          case "f1.years":
+            break;
+          default:
+            break;
+        }
+        return;
+      }
       if (ev.event === "sports.game.updated") {
         const payload = ev.payload as MlbGameDetail;
         if (payload?.game?.id === activePk) {
@@ -404,8 +533,28 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
         }
       }
     });
-  }, [backend, activePk, activeSessionKey]);
+  }, [
+    backend,
+    activePk,
+    activeSessionKey,
+    season,
+    scheduleTeamId,
+    f1Year,
+    setKeyRefreshing,
+  ]);
 
+  const mlbSidebarRefreshing = isRefreshing("mlb.teams", "mlb.seasons", mlbScheduleKey, mlbStandingsKey);
+  const f1SidebarRefreshing = isRefreshing("f1.years", f1RacesKey, f1StandingsKey);
+  const mlbListRefreshing = mlbStandingsMode
+    ? isRefreshing(mlbStandingsKey)
+    : isRefreshing(mlbScheduleKey);
+  const f1ListRefreshing = f1StandingsMode
+    ? isRefreshing(f1StandingsKey)
+    : isRefreshing(f1RacesKey);
+  const mlbDetailRefreshing =
+    !mlbStandingsMode && activePk != null && isRefreshing(`mlb.game.${activePk}`);
+  const f1DetailRefreshing =
+    !f1StandingsMode && activeSessionKey != null && isRefreshing(`f1.race.${activeSessionKey}`);
   const visiblePlays = useMemo(() => {
     if (!detail) return [];
     return scoringOnly ? detail.plays.filter((p) => p.isScoringPlay) : detail.plays;
@@ -448,6 +597,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                 <span>{open ? "▾" : "▸"}</span>
                 <span>{sport.label}</span>
                 {!sport.available ? <span className="sports-soon">Soon</span> : null}
+                {sport.available &&
+                ((sport.id === "mlb" && mlbSidebarRefreshing) ||
+                  (sport.id === "f1" && f1SidebarRefreshing)) ? (
+                  <SportsSpinner label="Updating" />
+                ) : null}
               </button>
 
               {open && !sport.available && (
@@ -622,7 +776,12 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <>
             <section className="pane article-list">
               {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
-              {busy && !mlbStandings ? (
+              {mlbListRefreshing ? (
+                <div className="sports-refresh-banner">
+                  <SportsSpinner label="Refreshing standings" />
+                </div>
+              ) : null}
+              {mlbListRefreshing && !mlbStandings ? (
                 <div className="empty">
                   <p>Loading standings…</p>
                 </div>
@@ -720,7 +879,12 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
         <>
           <section className="pane article-list">
             {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
-            {busy && visibleGames.length === 0 ? (
+            {mlbListRefreshing ? (
+              <div className="sports-refresh-banner">
+                <SportsSpinner label="Refreshing schedule" />
+              </div>
+            ) : null}
+            {mlbListRefreshing && visibleGames.length === 0 ? (
               <div className="empty">
                 <p>Loading schedule…</p>
               </div>
@@ -766,6 +930,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           </section>
 
           <section className="pane reader-pane">
+            {mlbDetailRefreshing ? (
+              <div className="sports-refresh-banner">
+                <SportsSpinner label="Refreshing game" />
+              </div>
+            ) : null}
             {!detail ? (
               <div className="empty">
                 <h2>Sports</h2>
@@ -886,7 +1055,12 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <>
             <section className="pane article-list">
               {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
-              {busy && !f1Standings ? (
+              {f1ListRefreshing ? (
+                <div className="sports-refresh-banner">
+                  <SportsSpinner label="Refreshing championship" />
+                </div>
+              ) : null}
+              {f1ListRefreshing && !f1Standings ? (
                 <div className="empty">
                   <p>Loading championship…</p>
                 </div>
@@ -984,7 +1158,12 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
         <>
           <section className="pane article-list">
             {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
-            {busy && visibleRaces.length === 0 ? (
+            {f1ListRefreshing ? (
+              <div className="sports-refresh-banner">
+                <SportsSpinner label="Refreshing races" />
+              </div>
+            ) : null}
+            {f1ListRefreshing && visibleRaces.length === 0 ? (
               <div className="empty">
                 <p>Loading races…</p>
               </div>
@@ -1019,6 +1198,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           </section>
 
           <section className="pane reader-pane">
+            {f1DetailRefreshing ? (
+              <div className="sports-refresh-banner">
+                <SportsSpinner label="Refreshing race" />
+              </div>
+            ) : null}
             {!f1Detail ? (
               <div className="empty">
                 <h2>F1</h2>

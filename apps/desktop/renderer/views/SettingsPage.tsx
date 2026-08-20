@@ -89,6 +89,10 @@ export function SettingsPage({
           break;
         case "sports.f1.race.updated":
           break;
+        case "sports.refresh":
+          break;
+        case "sports.cache.updated":
+          break;
         default: {
           const _exhaustive: never = name;
           void _exhaustive;

@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // MLB / Sports normalized models (never expose raw Stats API JSON to the UI).
 
@@ -80,4 +83,10 @@ type MlbGameDetail struct {
 type SportsRepository interface {
 	GetFollowedTeamIDs(ctx context.Context) ([]int, error)
 	SetFollowedTeamIDs(ctx context.Context, ids []int) error
+}
+
+type SportsCacheRepository interface {
+	Get(ctx context.Context, key string) (payload []byte, fetchedAt time.Time, ok bool, err error)
+	Set(ctx context.Context, key string, payload []byte) error
+	Delete(ctx context.Context, key string) error
 }

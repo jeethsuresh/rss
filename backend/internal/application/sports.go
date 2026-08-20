@@ -12,23 +12,34 @@ import (
 )
 
 type SportsService struct {
-	Repo      domain.SportsRepository
-	Client    *mlb.Client
-	F1Client  *openf1.Client
-	Emit      EventEmitter
+	Repo     domain.SportsRepository
+	Cache    domain.SportsCacheRepository
+	Client   *mlb.Client
+	F1Client *openf1.Client
+	Emit     EventEmitter
 
 	mu         sync.Mutex
 	watching   map[int]context.CancelFunc
 	f1Watching map[int]context.CancelFunc
+
+	refreshMu  sync.Mutex
+	refreshing map[string]bool
 }
 
-func NewSportsService(repo domain.SportsRepository, mlbClient *mlb.Client, f1Client *openf1.Client) *SportsService {
+func NewSportsService(
+	repo domain.SportsRepository,
+	cache domain.SportsCacheRepository,
+	mlbClient *mlb.Client,
+	f1Client *openf1.Client,
+) *SportsService {
 	return &SportsService{
 		Repo:       repo,
+		Cache:      cache,
 		Client:     mlbClient,
 		F1Client:   f1Client,
 		watching:   map[int]context.CancelFunc{},
 		f1Watching: map[int]context.CancelFunc{},
+		refreshing: map[string]bool{},
 	}
 }
 
@@ -36,14 +47,20 @@ func (s *Service) SportsTeams(ctx context.Context) ([]domain.MlbTeam, error) {
 	if s.Sports == nil {
 		return []domain.MlbTeam{}, nil
 	}
-	return s.Sports.Client.ListTeams(ctx)
+	out, _, err := getOrFetch(s.Sports, ctx, "mlb.teams", ttlMeta, "mlb.teams", nil, func(c context.Context) ([]domain.MlbTeam, error) {
+		return s.Sports.Client.ListTeams(c)
+	})
+	return out, err
 }
 
 func (s *Service) SportsSeasons(ctx context.Context) ([]domain.MlbSeason, error) {
 	if s.Sports == nil {
 		return []domain.MlbSeason{}, nil
 	}
-	return s.Sports.Client.ListSeasons(ctx)
+	out, _, err := getOrFetch(s.Sports, ctx, "mlb.seasons", ttlMeta, "mlb.seasons", nil, func(c context.Context) ([]domain.MlbSeason, error) {
+		return s.Sports.Client.ListSeasons(c)
+	})
+	return out, err
 }
 
 func (s *Service) SportsFollowedGet(ctx context.Context) ([]int, error) {
@@ -95,13 +112,26 @@ func (s *Service) SportsSchedule(ctx context.Context, teamID, season int) ([]dom
 		return []domain.MlbGame{}, nil
 	}
 	if season <= 0 {
-		seasons, err := s.Sports.Client.ListSeasons(ctx)
+		seasons, err := s.SportsSeasons(ctx)
 		if err != nil || len(seasons) == 0 {
 			season = time.Now().Year()
 		} else {
 			season = seasons[0].SeasonID
 		}
 	}
+	key := mlbScheduleKey(season, teamID)
+	out, _, err := getOrFetch(s.Sports, ctx, key, ttlSchedule, "mlb.schedule",
+		func(games []domain.MlbGame) map[string]any {
+			return map[string]any{"season": season, "teamId": teamID, "games": games}
+		},
+		func(c context.Context) ([]domain.MlbGame, error) {
+			return s.fetchMlbSchedule(c, teamID, season)
+		},
+	)
+	return out, err
+}
+
+func (s *Service) fetchMlbSchedule(ctx context.Context, teamID, season int) ([]domain.MlbGame, error) {
 	var teamIDs []int
 	if teamID > 0 {
 		teamIDs = []int{teamID}
@@ -136,7 +166,39 @@ func (s *Service) SportsGameGet(ctx context.Context, gamePk int) (*domain.MlbGam
 	if s.Sports == nil || gamePk <= 0 {
 		return nil, domain.ErrInvalidParams
 	}
-	return s.Sports.Client.GameDetail(ctx, gamePk)
+	key := mlbGameKey(gamePk)
+	var cached domain.MlbGameDetail
+	if at, ok := s.Sports.readCache(ctx, key, &cached); ok {
+		finalish := cached.Game.Status == domain.MlbFinal ||
+			cached.Game.Status == domain.MlbCancelled ||
+			cached.Game.Status == domain.MlbPostponed
+		if finalish {
+			return &cached, nil
+		}
+		// Live / upcoming: serve cache briefly then refresh in background.
+		if time.Since(at) < 20*time.Second {
+			return &cached, nil
+		}
+		s.Sports.queueRefresh(key, func(rctx context.Context) error {
+			detail, err := s.Sports.Client.GameDetail(rctx, gamePk)
+			if err != nil {
+				return err
+			}
+			s.Sports.writeCache(rctx, key, detail)
+			s.Sports.emitCacheUpdated("mlb.game", key, map[string]any{"gamePk": gamePk, "detail": detail})
+			if s.Sports.Emit != nil {
+				s.Sports.Emit("sports.game.updated", detail)
+			}
+			return nil
+		})
+		return &cached, nil
+	}
+	detail, err := s.Sports.Client.GameDetail(ctx, gamePk)
+	if err != nil {
+		return nil, err
+	}
+	s.Sports.writeCache(ctx, key, detail)
+	return detail, nil
 }
 
 func (s *Service) SportsGameWatch(ctx context.Context, gamePk int) (*domain.MlbGameDetail, error) {
@@ -164,14 +226,30 @@ func (s *Service) SportsStandings(ctx context.Context, season int) (*domain.MlbS
 		return nil, domain.ErrInvalidParams
 	}
 	if season <= 0 {
-		seasons, err := s.Sports.Client.ListSeasons(ctx)
+		seasons, err := s.SportsSeasons(ctx)
 		if err != nil || len(seasons) == 0 {
 			season = time.Now().Year()
 		} else {
 			season = seasons[0].SeasonID
 		}
 	}
-	return s.Sports.Client.Standings(ctx, season)
+	key := mlbStandingsKey(season)
+	out, _, err := getOrFetch(s.Sports, ctx, key, ttlStandings, "mlb.standings",
+		func(st domain.MlbStandings) map[string]any {
+			return map[string]any{"season": season, "standings": st}
+		},
+		func(c context.Context) (domain.MlbStandings, error) {
+			st, err := s.Sports.Client.Standings(c, season)
+			if err != nil {
+				return domain.MlbStandings{}, err
+			}
+			return *st, nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (ss *SportsService) startWatch(gamePk int) {
@@ -212,6 +290,7 @@ func (ss *SportsService) pollLoop(ctx context.Context, gamePk int) {
 			if err != nil {
 				continue
 			}
+			ss.writeCache(ctx, mlbGameKey(gamePk), detail)
 			if ss.Emit != nil {
 				ss.Emit("sports.game.updated", detail)
 			}
@@ -228,21 +307,76 @@ func (s *Service) SportsF1Years(ctx context.Context) ([]domain.F1Season, error) 
 	if s.Sports == nil || s.Sports.F1Client == nil {
 		return []domain.F1Season{}, nil
 	}
-	return s.Sports.F1Client.ListYears(ctx)
+	out, _, err := getOrFetch(s.Sports, ctx, "f1.years", ttlMeta, "f1.years", nil, func(c context.Context) ([]domain.F1Season, error) {
+		return s.Sports.F1Client.ListYears(c)
+	})
+	return out, err
 }
 
 func (s *Service) SportsF1Races(ctx context.Context, year int) ([]domain.F1Race, error) {
 	if s.Sports == nil || s.Sports.F1Client == nil {
 		return []domain.F1Race{}, nil
 	}
-	return s.Sports.F1Client.ListRaces(ctx, year)
+	if year <= 0 {
+		year = time.Now().UTC().Year()
+	}
+	key := f1RacesKey(year)
+	out, _, err := getOrFetch(s.Sports, ctx, key, ttlRaceList, "f1.races",
+		func(races []domain.F1Race) map[string]any {
+			return map[string]any{"year": year, "races": races}
+		},
+		func(c context.Context) ([]domain.F1Race, error) {
+			return s.Sports.F1Client.ListRaces(c, year)
+		},
+	)
+	return out, err
 }
 
 func (s *Service) SportsF1RaceGet(ctx context.Context, sessionKey int) (*domain.F1RaceDetail, error) {
 	if s.Sports == nil || s.Sports.F1Client == nil || sessionKey <= 0 {
 		return nil, domain.ErrInvalidParams
 	}
-	return s.Sports.F1Client.RaceDetail(ctx, sessionKey)
+	key := f1RaceKey(sessionKey)
+	var cached domain.F1RaceDetail
+	if at, ok := s.Sports.readCache(ctx, key, &cached); ok {
+		done := cached.Race.Status == domain.F1Completed || cached.Race.Status == domain.F1Cancelled
+		if done || time.Since(at) < 20*time.Second {
+			if !done {
+				s.Sports.queueRefresh(key, func(rctx context.Context) error {
+					detail, err := s.Sports.F1Client.RaceDetail(rctx, sessionKey)
+					if err != nil {
+						return err
+					}
+					s.Sports.writeCache(rctx, key, detail)
+					s.Sports.emitCacheUpdated("f1.race", key, map[string]any{"sessionKey": sessionKey, "detail": detail})
+					if s.Sports.Emit != nil {
+						s.Sports.Emit("sports.f1.race.updated", detail)
+					}
+					return nil
+				})
+			}
+			return &cached, nil
+		}
+		s.Sports.queueRefresh(key, func(rctx context.Context) error {
+			detail, err := s.Sports.F1Client.RaceDetail(rctx, sessionKey)
+			if err != nil {
+				return err
+			}
+			s.Sports.writeCache(rctx, key, detail)
+			s.Sports.emitCacheUpdated("f1.race", key, map[string]any{"sessionKey": sessionKey, "detail": detail})
+			if s.Sports.Emit != nil {
+				s.Sports.Emit("sports.f1.race.updated", detail)
+			}
+			return nil
+		})
+		return &cached, nil
+	}
+	detail, err := s.Sports.F1Client.RaceDetail(ctx, sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	s.Sports.writeCache(ctx, key, detail)
+	return detail, nil
 }
 
 func (s *Service) SportsF1RaceWatch(ctx context.Context, sessionKey int) (*domain.F1RaceDetail, error) {
@@ -269,7 +403,26 @@ func (s *Service) SportsF1Standings(ctx context.Context, year int) (*domain.F1St
 	if s.Sports == nil || s.Sports.F1Client == nil {
 		return nil, domain.ErrInvalidParams
 	}
-	return s.Sports.F1Client.Standings(ctx, year)
+	if year <= 0 {
+		year = time.Now().UTC().Year()
+	}
+	key := f1StandingsKey(year)
+	out, _, err := getOrFetch(s.Sports, ctx, key, ttlStandings, "f1.standings",
+		func(st domain.F1Standings) map[string]any {
+			return map[string]any{"year": year, "standings": st}
+		},
+		func(c context.Context) (domain.F1Standings, error) {
+			st, err := s.Sports.F1Client.Standings(c, year)
+			if err != nil {
+				return domain.F1Standings{}, err
+			}
+			return *st, nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (ss *SportsService) startF1Watch(sessionKey int) {
@@ -313,6 +466,7 @@ func (ss *SportsService) f1PollLoop(ctx context.Context, sessionKey int) {
 			if err != nil {
 				continue
 			}
+			ss.writeCache(ctx, f1RaceKey(sessionKey), detail)
 			if ss.Emit != nil {
 				ss.Emit("sports.f1.race.updated", detail)
 			}

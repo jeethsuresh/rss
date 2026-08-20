@@ -165,7 +165,32 @@ export type BackendEventName =
   | "ai.log"
   | "sync.status"
   | "sports.game.updated"
-  | "sports.f1.race.updated";
+  | "sports.f1.race.updated"
+  | "sports.refresh"
+  | "sports.cache.updated";
+
+export type SportsRefreshPhase = "started" | "finished" | "error";
+
+export interface SportsRefreshEvent {
+  key: string;
+  phase: SportsRefreshPhase;
+  error?: string;
+}
+
+export interface SportsCacheUpdatedEvent {
+  resource: string;
+  key: string;
+  season?: number;
+  year?: number;
+  teamId?: number;
+  gamePk?: number;
+  sessionKey?: number;
+  games?: MlbGame[];
+  races?: F1Race[];
+  standings?: MlbStandings | F1Standings;
+  detail?: MlbGameDetail | F1RaceDetail;
+  data?: unknown;
+}
 
 export type MlbGameStatus =
   | "scheduled"
