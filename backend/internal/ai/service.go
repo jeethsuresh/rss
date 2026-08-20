@@ -73,12 +73,24 @@ func (s *Service) Status(ctx context.Context) domain.AIStatus {
 	s.mu.Lock()
 	isRunning := s.running
 	s.mu.Unlock()
+	lastErr := ""
+	if failed > 0 {
+		if items, err := s.Queue.ListRecent(ctx, 40); err == nil {
+			for _, it := range items {
+				if it.Status == "failed" && strings.TrimSpace(it.LastError) != "" {
+					lastErr = it.LastError
+					break
+				}
+			}
+		}
+	}
 	return domain.AIStatus{
 		Running:   isRunning || pending > 0 || running > 0,
 		Processed: done,
 		Total:     pending + running + done + failed,
 		Pending:   pending,
 		Failed:    failed,
+		LastError: lastErr,
 	}
 }
 
@@ -90,6 +102,7 @@ func (s *Service) emitStatus(ctx context.Context) {
 
 func (s *Service) Resume(ctx context.Context) {
 	_ = s.Queue.ResetRunning(ctx)
+	s.SyncFailedQueueLogs(ctx)
 	s.appendLog(ctx, "info", "", "AI queue resumed", "")
 	s.Kick(ctx)
 }
@@ -167,7 +180,43 @@ func (s *Service) RetryFailed(ctx context.Context) (int, error) {
 }
 
 func (s *Service) ListLogs(ctx context.Context, limit int) ([]domain.AILogEntry, error) {
-	return s.Logs.List(ctx, limit)
+	s.SyncFailedQueueLogs(ctx)
+	logs, err := s.Logs.List(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	// Oldest → newest so the Settings panel can append live events at the bottom.
+	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+		logs[i], logs[j] = logs[j], logs[i]
+	}
+	return logs, nil
+}
+
+// SyncFailedQueueLogs ensures current queue failures appear in the AI log panel
+// (covers failures that predate logging or lost log rows).
+func (s *Service) SyncFailedQueueLogs(ctx context.Context) {
+	items, err := s.Queue.ListRecent(ctx, 100)
+	if err != nil {
+		return
+	}
+	existing, _ := s.Logs.List(ctx, 200)
+	seen := map[string]bool{}
+	for _, e := range existing {
+		if e.Level == "error" && e.ArticleID != "" {
+			seen[e.ArticleID+"|"+e.Detail] = true
+			seen[e.ArticleID] = true
+		}
+	}
+	for _, it := range items {
+		if it.Status != "failed" || strings.TrimSpace(it.LastError) == "" {
+			continue
+		}
+		if seen[it.ArticleID+"|"+it.LastError] || seen[it.ArticleID] {
+			continue
+		}
+		s.appendLog(ctx, "error", it.ArticleID, "failed: "+it.LastError, it.LastError)
+		seen[it.ArticleID] = true
+	}
 }
 
 func (s *Service) Test(ctx context.Context) (*domain.AITestResult, error) {
@@ -178,16 +227,20 @@ func (s *Service) Test(ctx context.Context) (*domain.AITestResult, error) {
 	base := strings.TrimRight(settings.AIBaseURL, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
 	if err != nil {
+		s.appendLog(ctx, "error", "", "connection test failed", err.Error())
 		return &domain.AITestResult{OK: false, Message: err.Error()}, nil
 	}
 	res, err := s.client.Do(req)
 	if err != nil {
+		s.appendLog(ctx, "error", "", "connection test failed", err.Error())
 		return &domain.AITestResult{OK: false, Message: err.Error()}, nil
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if res.StatusCode >= 300 {
-		return &domain.AITestResult{OK: false, Message: fmt.Sprintf("status %d: %s", res.StatusCode, string(body))}, nil
+		msg := fmt.Sprintf("status %d: %s", res.StatusCode, string(body))
+		s.appendLog(ctx, "error", "", "connection test failed", msg)
+		return &domain.AITestResult{OK: false, Message: msg}, nil
 	}
 	var parsed struct {
 		Data []struct {
@@ -199,6 +252,7 @@ func (s *Service) Test(ctx context.Context) (*domain.AITestResult, error) {
 	for _, m := range parsed.Data {
 		models = append(models, m.ID)
 	}
+	s.appendLog(ctx, "info", "", "connection test ok", strings.Join(models, ", "))
 	return &domain.AITestResult{OK: true, Message: "connected", Models: models}, nil
 }
 
@@ -227,7 +281,7 @@ func (s *Service) worker() {
 		cancel()
 		if err != nil {
 			_ = s.Queue.MarkFailed(ctx, id, err.Error())
-			s.appendLog(ctx, "error", id, "failed", err.Error())
+			s.appendLog(ctx, "error", id, "failed: "+err.Error(), err.Error())
 		} else {
 			_ = s.Queue.MarkDone(ctx, id)
 			s.appendLog(ctx, "info", id, "done", "")

@@ -475,10 +475,22 @@ export function SettingsPage({
                   <div className="muted">No AI log entries yet.</div>
                 ) : (
                   aiLogs.map((entry) => (
-                    <div key={entry.id} className="ai-log-line">
+                    <div
+                      key={entry.id}
+                      className={`ai-log-line ${entry.level === "error" ? "ai-log-line-error" : ""}`}
+                    >
                       <span className="ai-log-ts">{new Date(entry.ts).toLocaleTimeString()}</span>
                       <span className={`ai-log-level ai-log-level-${entry.level}`}>{entry.level}</span>
-                      <span className="ai-log-message">{entry.message}</span>
+                      <span className="ai-log-message">
+                        {entry.message}
+                        {entry.detail &&
+                        !entry.message.includes(entry.detail) ? (
+                          <span className="ai-log-detail"> — {entry.detail}</span>
+                        ) : null}
+                        {entry.articleId ? (
+                          <span className="ai-log-article"> · {entry.articleId.slice(0, 8)}</span>
+                        ) : null}
+                      </span>
                     </div>
                   ))
                 )}
