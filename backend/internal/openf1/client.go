@@ -197,37 +197,76 @@ func (c *Client) ListRaces(ctx context.Context, year int) ([]domain.F1Race, erro
 
 	sq := url.Values{}
 	sq.Set("year", strconv.Itoa(year))
-	sq.Set("session_name", "Race")
 	var sessions []session
 	if err := c.getJSON(ctx, "/sessions", sq, &sessions); err != nil {
 		return nil, err
 	}
 
 	now := time.Now().UTC()
-	out := make([]domain.F1Race, 0, len(sessions))
+	byMeeting := map[int][]session{}
 	for _, s := range sessions {
-		m := byKey[s.MeetingKey]
+		byMeeting[s.MeetingKey] = append(byMeeting[s.MeetingKey], s)
+	}
+
+	out := make([]domain.F1Race, 0, len(byMeeting))
+	for meetingKey, sess := range byMeeting {
+		m := byKey[meetingKey]
 		name := m.MeetingName
-		if name == "" {
-			name = s.Location + " Grand Prix"
+		if name == "" && len(sess) > 0 {
+			name = sess[0].Location + " Grand Prix"
 		}
 		if strings.Contains(strings.ToLower(name), "pre-season") ||
 			strings.Contains(strings.ToLower(name), "testing") {
 			continue
 		}
+		sort.Slice(sess, func(i, j int) bool {
+			return sess[i].DateStart < sess[j].DateStart
+		})
+		sessionRefs := make([]domain.F1Session, 0, len(sess))
+		var primary *session
+		for i := range sess {
+			s := sess[i]
+			ref := toF1Session(s, m.IsCancelled, now)
+			if ref.Kind == domain.F1KindOther {
+				continue
+			}
+			sessionRefs = append(sessionRefs, ref)
+			if s.SessionName == "Race" {
+				cp := s
+				primary = &cp
+			}
+		}
+		if len(sessionRefs) == 0 {
+			continue
+		}
+		if primary == nil {
+			// Prefer race-kind session, else last session of weekend.
+			for i := range sess {
+				if sessionKind(sess[i].SessionName) == domain.F1KindRace {
+					cp := sess[i]
+					primary = &cp
+					break
+				}
+			}
+		}
+		if primary == nil {
+			cp := sess[len(sess)-1]
+			primary = &cp
+		}
 		race := domain.F1Race{
-			MeetingKey:       s.MeetingKey,
-			SessionKey:       s.SessionKey,
-			Year:             s.Year,
+			MeetingKey:       meetingKey,
+			SessionKey:       primary.SessionKey,
+			Year:             firstNonZero(primary.Year, m.Year, year),
 			Name:             name,
 			OfficialName:     m.MeetingOfficialName,
-			Location:         firstNonEmpty(s.Location, m.Location),
-			CountryName:      firstNonEmpty(s.CountryName, m.CountryName),
-			CountryCode:      firstNonEmpty(s.CountryCode, m.CountryCode),
-			CircuitShortName: firstNonEmpty(s.CircuitShortName, m.CircuitShortName),
-			DateStart:        s.DateStart,
-			DateEnd:          s.DateEnd,
-			Status:           raceStatus(s.DateStart, s.DateEnd, s.IsCancelled || m.IsCancelled, now),
+			Location:         firstNonEmpty(primary.Location, m.Location),
+			CountryName:      firstNonEmpty(primary.CountryName, m.CountryName),
+			CountryCode:      firstNonEmpty(primary.CountryCode, m.CountryCode),
+			CircuitShortName: firstNonEmpty(primary.CircuitShortName, m.CircuitShortName),
+			DateStart:        primary.DateStart,
+			DateEnd:          primary.DateEnd,
+			Status:           raceStatus(primary.DateStart, primary.DateEnd, primary.IsCancelled || m.IsCancelled, now),
+			Sessions:         sessionRefs,
 		}
 		out = append(out, race)
 	}
@@ -235,6 +274,44 @@ func (c *Client) ListRaces(ctx context.Context, year int) ([]domain.F1Race, erro
 		return out[i].DateStart > out[j].DateStart
 	})
 	return out, nil
+}
+
+func sessionKind(sessionName string) domain.F1SessionKind {
+	switch strings.TrimSpace(sessionName) {
+	case "Practice 1", "Practice 2", "Practice 3", "Practice":
+		return domain.F1KindPractice
+	case "Sprint Qualifying", "Sprint Shootout":
+		return domain.F1KindSprintQuali
+	case "Qualifying":
+		return domain.F1KindQuali
+	case "Sprint":
+		return domain.F1KindSprint
+	case "Race":
+		return domain.F1KindRace
+	default:
+		return domain.F1KindOther
+	}
+}
+
+func toF1Session(s session, meetingCancelled bool, now time.Time) domain.F1Session {
+	return domain.F1Session{
+		SessionKey:  s.SessionKey,
+		SessionName: s.SessionName,
+		SessionType: s.SessionType,
+		Kind:        sessionKind(s.SessionName),
+		DateStart:   s.DateStart,
+		DateEnd:     s.DateEnd,
+		Status:      raceStatus(s.DateStart, s.DateEnd, s.IsCancelled || meetingCancelled, now),
+	}
+}
+
+func firstNonZero(vals ...int) int {
+	for _, v := range vals {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func raceStatus(start, end string, cancelled bool, now time.Time) domain.F1RaceStatus {
@@ -388,6 +465,25 @@ func (c *Client) RaceDetail(ctx context.Context, sessionKey int) (*domain.F1Race
 		name = s.Location + " Grand Prix"
 	}
 	now := time.Now().UTC()
+	current := toF1Session(s, m.IsCancelled, now)
+
+	// Weekend sessions for session-type pills.
+	var weekend []session
+	wq := url.Values{}
+	wq.Set("meeting_key", strconv.Itoa(s.MeetingKey))
+	_ = c.getJSON(ctx, "/sessions", wq, &weekend)
+	sort.Slice(weekend, func(i, j int) bool {
+		return weekend[i].DateStart < weekend[j].DateStart
+	})
+	weekendRefs := make([]domain.F1Session, 0, len(weekend))
+	for _, ws := range weekend {
+		ref := toF1Session(ws, m.IsCancelled, now)
+		if ref.Kind == domain.F1KindOther {
+			continue
+		}
+		weekendRefs = append(weekendRefs, ref)
+	}
+
 	race := domain.F1Race{
 		MeetingKey:       s.MeetingKey,
 		SessionKey:       s.SessionKey,
@@ -400,10 +496,17 @@ func (c *Client) RaceDetail(ctx context.Context, sessionKey int) (*domain.F1Race
 		CircuitShortName: firstNonEmpty(s.CircuitShortName, m.CircuitShortName),
 		DateStart:        s.DateStart,
 		DateEnd:          s.DateEnd,
-		Status:           raceStatus(s.DateStart, s.DateEnd, s.IsCancelled || m.IsCancelled, now),
+		Status:           current.Status,
+		Sessions:         weekendRefs,
 	}
 
-	return &domain.F1RaceDetail{Race: race, Results: results, Events: events}, nil
+	return &domain.F1RaceDetail{
+		Race:     race,
+		Session:  current,
+		Results:  results,
+		Events:   events,
+		Sessions: weekendRefs,
+	}, nil
 }
 
 func (c *Client) Standings(ctx context.Context, year int) (*domain.F1Standings, error) {

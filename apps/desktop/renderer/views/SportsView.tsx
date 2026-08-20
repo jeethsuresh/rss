@@ -4,6 +4,8 @@ import type {
   F1RaceDetail,
   F1RaceStatus,
   F1Season,
+  F1Session,
+  F1SessionKind,
   F1Standings,
   MlbGame,
   MlbGameDetail,
@@ -34,6 +36,32 @@ type MlbSelection =
 
 type F1Mode = "races" | "wdc" | "wcc";
 type MlbDetailTab = "plays" | "stats";
+type F1DetailTab = "classification" | "events";
+
+const F1_KIND_PILLS: { id: F1SessionKind; label: string }[] = [
+  { id: "practice", label: "Practice" },
+  { id: "sprint_quali", label: "Sprint Quali" },
+  { id: "quali", label: "Quali" },
+  { id: "race", label: "Race" },
+];
+
+function sessionMatchesKind(session: F1Session, kind: F1SessionKind): boolean {
+  if (kind === "race") return session.kind === "race" || session.kind === "sprint";
+  return session.kind === kind;
+}
+
+function sessionsForKind(sessions: F1Session[], kind: F1SessionKind): F1Session[] {
+  return sessions.filter((s) => sessionMatchesKind(s, kind));
+}
+
+function defaultKind(sessions: F1Session[]): F1SessionKind {
+  if (sessions.some((s) => s.kind === "race")) return "race";
+  if (sessions.some((s) => s.kind === "sprint")) return "race";
+  if (sessions.some((s) => s.kind === "quali")) return "quali";
+  if (sessions.some((s) => s.kind === "sprint_quali")) return "sprint_quali";
+  if (sessions.some((s) => s.kind === "practice")) return "practice";
+  return "race";
+}
 
 const BUCKETS: { id: GameBucket; label: string }[] = [
   { id: "completed", label: "Completed" },
@@ -246,8 +274,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [f1Mode, setF1Mode] = useState<F1Mode>("races");
   const [f1BucketSel, setF1BucketSel] = useState<GameBucket>("completed");
   const [f1Races, setF1Races] = useState<F1Race[]>([]);
+  const [activeMeetingKey, setActiveMeetingKey] = useState<number | null>(null);
   const [activeSessionKey, setActiveSessionKey] = useState<number | null>(null);
+  const [f1SessionKind, setF1SessionKind] = useState<F1SessionKind>("race");
   const [f1Detail, setF1Detail] = useState<F1RaceDetail | null>(null);
+  const [f1DetailTab, setF1DetailTab] = useState<F1DetailTab>("classification");
   const [significantOnly, setSignificantOnly] = useState(true);
   const [f1Standings, setF1Standings] = useState<F1Standings | null>(null);
 
@@ -455,11 +486,73 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   }, [visibleGames]);
 
   useEffect(() => {
-    setActiveSessionKey((key) => {
-      if (key && visibleRaces.some((r) => r.sessionKey === key)) return key;
-      return visibleRaces[0]?.sessionKey ?? null;
+    setActiveMeetingKey((mk) => {
+      if (mk && visibleRaces.some((r) => r.meetingKey === mk)) return mk;
+      return visibleRaces[0]?.meetingKey ?? null;
     });
   }, [visibleRaces]);
+
+  const selectedWeekend = useMemo(
+    () => f1Races.find((r) => r.meetingKey === activeMeetingKey) ?? null,
+    [f1Races, activeMeetingKey],
+  );
+
+  const weekendSessions = useMemo(() => {
+    if (f1Detail?.sessions?.length) return f1Detail.sessions;
+    return selectedWeekend?.sessions ?? [];
+  }, [f1Detail, selectedWeekend]);
+
+  useEffect(() => {
+    if (!activeMeetingKey) {
+      setActiveSessionKey(null);
+      return;
+    }
+    const sessions = weekendSessions.length
+      ? weekendSessions
+      : selectedWeekend
+        ? [
+            {
+              sessionKey: selectedWeekend.sessionKey,
+              sessionName: "Race",
+              kind: "race" as F1SessionKind,
+              dateStart: selectedWeekend.dateStart,
+              dateEnd: selectedWeekend.dateEnd,
+              status: selectedWeekend.status,
+            },
+          ]
+        : [];
+    if (sessions.length === 0) {
+      setActiveSessionKey(selectedWeekend?.sessionKey ?? null);
+      return;
+    }
+    setF1SessionKind((prev) => {
+      const available = F1_KIND_PILLS.filter((p) => sessionsForKind(sessions, p.id).length > 0);
+      if (available.some((p) => p.id === prev)) return prev;
+      return defaultKind(sessions);
+    });
+  }, [activeMeetingKey, weekendSessions, selectedWeekend]);
+
+  useEffect(() => {
+    const sessions = weekendSessions;
+    if (sessions.length === 0) return;
+    const inKind = sessionsForKind(sessions, f1SessionKind);
+    if (inKind.length === 0) return;
+    setActiveSessionKey((prev) => {
+      if (prev && inKind.some((s) => s.sessionKey === prev)) return prev;
+      const race = inKind.find((s) => s.kind === "race");
+      return (race ?? inKind[inKind.length - 1]).sessionKey;
+    });
+  }, [weekendSessions, f1SessionKind]);
+
+  const kindSessions = useMemo(
+    () => sessionsForKind(weekendSessions, f1SessionKind),
+    [weekendSessions, f1SessionKind],
+  );
+
+  const availableKindPills = useMemo(
+    () => F1_KIND_PILLS.filter((p) => sessionsForKind(weekendSessions, p.id).length > 0),
+    [weekendSessions],
+  );
 
   useEffect(() => {
     void reloadMlbMeta().catch((e) => setError(e instanceof Error ? e.message : "Failed to load sports"));
@@ -541,6 +634,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   useEffect(() => {
     setSignificantOnly(true);
+    setF1DetailTab("classification");
   }, [activeSessionKey]);
 
   useEffect(() => {
@@ -1338,10 +1432,14 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                   </div>
                   {dayRaces.map((r) => (
                     <button
-                      key={r.sessionKey}
+                      key={r.meetingKey}
                       type="button"
-                      className={`article-row ${r.sessionKey === activeSessionKey ? "active" : ""}`}
-                      onClick={() => setActiveSessionKey(r.sessionKey)}
+                      className={`article-row ${r.meetingKey === activeMeetingKey ? "active" : ""}`}
+                      onClick={() => {
+                        setActiveMeetingKey(r.meetingKey);
+                        setActiveSessionKey(r.sessionKey);
+                        setF1SessionKind(defaultKind(r.sessions ?? []));
+                      }}
                     >
                       <div className="article-meta">
                         <span>{f1StatusLabel(r.status)}</span>
@@ -1373,106 +1471,177 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
             ) : (
               <article className="reader sports-reader">
                 <div className="reader-kicker">
-                  {f1StatusLabel(f1Detail.race.status)}
+                  {f1StatusLabel(f1Detail.session?.status ?? f1Detail.race.status)}
+                  {f1Detail.session?.sessionName
+                    ? ` · ${f1Detail.session.sessionName}`
+                    : ""}
                   {f1Detail.race.countryName ? ` · ${f1Detail.race.countryName}` : ""}
                 </div>
                 <h1 className="sports-scoreline" style={{ fontSize: "1.35rem" }}>
                   {f1Detail.race.name}
                 </h1>
-                <p className="muted" style={{ marginTop: -8, marginBottom: 16 }}>
+                <p className="muted" style={{ marginTop: -8, marginBottom: 12 }}>
                   {f1Detail.race.circuitShortName || f1Detail.race.location}
-                  {f1Detail.race.dateStart
-                    ? ` · ${new Date(f1Detail.race.dateStart).toLocaleString()}`
-                    : ""}
+                  {f1Detail.session?.dateStart
+                    ? ` · ${new Date(f1Detail.session.dateStart).toLocaleString()}`
+                    : f1Detail.race.dateStart
+                      ? ` · ${new Date(f1Detail.race.dateStart).toLocaleString()}`
+                      : ""}
                 </p>
 
-                <h2 className="sports-plays-heading">Classification</h2>
-                {f1Detail.results.length === 0 ? (
-                  <p className="muted">No results yet.</p>
-                ) : (
-                  <div className="sports-linescore-wrap">
-                    <table className="sports-linescore sports-f1-results">
-                      <thead>
-                        <tr>
-                          <th>Pos</th>
-                          <th>Driver</th>
-                          <th>Team</th>
-                          <th>Pts</th>
-                          <th>Gap</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {f1Detail.results.map((r) => (
-                          <tr key={r.driverNumber}>
-                            <td>{r.position}</td>
-                            <td>
-                              {r.nameAcronym || r.name}
-                              {r.dnf || r.dns || r.dsq ? (
-                                <span className="sports-scoring-badge" style={{ marginLeft: 6 }}>
-                                  {resultStatus(r) || "OUT"}
-                                </span>
-                              ) : null}
-                            </td>
-                            <td>{r.teamName || "—"}</td>
-                            <td>{r.points}</td>
-                            <td>{resultStatus(r) || "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                <div className="sports-plays-header">
-                  <h2 className="sports-plays-heading">Race control</h2>
+                {availableKindPills.length > 0 ? (
                   <div
                     className="content-tabs sports-plays-filter"
                     role="group"
-                    aria-label="Event filter"
+                    aria-label="Session type"
+                    style={{ marginBottom: 8 }}
+                  >
+                    {availableKindPills.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`content-tab ${f1SessionKind === p.id ? "active" : ""}`}
+                        onClick={() => setF1SessionKind(p.id)}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {kindSessions.length > 1 ? (
+                  <div
+                    className="content-tabs sports-plays-filter"
+                    role="group"
+                    aria-label="Session"
+                    style={{ marginBottom: 12 }}
+                  >
+                    {kindSessions.map((s) => (
+                      <button
+                        key={s.sessionKey}
+                        type="button"
+                        className={`content-tab ${s.sessionKey === activeSessionKey ? "active" : ""}`}
+                        onClick={() => setActiveSessionKey(s.sessionKey)}
+                      >
+                        {s.sessionName}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="sports-plays-header">
+                  <div
+                    className="content-tabs sports-plays-filter"
+                    role="group"
+                    aria-label="Session detail view"
                   >
                     <button
                       type="button"
-                      className={`content-tab ${!significantOnly ? "active" : ""}`}
-                      onClick={() => setSignificantOnly(false)}
+                      className={`content-tab ${f1DetailTab === "classification" ? "active" : ""}`}
+                      onClick={() => setF1DetailTab("classification")}
                     >
-                      All
+                      Classification
                     </button>
                     <button
                       type="button"
-                      className={`content-tab ${significantOnly ? "active" : ""}`}
-                      onClick={() => setSignificantOnly(true)}
+                      className={`content-tab ${f1DetailTab === "events" ? "active" : ""}`}
+                      onClick={() => setF1DetailTab("events")}
                     >
-                      Significant
+                      Events
                     </button>
                   </div>
-                </div>
-                <div className="sports-plays">
-                  {f1Detail.events.length === 0 ? (
-                    <p className="muted">No race-control messages.</p>
-                  ) : visibleEvents.length === 0 ? (
-                    <p className="muted">No significant events.</p>
-                  ) : (
-                    visibleEvents.map((e) => (
-                      <div
-                        key={e.id}
-                        className={`sports-play ${e.significant ? "scoring" : ""}`}
+                  {f1DetailTab === "events" ? (
+                    <div
+                      className="content-tabs sports-plays-filter"
+                      role="group"
+                      aria-label="Event filter"
+                    >
+                      <button
+                        type="button"
+                        className={`content-tab ${!significantOnly ? "active" : ""}`}
+                        onClick={() => setSignificantOnly(false)}
                       >
-                        <div className="sports-play-meta">
-                          {e.lapNumber != null ? <span>Lap {e.lapNumber}</span> : null}
-                          <span>{e.category}{e.flag ? ` · ${e.flag}` : ""}</span>
-                          {e.significant ? (
-                            <span className="sports-scoring-badge">Significant</span>
-                          ) : null}
-                          <span>{e.date ? new Date(e.date).toLocaleTimeString() : ""}</span>
-                        </div>
-                        <p>
-                          {e.message}
-                          {e.driverName ? ` (${e.driverName})` : ""}
-                        </p>
-                      </div>
-                    ))
-                  )}
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        className={`content-tab ${significantOnly ? "active" : ""}`}
+                        onClick={() => setSignificantOnly(true)}
+                      >
+                        Significant
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
+
+                {f1DetailTab === "classification" ? (
+                  f1Detail.results.length === 0 ? (
+                    <p className="muted">No classification yet.</p>
+                  ) : (
+                    <div className="sports-linescore-wrap">
+                      <table className="sports-linescore sports-f1-results">
+                        <thead>
+                          <tr>
+                            <th>Pos</th>
+                            <th>Driver</th>
+                            <th>Team</th>
+                            <th>Pts</th>
+                            <th>Gap</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {f1Detail.results.map((r) => (
+                            <tr key={r.driverNumber}>
+                              <td>{r.position}</td>
+                              <td>
+                                {r.nameAcronym || r.name}
+                                {r.dnf || r.dns || r.dsq ? (
+                                  <span className="sports-scoring-badge" style={{ marginLeft: 6 }}>
+                                    {resultStatus(r) || "OUT"}
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td>{r.teamName || "—"}</td>
+                              <td>{r.points}</td>
+                              <td>{resultStatus(r) || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                ) : (
+                  <div className="sports-plays">
+                    {f1Detail.events.length === 0 ? (
+                      <p className="muted">No race-control messages.</p>
+                    ) : visibleEvents.length === 0 ? (
+                      <p className="muted">No significant events.</p>
+                    ) : (
+                      visibleEvents.map((e) => (
+                        <div
+                          key={e.id}
+                          className={`sports-play ${e.significant ? "scoring" : ""}`}
+                        >
+                          <div className="sports-play-meta">
+                            {e.lapNumber != null ? <span>Lap {e.lapNumber}</span> : null}
+                            <span>
+                              {e.category}
+                              {e.flag ? ` · ${e.flag}` : ""}
+                            </span>
+                            {e.significant ? (
+                              <span className="sports-scoring-badge">Significant</span>
+                            ) : null}
+                            <span>{e.date ? new Date(e.date).toLocaleTimeString() : ""}</span>
+                          </div>
+                          <p>
+                            {e.message}
+                            {e.driverName ? ` (${e.driverName})` : ""}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </article>
             )}
           </section>

@@ -303,8 +303,26 @@ export interface MlbGameDetail {
 
 export type F1RaceStatus = "scheduled" | "in_progress" | "completed" | "cancelled";
 
+export type F1SessionKind =
+  | "practice"
+  | "sprint_quali"
+  | "quali"
+  | "sprint"
+  | "race"
+  | "other";
+
 export interface F1Season {
   year: number;
+}
+
+export interface F1Session {
+  sessionKey: number;
+  sessionName: string;
+  sessionType?: string;
+  kind: F1SessionKind;
+  dateStart: string;
+  dateEnd: string;
+  status: F1RaceStatus;
 }
 
 export interface F1Race {
@@ -320,6 +338,7 @@ export interface F1Race {
   dateStart: string;
   dateEnd: string;
   status: F1RaceStatus;
+  sessions?: F1Session[];
 }
 
 export interface F1DriverResult {
@@ -352,8 +371,10 @@ export interface F1Event {
 
 export interface F1RaceDetail {
   race: F1Race;
+  session?: F1Session;
   results: F1DriverResult[];
   events: F1Event[];
+  sessions?: F1Session[];
 }
 
 export interface MlbStandingRow {

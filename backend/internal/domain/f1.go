@@ -11,13 +11,36 @@ const (
 	F1Cancelled  F1RaceStatus = "cancelled"
 )
 
+// F1SessionKind groups weekend sessions for the top-level pills.
+type F1SessionKind string
+
+const (
+	F1KindPractice    F1SessionKind = "practice"
+	F1KindSprintQuali F1SessionKind = "sprint_quali"
+	F1KindQuali       F1SessionKind = "quali"
+	F1KindSprint      F1SessionKind = "sprint"
+	F1KindRace        F1SessionKind = "race"
+	F1KindOther       F1SessionKind = "other"
+)
+
 type F1Season struct {
 	Year int `json:"year"`
 }
 
+type F1Session struct {
+	SessionKey  int           `json:"sessionKey"`
+	SessionName string        `json:"sessionName"`
+	SessionType string        `json:"sessionType,omitempty"`
+	Kind        F1SessionKind `json:"kind"`
+	DateStart   string        `json:"dateStart"`
+	DateEnd     string        `json:"dateEnd"`
+	Status      F1RaceStatus  `json:"status"`
+}
+
+// F1Race is one Grand Prix weekend (meeting), with all sessions attached.
 type F1Race struct {
 	MeetingKey       int          `json:"meetingKey"`
-	SessionKey       int          `json:"sessionKey"`
+	SessionKey       int          `json:"sessionKey"` // preferred/default session (Race when present)
 	Year             int          `json:"year"`
 	Name             string       `json:"name"`
 	OfficialName     string       `json:"officialName,omitempty"`
@@ -25,23 +48,24 @@ type F1Race struct {
 	CountryName      string       `json:"countryName"`
 	CountryCode      string       `json:"countryCode,omitempty"`
 	CircuitShortName string       `json:"circuitShortName"`
-	DateStart        string       `json:"dateStart"`
+	DateStart        string       `json:"dateStart"` // primary (usually Race)
 	DateEnd          string       `json:"dateEnd"`
 	Status           F1RaceStatus `json:"status"`
+	Sessions         []F1Session  `json:"sessions,omitempty"`
 }
 
 type F1DriverResult struct {
-	Position     int     `json:"position"`
-	DriverNumber int     `json:"driverNumber"`
-	Name         string  `json:"name"`
-	NameAcronym  string  `json:"nameAcronym,omitempty"`
-	TeamName     string  `json:"teamName,omitempty"`
-	Points       float64 `json:"points"`
-	Laps         int     `json:"laps"`
-	DNF          bool    `json:"dnf"`
-	DNS          bool    `json:"dns"`
-	DSQ          bool    `json:"dsq"`
-	GapToLeader  string  `json:"gapToLeader,omitempty"`
+	Position     int      `json:"position"`
+	DriverNumber int      `json:"driverNumber"`
+	Name         string   `json:"name"`
+	NameAcronym  string   `json:"nameAcronym,omitempty"`
+	TeamName     string   `json:"teamName,omitempty"`
+	Points       float64  `json:"points"`
+	Laps         int      `json:"laps"`
+	DNF          bool     `json:"dnf"`
+	DNS          bool     `json:"dns"`
+	DSQ          bool     `json:"dsq"`
+	GapToLeader  string   `json:"gapToLeader,omitempty"`
 	DurationSec  *float64 `json:"durationSec,omitempty"`
 }
 
@@ -59,9 +83,11 @@ type F1Event struct {
 }
 
 type F1RaceDetail struct {
-	Race    F1Race           `json:"race"`
-	Results []F1DriverResult `json:"results"`
-	Events  []F1Event        `json:"events"`
+	Race     F1Race           `json:"race"`
+	Session  F1Session        `json:"session"`
+	Results  []F1DriverResult `json:"results"`
+	Events   []F1Event        `json:"events"`
+	Sessions []F1Session      `json:"sessions,omitempty"` // full weekend when available
 }
 
 type F1DriverStanding struct {
@@ -80,9 +106,9 @@ type F1TeamStanding struct {
 }
 
 type F1Standings struct {
-	Year           int                 `json:"year"`
-	SessionKey     int                 `json:"sessionKey"`
-	MeetingName    string              `json:"meetingName,omitempty"`
-	Drivers        []F1DriverStanding  `json:"drivers"`
-	Constructors   []F1TeamStanding    `json:"constructors"`
+	Year         int                `json:"year"`
+	SessionKey   int                `json:"sessionKey"`
+	MeetingName  string             `json:"meetingName,omitempty"`
+	Drivers      []F1DriverStanding `json:"drivers"`
+	Constructors []F1TeamStanding   `json:"constructors"`
 }
