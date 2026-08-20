@@ -13,7 +13,36 @@ type Props = {
   onOpenSettingsSports?: () => void;
 };
 
-type Selection = { type: "all" } | { type: "team"; id: number };
+type GameBucket = "completed" | "in_progress" | "scheduled";
+
+type Selection =
+  | { type: "all" }
+  | { type: "team"; id: number; bucket: GameBucket };
+
+const BUCKETS: { id: GameBucket; label: string }[] = [
+  { id: "completed", label: "Completed" },
+  { id: "in_progress", label: "In Progress" },
+  { id: "scheduled", label: "Scheduled" },
+];
+
+function gameBucket(status: MlbGameStatus): GameBucket {
+  switch (status) {
+    case "final":
+    case "postponed":
+    case "cancelled":
+      return "completed";
+    case "live":
+      return "in_progress";
+    case "scheduled":
+    case "pre_game":
+    case "unknown":
+      return "scheduled";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+}
 
 function statusLabel(status: MlbGameStatus, detail?: string): string {
   switch (status) {
@@ -78,25 +107,34 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     setSeason((prev) => prev ?? s?.[0]?.seasonId ?? new Date().getFullYear());
   }, [backend]);
 
+  const scheduleTeamId = selection.type === "team" ? selection.id : undefined;
+
   const reloadSchedule = useCallback(async () => {
     if (season == null) return;
     setBusy(true);
     setError(null);
     try {
-      const teamId = selection.type === "team" ? selection.id : undefined;
-      const list = await backend.sports.schedule({ teamId, season });
+      const list = await backend.sports.schedule({ teamId: scheduleTeamId, season });
       setGames(list ?? []);
-      setActivePk((pk) => {
-        if (pk && list.some((g) => g.id === pk)) return pk;
-        return list[0]?.id ?? null;
-      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load schedule");
       setGames([]);
     } finally {
       setBusy(false);
     }
-  }, [backend, season, selection]);
+  }, [backend, season, scheduleTeamId]);
+
+  const visibleGames = useMemo(() => {
+    if (selection.type === "all") return games;
+    return games.filter((g) => gameBucket(g.status) === selection.bucket);
+  }, [games, selection]);
+
+  useEffect(() => {
+    setActivePk((pk) => {
+      if (pk && visibleGames.some((g) => g.id === pk)) return pk;
+      return visibleGames[0]?.id ?? null;
+    });
+  }, [visibleGames]);
 
   useEffect(() => {
     void reloadMeta().catch((e) => setError(e instanceof Error ? e.message : "Failed to load sports"));
@@ -146,14 +184,14 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   const gamesByDate = useMemo(() => {
     const map = new Map<string, MlbGame[]>();
-    for (const g of games) {
+    for (const g of visibleGames) {
       const key = g.officialDate || g.gameDate.slice(0, 10);
       const list = map.get(key) ?? [];
       list.push(g);
       map.set(key, list);
     }
     return [...map.entries()];
-  }, [games]);
+  }, [visibleGames]);
 
   return (
     <div className="layout">
@@ -180,27 +218,36 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <span>All followed</span>
         </button>
         {followedTeams.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`nav-item ${selection.type === "team" && selection.id === t.id ? "active" : ""}`}
-            onClick={() => setSelection({ type: "team", id: t.id })}
-          >
-            <span className="sports-team-row">
-              {t.logoUrl ? <img src={t.logoUrl} alt="" className="sports-logo" /> : null}
-              {t.abbreviation || t.name}
-            </span>
-            <span
-              className="sports-unfollow"
-              title="Unfollow"
-              onClick={(e) => {
-                e.stopPropagation();
-                void toggleFollow(t.id);
-              }}
-            >
-              ×
-            </span>
-          </button>
+          <div key={t.id} className="sports-team-group">
+            <div className="nav-item sports-team-heading">
+              <span className="sports-team-row">
+                {t.logoUrl ? <img src={t.logoUrl} alt="" className="sports-logo" /> : null}
+                {t.abbreviation || t.name}
+              </span>
+              <button
+                type="button"
+                className="sports-unfollow"
+                title="Unfollow"
+                onClick={() => void toggleFollow(t.id)}
+              >
+                ×
+              </button>
+            </div>
+            {BUCKETS.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                className={`nav-item nav-item-nested ${
+                  selection.type === "team" && selection.id === t.id && selection.bucket === b.id
+                    ? "active"
+                    : ""
+                }`}
+                onClick={() => setSelection({ type: "team", id: t.id, bucket: b.id })}
+              >
+                <span>{b.label}</span>
+              </button>
+            ))}
+          </div>
         ))}
         {followedTeams.length === 0 && (
           <div className="empty" style={{ height: "auto", padding: 12 }}>
@@ -214,14 +261,18 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
       <section className="pane article-list">
         {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
-        {busy && games.length === 0 ? (
+        {busy && visibleGames.length === 0 ? (
           <div className="empty">
             <p>Loading schedule…</p>
           </div>
-        ) : games.length === 0 ? (
+        ) : visibleGames.length === 0 ? (
           <div className="empty">
             <h2>No games</h2>
-            <p>Follow MLB teams and pick a season to see their schedule.</p>
+            <p>
+              {selection.type === "team"
+                ? `No ${BUCKETS.find((b) => b.id === selection.bucket)?.label.toLowerCase() ?? ""} games for this team in ${season}.`
+                : "Follow MLB teams and pick a season to see their schedule."}
+            </p>
           </div>
         ) : (
           gamesByDate.map(([date, dayGames]) => (
