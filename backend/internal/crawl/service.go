@@ -6,11 +6,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 )
@@ -32,7 +32,13 @@ func New(articles domain.ArticleRepository, feeds domain.FeedRepository, log *sl
 		Feeds:    feeds,
 		Log:      log,
 		Client: &http.Client{
-			Timeout: 45 * time.Second,
+			Timeout: 60 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
 		},
 	}
 }
@@ -81,10 +87,9 @@ func (s *Service) CrawlOne(ctx context.Context, articleID string) error {
 	}
 	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlPending, a.CrawledContent, "", a.CrawlUnreliable)
 
-	text, title, err := s.fetchReadable(ctx, a.URL)
-	failed := err != nil || strings.TrimSpace(text) == ""
-	if failed {
-		msg := "empty extract"
+	html, finalURL, title, err := s.fetchFullPage(ctx, a.URL)
+	if err != nil || strings.TrimSpace(html) == "" {
+		msg := "empty page"
 		if err != nil {
 			msg = err.Error()
 		}
@@ -95,11 +100,12 @@ func (s *Service) CrawlOne(ctx context.Context, articleID string) error {
 		}
 		return err
 	}
-	if title != "" && (a.Title == "" || a.IsReadLater) {
+	prepared := EnsureBaseHref(html, finalURL)
+	if title != "" && (a.Title == "" || a.IsReadLater || a.Title == a.URL) {
 		a.Title = title
 		_ = s.Articles.Update(ctx, a)
 	}
-	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlOK, text, "", false)
+	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlOK, prepared, "", false)
 	_ = s.Feeds.RecordCrawlResult(ctx, a.FeedID, false)
 	if s.Emit != nil {
 		s.Emit("article.updated", map[string]any{"articleId": articleID, "crawlStatus": "ok"})
@@ -112,51 +118,48 @@ func (s *Service) FetchLive(ctx context.Context, articleID string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	text, _, err := s.fetchReadable(ctx, a.URL)
+	html, finalURL, _, err := s.fetchFullPage(ctx, a.URL)
 	if err != nil {
 		return "", err
 	}
-	_ = s.Articles.SetLiveContent(ctx, articleID, text)
-	return text, nil
+	prepared := EnsureBaseHref(html, finalURL)
+	_ = s.Articles.SetLiveContent(ctx, articleID, prepared)
+	return prepared, nil
 }
 
-func (s *Service) fetchReadable(ctx context.Context, pageURL string) (body string, title string, err error) {
+func (s *Service) fetchFullPage(ctx context.Context, pageURL string) (html string, finalURL string, title string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	req.Header.Set("User-Agent", "RSSReader/0.1 (+local desktop; readability)")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; RSSReader/0.1; +local desktop)")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	res, err := s.Client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %v", domain.ErrNetwork, err)
+		return "", "", "", fmt.Errorf("%w: %v", domain.ErrNetwork, err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return "", "", fmt.Errorf("%w: status %d", domain.ErrNetwork, res.StatusCode)
+		return "", "", "", fmt.Errorf("%w: status %d", domain.ErrNetwork, res.StatusCode)
 	}
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 2<<20))
+	// Save full document HTML (inline CSS/JS included; external assets resolve via <base>).
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	html := string(raw)
+	html = string(raw)
+	finalURL = pageURL
+	if res.Request != nil && res.Request.URL != nil {
+		finalURL = res.Request.URL.String()
+	}
 	title = extractTitle(html)
-	text := extractMain(html)
-	if len(strings.TrimSpace(stripTags(text))) < 80 {
-		return "", title, fmt.Errorf("extract too short")
+	if strings.TrimSpace(html) == "" {
+		return "", finalURL, title, fmt.Errorf("empty body")
 	}
-	return text, title, nil
+	return html, finalURL, title, nil
 }
 
-var (
-	reTitle   = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-	reScript  = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	reStyle   = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
-	reNoscript = regexp.MustCompile(`(?is)<noscript[^>]*>.*?</noscript>`)
-	reArticle = regexp.MustCompile(`(?is)<article[^>]*>(.*?)</article>`)
-	reMain    = regexp.MustCompile(`(?is)<main[^>]*>(.*?)</main>`)
-	reP       = regexp.MustCompile(`(?is)<p[^>]*>(.*?)</p>`)
-)
+var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
 func extractTitle(html string) string {
 	m := reTitle.FindStringSubmatch(html)
@@ -166,38 +169,36 @@ func extractTitle(html string) string {
 	return strings.TrimSpace(stripTags(m[1]))
 }
 
-func extractMain(html string) string {
-	html = reScript.ReplaceAllString(html, "")
-	html = reStyle.ReplaceAllString(html, "")
-	html = reNoscript.ReplaceAllString(html, "")
-	if m := reArticle.FindStringSubmatch(html); len(m) > 1 {
-		return cleanHTMLFragment(m[1])
+// EnsureBaseHref injects a <base> so relative CSS/JS/img URLs resolve against the article origin.
+func EnsureBaseHref(html, pageURL string) string {
+	if _, err := url.Parse(pageURL); err != nil || pageURL == "" {
+		return html
 	}
-	if m := reMain.FindStringSubmatch(html); len(m) > 1 {
-		return cleanHTMLFragment(m[1])
+	baseTag := `<base href="` + htmlAttrEscape(pageURL) + `">`
+	lower := strings.ToLower(html)
+	if strings.Contains(lower, "<base") {
+		return html
 	}
-	parts := reP.FindAllStringSubmatch(html, 40)
-	var b strings.Builder
-	b.WriteString("<div>")
-	for _, p := range parts {
-		if len(p) > 1 {
-			t := strings.TrimSpace(stripTags(p[1]))
-			if len(t) > 40 {
-				b.WriteString("<p>")
-				b.WriteString(escapeText(t))
-				b.WriteString("</p>")
-			}
+	if idx := strings.Index(lower, "<head"); idx >= 0 {
+		gt := strings.Index(html[idx:], ">")
+		if gt >= 0 {
+			insertAt := idx + gt + 1
+			return html[:insertAt] + baseTag + html[insertAt:]
 		}
 	}
-	b.WriteString("</div>")
-	return b.String()
+	if idx := strings.Index(lower, "<html"); idx >= 0 {
+		gt := strings.Index(html[idx:], ">")
+		if gt >= 0 {
+			insertAt := idx + gt + 1
+			return html[:insertAt] + "<head>" + baseTag + "</head>" + html[insertAt:]
+		}
+	}
+	return "<head>" + baseTag + "</head>" + html
 }
 
-func cleanHTMLFragment(s string) string {
-	s = reScript.ReplaceAllString(s, "")
-	s = reStyle.ReplaceAllString(s, "")
-	// keep basic tags only by stripping scripts already; return as-is for sanitizer later
-	return strings.TrimSpace(s)
+func htmlAttrEscape(s string) string {
+	r := strings.NewReplacer(`&`, "&amp;", `"`, "&quot;", `'`, "&#39;", `<`, "&lt;", `>`, "&gt;")
+	return r.Replace(s)
 }
 
 func stripTags(s string) string {
@@ -214,23 +215,4 @@ func stripTags(s string) string {
 		}
 	}
 	return strings.Join(strings.Fields(b.String()), " ")
-}
-
-func escapeText(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case '&':
-			b.WriteString("&amp;")
-		case '<':
-			b.WriteString("&lt;")
-		case '>':
-			b.WriteString("&gt;")
-		default:
-			if unicode.IsPrint(r) || unicode.IsSpace(r) {
-				b.WriteRune(r)
-			}
-		}
-	}
-	return b.String()
 }

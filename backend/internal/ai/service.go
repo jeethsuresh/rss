@@ -424,16 +424,17 @@ Rules:
 }
 
 func triageBody(a *domain.Article) string {
+	// Prefer raw crawled HTML for the model (truncated for context limits).
 	if !a.CrawlUnreliable && a.CrawlStatus == domain.CrawlOK && strings.TrimSpace(a.CrawledContent) != "" {
-		return stripTags(a.CrawledContent)
+		return truncate(a.CrawledContent, 120_000)
 	}
 	if strings.TrimSpace(a.RSSContent) != "" {
-		return stripTags(a.RSSContent)
+		return truncate(a.RSSContent, 40_000)
 	}
 	if strings.TrimSpace(a.Content) != "" {
-		return stripTags(a.Content)
+		return truncate(a.Content, 40_000)
 	}
-	return stripTags(a.Summary)
+	return truncate(a.Summary, 8_000)
 }
 
 func (s *Service) runTool(ctx context.Context, article *domain.Article, tc toolCall) (string, error) {

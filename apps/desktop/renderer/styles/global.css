@@ -573,6 +573,19 @@ button {
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
+.page-frame {
+  width: 100%;
+  height: min(70vh, 720px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.reader-page-wrap {
+  margin-top: 8px;
+  max-width: none;
+}
+
 .ai-log-panel {
   max-height: 240px;
   overflow: auto;

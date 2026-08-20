@@ -11,6 +11,7 @@ import type {
 import { getBackend } from "./lib/backend";
 import { formatRelativeTime, sanitizeArticleHtml, stripHtml } from "./lib/html";
 import { SettingsPage } from "./views/SettingsPage";
+import { PageFrame } from "./components/PageFrame";
 
 type Selection =
   | { type: "all" }
@@ -467,29 +468,48 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const renderContentBody = (article: Article) => {
     let bodyHtml: string | null = null;
     let statusMessage: string | null = null;
+    let asFullPage = false;
 
     if (contentTab === "primary") {
       if (article.isReadLater) {
         if (article.liveContent) {
           bodyHtml = article.liveContent;
+          asFullPage = true;
         } else if (contentBusy) {
-          statusMessage = "Fetching live content…";
+          statusMessage = "Fetching live page…";
         } else {
-          statusMessage = "No live content yet.";
+          statusMessage = "No live page yet.";
         }
       } else {
         bodyHtml = article.rssContent || article.content || article.summary || null;
+        asFullPage = false;
       }
     } else if (article.crawlStatus === "pending") {
       statusMessage = "Crawl in progress…";
-    } else if (article.crawlStatus === "failed") {
+    } else if (article.crawlStatus === "failed" && !article.crawledContent) {
       statusMessage = article.crawlError || "Crawl failed.";
     } else if (article.crawledContent) {
       bodyHtml = article.crawledContent;
+      asFullPage = true;
     } else if (article.crawlStatus === "none") {
-      statusMessage = "No crawled content yet.";
+      statusMessage = "No crawled page yet.";
     } else {
-      statusMessage = "No crawled content available.";
+      statusMessage = "No crawled page available.";
+    }
+
+    if (bodyHtml && asFullPage) {
+      return (
+        <div className="reader-page-wrap">
+          <PageFrame html={bodyHtml} pageUrl={article.url} title={article.title || "Article page"} />
+          {contentTab === "secondary" && (
+            <div className="reader-actions" style={{ marginTop: 8 }}>
+              <button className="btn" disabled={contentBusy} onClick={() => void recrawlActive()}>
+                {contentBusy ? "Re-crawling…" : "Re-crawl page"}
+              </button>
+            </div>
+          )}
+        </div>
+      );
     }
 
     return bodyHtml ? (
