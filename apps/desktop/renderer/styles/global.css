@@ -225,22 +225,15 @@ button {
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-.article-row.unread .article-title {
-  font-weight: 600;
-}
-
-.article-meta {
-  display: flex;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  margin-bottom: 4px;
-}
-
 .article-title {
   margin: 0 0 4px;
   font-size: 0.98rem;
   line-height: 1.35;
+  font-weight: 400;
+}
+
+.article-row.unread .article-title {
+  font-weight: 700;
 }
 
 .article-summary {
