@@ -16,9 +16,11 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/ipc"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
 	"github.com/jeeth/rss-reader/backend/internal/openf1"
+	"github.com/jeeth/rss-reader/backend/internal/pandascore"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
 	"github.com/jeeth/rss-reader/backend/internal/scheduler"
 	"github.com/jeeth/rss-reader/backend/internal/storage/sqlite"
+	"github.com/jeeth/rss-reader/backend/internal/stratz"
 )
 
 const version = "0.1.0"
@@ -63,7 +65,14 @@ func main() {
 
 	sportsRepo := sqlite.NewSportsRepo(db)
 	sportsCache := sqlite.NewSportsCacheRepo(db)
-	sportsSvc := application.NewSportsService(sportsRepo, sportsCache, mlb.NewClient(), openf1.NewClient())
+	sportsSvc := application.NewSportsService(
+		sportsRepo,
+		sportsCache,
+		mlb.NewClient(),
+		openf1.NewClient(),
+		pandascore.NewClientFromEnv(),
+		stratz.NewClientFromEnv(),
+	)
 
 	svc := &application.Service{
 		Feeds:    feeds,

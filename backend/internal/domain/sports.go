@@ -122,6 +122,10 @@ type MlbGameDetail struct {
 type SportsRepository interface {
 	GetFollowedTeamIDs(ctx context.Context) ([]int, error)
 	SetFollowedTeamIDs(ctx context.Context, ids []int) error
+	GetDotaFollowedTeamIDs(ctx context.Context) ([]int, error)
+	SetDotaFollowedTeamIDs(ctx context.Context, ids []int) error
+	GetDotaPinnedEvents(ctx context.Context) ([]DotaPinnedEvent, error)
+	SetDotaPinnedEvents(ctx context.Context, pins []DotaPinnedEvent) error
 }
 
 type SportsCacheRepository interface {

@@ -99,3 +99,4 @@ Track phase completion and follow-ups. Check items as they land.
 - [x] Sports league standings — MLB AL/NL divisions + wild card; F1 WDC/WCC
 - [ ] Archive / recently-read smart views (RSS)
 - [ ] Fix PageFrame / full-page reader `History.replaceState` SecurityError with blob iframes (removing `allow-same-origin` was not enough; still breaks Vite shell — investigate srcdoc, stricter sandbox, or isolating frame process)
+- [x] Sports mode — Dota 2 (PandaScore events/matches + lazy STRATZ game detail; follow/pin; year+tier browse)
