@@ -143,6 +143,33 @@ func (r *ArticleRepo) ListIDsSince(ctx context.Context, since time.Time) ([]stri
 	return ids, rows.Err()
 }
 
+func (r *ArticleRepo) ListMissedIDs(ctx context.Context) ([]string, error) {
+	// Never successfully triaged (priority still none), plus queue failures.
+	rows, err := r.db.SQL.QueryContext(ctx, `
+		SELECT a.id FROM articles a
+		WHERE a.priority = '' OR a.priority = 'none'
+		   OR a.id IN (SELECT article_id FROM ai_queue WHERE status = 'failed')
+		ORDER BY COALESCE(a.published_at, a.discovered_at) DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	seen := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article) (int, error) {
 	inserted := 0
 	tx, err := r.db.SQL.BeginTx(ctx, nil)

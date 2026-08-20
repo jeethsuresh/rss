@@ -345,6 +345,20 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
                 >
                   Scan last 7 days
                 </button>
+                <button
+                  className="btn primary"
+                  disabled={busy || !settings.aiEnabled}
+                  onClick={() => {
+                    setBusy(true);
+                    void backend.ai
+                      .scan("missed")
+                      .then((r) => setAiStatus(r.status))
+                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Scan failed"))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  Scan missed / skipped
+                </button>
               </div>
               {aiTest && (
                 <p className={aiTest.ok ? "muted" : "error"}>

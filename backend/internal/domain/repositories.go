@@ -31,6 +31,7 @@ type ArticleRepository interface {
 	List(ctx context.Context, q ArticleQuery) (ArticleListResult, error)
 	Get(ctx context.Context, id string) (*Article, error)
 	ListIDsSince(ctx context.Context, since time.Time) ([]string, error)
+	ListMissedIDs(ctx context.Context) ([]string, error)
 	UpsertMany(ctx context.Context, articles []Article) (inserted int, err error)
 	Update(ctx context.Context, article *Article) error
 	SetPriority(ctx context.Context, id string, priority Priority) error

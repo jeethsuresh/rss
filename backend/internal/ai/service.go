@@ -135,6 +135,14 @@ func (s *Service) ScanWindow(ctx context.Context, window string) error {
 		since = time.Now().UTC().Add(-24 * time.Hour)
 	case "7d":
 		since = time.Now().UTC().Add(-7 * 24 * time.Hour)
+	case "missed":
+		ids, err := s.Articles.ListMissedIDs(ctx)
+		if err != nil {
+			return err
+		}
+		s.appendLog(ctx, "info", "", fmt.Sprintf("scan missed/skipped (%d articles)", len(ids)), "")
+		s.Enqueue(ids...)
+		return nil
 	default:
 		return domain.ErrInvalidParams
 	}

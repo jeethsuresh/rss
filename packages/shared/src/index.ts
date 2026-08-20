@@ -214,7 +214,7 @@ export interface ReaderBackend {
   };
   ai: {
     test(): Promise<AITestResult>;
-    scan(window: "24h" | "7d"): Promise<{ queued: boolean; status: AIStatus }>;
+    scan(window: "24h" | "7d" | "missed"): Promise<{ queued: boolean; status: AIStatus }>;
     status(): Promise<AIStatus>;
     logs(limit?: number): Promise<AILogEntry[]>;
     retryFailed(): Promise<{ requeued: number; status: AIStatus }>;
