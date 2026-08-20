@@ -452,6 +452,12 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"ok": true}, nil
+	case "sports.standings.get":
+		var p struct {
+			Season int `json:"season"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return s.svc.SportsStandings(ctx, p.Season)
 	case "sports.f1.years.list":
 		return s.svc.SportsF1Years(ctx)
 	case "sports.f1.races.list":
@@ -487,6 +493,12 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"ok": true}, nil
+	case "sports.f1.standings.get":
+		var p struct {
+			Year int `json:"year"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return s.svc.SportsF1Standings(ctx, p.Year)
 	case "articles.recrawl":
 		var p struct {
 			ID string `json:"id"`

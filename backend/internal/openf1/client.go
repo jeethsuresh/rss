@@ -406,6 +406,127 @@ func (c *Client) RaceDetail(ctx context.Context, sessionKey int) (*domain.F1Race
 	return &domain.F1RaceDetail{Race: race, Results: results, Events: events}, nil
 }
 
+func (c *Client) Standings(ctx context.Context, year int) (*domain.F1Standings, error) {
+	if year <= 0 {
+		year = time.Now().UTC().Year()
+	}
+	races, err := c.ListRaces(ctx, year)
+	if err != nil {
+		return nil, err
+	}
+	sessionKey := 0
+	meetingName := ""
+	for _, r := range races {
+		if r.Status == domain.F1Completed || r.Status == domain.F1InProgress {
+			sessionKey = r.SessionKey
+			meetingName = r.Name
+			break
+		}
+	}
+	if sessionKey == 0 {
+		// Fall back to OpenF1 "latest" for the current season when no completed race yet.
+		if year == time.Now().UTC().Year() {
+			return c.standingsForSession(ctx, year, 0, "latest", "")
+		}
+		if len(races) == 0 {
+			return &domain.F1Standings{Year: year, Drivers: []domain.F1DriverStanding{}, Constructors: []domain.F1TeamStanding{}}, nil
+		}
+		sessionKey = races[len(races)-1].SessionKey
+		meetingName = races[len(races)-1].Name
+	}
+	return c.standingsForSession(ctx, year, sessionKey, strconv.Itoa(sessionKey), meetingName)
+}
+
+func (c *Client) standingsForSession(ctx context.Context, year, sessionKey int, sessionParam, meetingName string) (*domain.F1Standings, error) {
+	q := url.Values{}
+	q.Set("session_key", sessionParam)
+
+	driversByNum := map[int]struct{ Name, Acronym, Team string }{}
+	var drivers []struct {
+		DriverNumber int    `json:"driver_number"`
+		FullName     string `json:"full_name"`
+		NameAcronym  string `json:"name_acronym"`
+		TeamName     string `json:"team_name"`
+	}
+	_ = c.getJSON(ctx, "/drivers", q, &drivers)
+	for _, d := range drivers {
+		driversByNum[d.DriverNumber] = struct{ Name, Acronym, Team string }{
+			Name: d.FullName, Acronym: d.NameAcronym, Team: d.TeamName,
+		}
+	}
+
+	var rawDrivers []struct {
+		DriverNumber    int     `json:"driver_number"`
+		MeetingKey      int     `json:"meeting_key"`
+		SessionKey      int     `json:"session_key"`
+		PositionCurrent int     `json:"position_current"`
+		PointsCurrent   float64 `json:"points_current"`
+	}
+	if err := c.getJSON(ctx, "/championship_drivers", q, &rawDrivers); err != nil {
+		return nil, err
+	}
+	wdc := make([]domain.F1DriverStanding, 0, len(rawDrivers))
+	for _, r := range rawDrivers {
+		info := driversByNum[r.DriverNumber]
+		name := info.Name
+		if name == "" {
+			name = fmt.Sprintf("Driver #%d", r.DriverNumber)
+		}
+		wdc = append(wdc, domain.F1DriverStanding{
+			Position:     r.PositionCurrent,
+			DriverNumber: r.DriverNumber,
+			Name:         name,
+			NameAcronym:  info.Acronym,
+			TeamName:     info.Team,
+			Points:       r.PointsCurrent,
+		})
+		if sessionKey == 0 && r.SessionKey != 0 {
+			sessionKey = r.SessionKey
+		}
+	}
+	sort.Slice(wdc, func(i, j int) bool {
+		if wdc[i].Position == wdc[j].Position {
+			return wdc[i].Points > wdc[j].Points
+		}
+		return wdc[i].Position < wdc[j].Position
+	})
+
+	var rawTeams []struct {
+		TeamName        string  `json:"team_name"`
+		SessionKey      int     `json:"session_key"`
+		PositionCurrent int     `json:"position_current"`
+		PointsCurrent   float64 `json:"points_current"`
+	}
+	if err := c.getJSON(ctx, "/championship_teams", q, &rawTeams); err != nil {
+		return nil, err
+	}
+	wcc := make([]domain.F1TeamStanding, 0, len(rawTeams))
+	for _, r := range rawTeams {
+		wcc = append(wcc, domain.F1TeamStanding{
+			Position: r.PositionCurrent,
+			TeamName: r.TeamName,
+			Points:   r.PointsCurrent,
+		})
+		if sessionKey == 0 && r.SessionKey != 0 {
+			sessionKey = r.SessionKey
+		}
+	}
+	sort.Slice(wcc, func(i, j int) bool {
+		if wcc[i].Position == wcc[j].Position {
+			return wcc[i].Points > wcc[j].Points
+		}
+		return wcc[i].Position < wcc[j].Position
+	})
+
+	return &domain.F1Standings{
+		Year:         year,
+		SessionKey:   sessionKey,
+		MeetingName:  meetingName,
+		Drivers:      wdc,
+		Constructors: wcc,
+	}, nil
+}
+
 func isSignificantEvent(category, flag, message string) bool {
 	cat := strings.ToLower(category)
 	msg := strings.ToUpper(message)

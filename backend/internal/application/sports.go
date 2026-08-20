@@ -159,6 +159,21 @@ func (s *Service) SportsGameUnwatch(_ context.Context, gamePk int) error {
 	return nil
 }
 
+func (s *Service) SportsStandings(ctx context.Context, season int) (*domain.MlbStandings, error) {
+	if s.Sports == nil || s.Sports.Client == nil {
+		return nil, domain.ErrInvalidParams
+	}
+	if season <= 0 {
+		seasons, err := s.Sports.Client.ListSeasons(ctx)
+		if err != nil || len(seasons) == 0 {
+			season = time.Now().Year()
+		} else {
+			season = seasons[0].SeasonID
+		}
+	}
+	return s.Sports.Client.Standings(ctx, season)
+}
+
 func (ss *SportsService) startWatch(gamePk int) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
@@ -248,6 +263,13 @@ func (s *Service) SportsF1RaceUnwatch(_ context.Context, sessionKey int) error {
 	}
 	s.Sports.stopF1Watch(sessionKey)
 	return nil
+}
+
+func (s *Service) SportsF1Standings(ctx context.Context, year int) (*domain.F1Standings, error) {
+	if s.Sports == nil || s.Sports.F1Client == nil {
+		return nil, domain.ErrInvalidParams
+	}
+	return s.Sports.F1Client.Standings(ctx, year)
 }
 
 func (ss *SportsService) startF1Watch(sessionKey int) {

@@ -63,3 +63,26 @@ type F1RaceDetail struct {
 	Results []F1DriverResult `json:"results"`
 	Events  []F1Event        `json:"events"`
 }
+
+type F1DriverStanding struct {
+	Position     int     `json:"position"`
+	DriverNumber int     `json:"driverNumber"`
+	Name         string  `json:"name"`
+	NameAcronym  string  `json:"nameAcronym,omitempty"`
+	TeamName     string  `json:"teamName,omitempty"`
+	Points       float64 `json:"points"`
+}
+
+type F1TeamStanding struct {
+	Position int     `json:"position"`
+	TeamName string  `json:"teamName"`
+	Points   float64 `json:"points"`
+}
+
+type F1Standings struct {
+	Year           int                 `json:"year"`
+	SessionKey     int                 `json:"sessionKey"`
+	MeetingName    string              `json:"meetingName,omitempty"`
+	Drivers        []F1DriverStanding  `json:"drivers"`
+	Constructors   []F1TeamStanding    `json:"constructors"`
+}

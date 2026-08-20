@@ -292,6 +292,56 @@ export interface F1RaceDetail {
   events: F1Event[];
 }
 
+export interface MlbStandingRow {
+  rank: number;
+  team: MlbTeam;
+  wins: number;
+  losses: number;
+  winningPercentage: string;
+  gamesBack: string;
+  wildCardGamesBack?: string;
+  runDifferential: number;
+  streak?: string;
+  divisionLeader?: boolean;
+  clinched?: boolean;
+}
+
+export interface MlbStandingSection {
+  id: string;
+  league: string;
+  name: string;
+  kind: "division" | "wildcard" | string;
+  teams: MlbStandingRow[];
+}
+
+export interface MlbStandings {
+  season: number;
+  sections: MlbStandingSection[];
+}
+
+export interface F1DriverStanding {
+  position: number;
+  driverNumber: number;
+  name: string;
+  nameAcronym?: string;
+  teamName?: string;
+  points: number;
+}
+
+export interface F1TeamStanding {
+  position: number;
+  teamName: string;
+  points: number;
+}
+
+export interface F1Standings {
+  year: number;
+  sessionKey: number;
+  meetingName?: string;
+  drivers: F1DriverStanding[];
+  constructors: F1TeamStanding[];
+}
+
 export interface BackendEvent<T = unknown> {
   event: BackendEventName;
   payload: T;
@@ -337,11 +387,13 @@ export interface ReaderBackend {
     gameGet(gamePk: number): Promise<MlbGameDetail>;
     gameWatch(gamePk: number): Promise<MlbGameDetail>;
     gameUnwatch(gamePk: number): Promise<{ ok: true }>;
+    standings(params: { season?: number }): Promise<MlbStandings>;
     f1Years(): Promise<F1Season[]>;
     f1Races(params: { year?: number }): Promise<F1Race[]>;
     f1RaceGet(sessionKey: number): Promise<F1RaceDetail>;
     f1RaceWatch(sessionKey: number): Promise<F1RaceDetail>;
     f1RaceUnwatch(sessionKey: number): Promise<{ ok: true }>;
+    f1Standings(params: { year?: number }): Promise<F1Standings>;
   };
   stories: {
     list(): Promise<Story[]>;
@@ -411,11 +463,13 @@ export const RPC_METHODS = [
   "sports.game.get",
   "sports.game.watch",
   "sports.game.unwatch",
+  "sports.standings.get",
   "sports.f1.years.list",
   "sports.f1.races.list",
   "sports.f1.race.get",
   "sports.f1.race.watch",
   "sports.f1.race.unwatch",
+  "sports.f1.standings.get",
   "stories.list",
   "stories.get",
   "stories.markRead",

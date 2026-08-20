@@ -4,10 +4,13 @@ import type {
   F1RaceDetail,
   F1RaceStatus,
   F1Season,
+  F1Standings,
   MlbGame,
   MlbGameDetail,
   MlbGameStatus,
   MlbSeason,
+  MlbStandingSection,
+  MlbStandings,
   MlbTeam,
   ReaderBackend,
 } from "@rss-reader/shared";
@@ -22,7 +25,10 @@ type GameBucket = "completed" | "in_progress" | "scheduled";
 
 type MlbSelection =
   | { type: "all"; bucket: GameBucket }
-  | { type: "team"; id: number; bucket: GameBucket };
+  | { type: "team"; id: number; bucket: GameBucket }
+  | { type: "standings"; sectionId: string };
+
+type F1Mode = "races" | "wdc" | "wcc";
 
 const BUCKETS: { id: GameBucket; label: string }[] = [
   { id: "completed", label: "Completed" },
@@ -136,15 +142,18 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [activePk, setActivePk] = useState<number | null>(null);
   const [detail, setDetail] = useState<MlbGameDetail | null>(null);
   const [scoringOnly, setScoringOnly] = useState(false);
+  const [mlbStandings, setMlbStandings] = useState<MlbStandings | null>(null);
 
   // --- F1 ---
   const [f1Years, setF1Years] = useState<F1Season[]>([]);
   const [f1Year, setF1Year] = useState<number | null>(null);
+  const [f1Mode, setF1Mode] = useState<F1Mode>("races");
   const [f1BucketSel, setF1BucketSel] = useState<GameBucket>("completed");
   const [f1Races, setF1Races] = useState<F1Race[]>([]);
   const [activeSessionKey, setActiveSessionKey] = useState<number | null>(null);
   const [f1Detail, setF1Detail] = useState<F1RaceDetail | null>(null);
   const [significantOnly, setSignificantOnly] = useState(true);
+  const [f1Standings, setF1Standings] = useState<F1Standings | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -166,15 +175,24 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     setSelection(next);
   };
 
-  const selectF1Bucket = (bucket: GameBucket) => {
+  const selectF1Races = (bucket: GameBucket) => {
     setActiveSport("f1");
+    setF1Mode("races");
     setF1BucketSel(bucket);
+  };
+
+  const selectF1Standings = (mode: "wdc" | "wcc") => {
+    setActiveSport("f1");
+    setF1Mode(mode);
   };
 
   const followedTeams = useMemo(
     () => teams.filter((t) => followed.includes(t.id)).sort((a, b) => a.name.localeCompare(b.name)),
     [teams, followed],
   );
+
+  const mlbStandingsMode = selection.type === "standings";
+  const f1StandingsMode = f1Mode === "wdc" || f1Mode === "wcc";
 
   const reloadMlbMeta = useCallback(async () => {
     const [t, f, s] = await Promise.all([
@@ -197,7 +215,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const scheduleTeamId = selection.type === "team" ? selection.id : undefined;
 
   const reloadMlbSchedule = useCallback(async () => {
-    if (season == null || activeSport !== "mlb") return;
+    if (season == null || activeSport !== "mlb" || mlbStandingsMode) return;
     setBusy(true);
     setError(null);
     try {
@@ -209,10 +227,31 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     } finally {
       setBusy(false);
     }
-  }, [backend, season, scheduleTeamId, activeSport]);
+  }, [backend, season, scheduleTeamId, activeSport, mlbStandingsMode]);
+
+  const reloadMlbStandings = useCallback(async () => {
+    if (season == null || activeSport !== "mlb" || !mlbStandingsMode) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await backend.sports.standings({ season });
+      setMlbStandings(data);
+      setSelection((prev) => {
+        if (prev.type !== "standings") return prev;
+        if (data.sections.some((s) => s.id === prev.sectionId)) return prev;
+        const first = data.sections[0]?.id;
+        return first ? { type: "standings", sectionId: first } : prev;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load standings");
+      setMlbStandings(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [backend, season, activeSport, mlbStandingsMode]);
 
   const reloadF1Races = useCallback(async () => {
-    if (f1Year == null || activeSport !== "f1") return;
+    if (f1Year == null || activeSport !== "f1" || f1StandingsMode) return;
     setBusy(true);
     setError(null);
     try {
@@ -224,15 +263,37 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     } finally {
       setBusy(false);
     }
-  }, [backend, f1Year, activeSport]);
+  }, [backend, f1Year, activeSport, f1StandingsMode]);
+
+  const reloadF1Standings = useCallback(async () => {
+    if (f1Year == null || activeSport !== "f1" || !f1StandingsMode) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await backend.sports.f1Standings({ year: f1Year });
+      setF1Standings(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load championship");
+      setF1Standings(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [backend, f1Year, activeSport, f1StandingsMode]);
 
   const visibleGames = useMemo(() => {
+    if (selection.type === "standings") return [];
     return games.filter((g) => gameBucket(g.status) === selection.bucket);
-  }, [games, selection.bucket]);
+  }, [games, selection]);
 
   const visibleRaces = useMemo(() => {
+    if (f1StandingsMode) return [];
     return f1Races.filter((r) => f1Bucket(r.status) === f1BucketSel);
-  }, [f1Races, f1BucketSel]);
+  }, [f1Races, f1BucketSel, f1StandingsMode]);
+
+  const activeMlbSection: MlbStandingSection | null = useMemo(() => {
+    if (selection.type !== "standings" || !mlbStandings) return null;
+    return mlbStandings.sections.find((s) => s.id === selection.sectionId) ?? mlbStandings.sections[0] ?? null;
+  }, [selection, mlbStandings]);
 
   useEffect(() => {
     setActivePk((pk) => {
@@ -260,12 +321,20 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   }, [reloadMlbSchedule]);
 
   useEffect(() => {
+    void reloadMlbStandings();
+  }, [reloadMlbStandings]);
+
+  useEffect(() => {
     void reloadF1Races();
   }, [reloadF1Races]);
 
   useEffect(() => {
-    if (activeSport !== "mlb" || !activePk) {
-      if (activeSport !== "mlb") setDetail(null);
+    void reloadF1Standings();
+  }, [reloadF1Standings]);
+
+  useEffect(() => {
+    if (activeSport !== "mlb" || mlbStandingsMode || !activePk) {
+      if (activeSport !== "mlb" || mlbStandingsMode) setDetail(null);
       return;
     }
     let cancelled = false;
@@ -281,11 +350,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       cancelled = true;
       void backend.sports.gameUnwatch(activePk);
     };
-  }, [activePk, backend, activeSport]);
+  }, [activePk, backend, activeSport, mlbStandingsMode]);
 
   useEffect(() => {
-    if (activeSport !== "f1" || !activeSessionKey) {
-      if (activeSport !== "f1") setF1Detail(null);
+    if (activeSport !== "f1" || f1StandingsMode || !activeSessionKey) {
+      if (activeSport !== "f1" || f1StandingsMode) setF1Detail(null);
       return;
     }
     let cancelled = false;
@@ -301,7 +370,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       cancelled = true;
       void backend.sports.f1RaceUnwatch(activeSessionKey);
     };
-  }, [activeSessionKey, backend, activeSport]);
+  }, [activeSessionKey, backend, activeSport, f1StandingsMode]);
 
   useEffect(() => {
     setScoringOnly(false);
@@ -405,6 +474,26 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
                   <div className="sports-team-group">
                     <div className="nav-item sports-team-heading">
+                      <span>League</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`nav-item nav-item-nested ${
+                        activeSport === "mlb" && selection.type === "standings" ? "active" : ""
+                      }`}
+                      onClick={() =>
+                        selectMlb({
+                          type: "standings",
+                          sectionId: mlbStandings?.sections[0]?.id ?? "div-201",
+                        })
+                      }
+                    >
+                      <span>Standings</span>
+                    </button>
+                  </div>
+
+                  <div className="sports-team-group">
+                    <div className="nav-item sports-team-heading">
                       <span>All followed</span>
                     </div>
                     {BUCKETS.map((b) => (
@@ -481,6 +570,29 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                   </select>
                   <div className="sports-team-group">
                     <div className="nav-item sports-team-heading">
+                      <span>League</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`nav-item nav-item-nested ${
+                        activeSport === "f1" && f1Mode === "wdc" ? "active" : ""
+                      }`}
+                      onClick={() => selectF1Standings("wdc")}
+                    >
+                      <span>WDC</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`nav-item nav-item-nested ${
+                        activeSport === "f1" && f1Mode === "wcc" ? "active" : ""
+                      }`}
+                      onClick={() => selectF1Standings("wcc")}
+                    >
+                      <span>WCC</span>
+                    </button>
+                  </div>
+                  <div className="sports-team-group">
+                    <div className="nav-item sports-team-heading">
                       <span>Races</span>
                     </div>
                     {BUCKETS.map((b) => (
@@ -488,9 +600,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                         key={`f1-${b.id}`}
                         type="button"
                         className={`nav-item nav-item-nested ${
-                          activeSport === "f1" && f1BucketSel === b.id ? "active" : ""
+                          activeSport === "f1" && f1Mode === "races" && f1BucketSel === b.id
+                            ? "active"
+                            : ""
                         }`}
-                        onClick={() => selectF1Bucket(b.id)}
+                        onClick={() => selectF1Races(b.id)}
                       >
                         <span>{b.label}</span>
                       </button>
@@ -498,18 +612,111 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                   </div>
                 </>
               )}
-
-              {open && sport.available && sport.id === "nfl" ? (
-                <p className="sports-coming-soon muted">
-                  {sport.label} is marked available but has no UI panel yet.
-                </p>
-              ) : null}
             </div>
           );
         })}
       </aside>
 
       {activeSport === "mlb" ? (
+        mlbStandingsMode ? (
+          <>
+            <section className="pane article-list">
+              {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
+              {busy && !mlbStandings ? (
+                <div className="empty">
+                  <p>Loading standings…</p>
+                </div>
+              ) : !mlbStandings || mlbStandings.sections.length === 0 ? (
+                <div className="empty">
+                  <h2>No standings</h2>
+                  <p>Standings are not available for {season}.</p>
+                </div>
+              ) : (
+                mlbStandings.sections.map((sec) => (
+                  <button
+                    key={sec.id}
+                    type="button"
+                    className={`article-row ${sec.id === activeMlbSection?.id ? "active" : ""}`}
+                    onClick={() => selectMlb({ type: "standings", sectionId: sec.id })}
+                  >
+                    <div className="article-meta">
+                      <span>{sec.league}</span>
+                      <span>{sec.kind === "wildcard" ? "WC" : "Div"}</span>
+                    </div>
+                    <h3 className="article-title">
+                      {sec.league} {sec.name}
+                    </h3>
+                    <p className="article-summary">{sec.teams.length} teams</p>
+                  </button>
+                ))
+              )}
+            </section>
+            <section className="pane reader-pane">
+              {!activeMlbSection ? (
+                <div className="empty">
+                  <h2>Standings</h2>
+                  <p>Select a division or wild card race.</p>
+                </div>
+              ) : (
+                <article className="reader sports-reader">
+                  <div className="reader-kicker">
+                    {season} · {activeMlbSection.kind === "wildcard" ? "Wild Card" : "Division"}
+                  </div>
+                  <h1 className="sports-scoreline" style={{ fontSize: "1.35rem" }}>
+                    {activeMlbSection.league} {activeMlbSection.name}
+                  </h1>
+                  <div className="sports-linescore-wrap">
+                    <table className="sports-linescore sports-standings-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Team</th>
+                          <th>W</th>
+                          <th>L</th>
+                          <th>PCT</th>
+                          <th>GB</th>
+                          {activeMlbSection.kind === "wildcard" ? <th>WCGB</th> : null}
+                          <th>Diff</th>
+                          <th>Strk</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeMlbSection.teams.map((row) => (
+                          <tr key={row.team.id}>
+                            <td>{row.rank}</td>
+                            <td className="sports-standings-team">
+                              {row.team.logoUrl ? (
+                                <img src={row.team.logoUrl} alt="" className="sports-logo" />
+                              ) : null}
+                              {row.team.abbreviation || row.team.name}
+                              {row.clinched ? (
+                                <span className="sports-scoring-badge" style={{ marginLeft: 6 }}>
+                                  Clinched
+                                </span>
+                              ) : null}
+                            </td>
+                            <td>{row.wins}</td>
+                            <td>{row.losses}</td>
+                            <td>{row.winningPercentage || "—"}</td>
+                            <td>{row.gamesBack || "—"}</td>
+                            {activeMlbSection.kind === "wildcard" ? (
+                              <td>{row.wildCardGamesBack || "—"}</td>
+                            ) : null}
+                            <td>
+                              {row.runDifferential > 0 ? "+" : ""}
+                              {row.runDifferential}
+                            </td>
+                            <td>{row.streak || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              )}
+            </section>
+          </>
+        ) : (
         <>
           <section className="pane article-list">
             {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
@@ -521,9 +728,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
               <div className="empty">
                 <h2>No games</h2>
                 <p>
-                  {`No ${BUCKETS.find((b) => b.id === selection.bucket)?.label.toLowerCase() ?? ""} games${
-                    selection.type === "team" ? " for this team" : ""
-                  } in ${season}.`}
+                  {`No ${
+                    selection.type === "all" || selection.type === "team"
+                      ? BUCKETS.find((b) => b.id === selection.bucket)?.label.toLowerCase() ?? ""
+                      : ""
+                  } games${selection.type === "team" ? " for this team" : ""} in ${season}.`}
                 </p>
               </div>
             ) : (
@@ -671,7 +880,107 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
             )}
           </section>
         </>
+        )
       ) : activeSport === "f1" ? (
+        f1StandingsMode ? (
+          <>
+            <section className="pane article-list">
+              {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
+              {busy && !f1Standings ? (
+                <div className="empty">
+                  <p>Loading championship…</p>
+                </div>
+              ) : f1Mode === "wdc" ? (
+                !(f1Standings?.drivers.length) ? (
+                  <div className="empty">
+                    <h2>No WDC data</h2>
+                    <p>Driver standings unavailable for {f1Year}.</p>
+                  </div>
+                ) : (
+                  f1Standings.drivers.map((d) => (
+                    <div key={d.driverNumber} className="article-row">
+                      <div className="article-meta">
+                        <span>P{d.position}</span>
+                        <span>{d.points} pts</span>
+                      </div>
+                      <h3 className="article-title">{d.nameAcronym || d.name}</h3>
+                      <p className="article-summary">{d.teamName || d.name}</p>
+                    </div>
+                  ))
+                )
+              ) : !(f1Standings?.constructors.length) ? (
+                <div className="empty">
+                  <h2>No WCC data</h2>
+                  <p>Constructor standings unavailable for {f1Year}.</p>
+                </div>
+              ) : (
+                f1Standings.constructors.map((t) => (
+                  <div key={t.teamName} className="article-row">
+                    <div className="article-meta">
+                      <span>P{t.position}</span>
+                      <span>{t.points} pts</span>
+                    </div>
+                    <h3 className="article-title">{t.teamName}</h3>
+                  </div>
+                ))
+              )}
+            </section>
+            <section className="pane reader-pane">
+              <article className="reader sports-reader">
+                <div className="reader-kicker">
+                  {f1Year} championship
+                  {f1Standings?.meetingName ? ` · after ${f1Standings.meetingName}` : ""}
+                </div>
+                <h1 className="sports-scoreline" style={{ fontSize: "1.35rem" }}>
+                  {f1Mode === "wdc" ? "Drivers’ Championship" : "Constructors’ Championship"}
+                </h1>
+                <div className="sports-linescore-wrap">
+                  {f1Mode === "wdc" ? (
+                    <table className="sports-linescore sports-standings-table sports-f1-results">
+                      <thead>
+                        <tr>
+                          <th>Pos</th>
+                          <th>Driver</th>
+                          <th>Team</th>
+                          <th>Pts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(f1Standings?.drivers ?? []).map((d) => (
+                          <tr key={d.driverNumber}>
+                            <td>{d.position}</td>
+                            <td>{d.nameAcronym || d.name}</td>
+                            <td>{d.teamName || "—"}</td>
+                            <td>{d.points}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <table className="sports-linescore sports-standings-table sports-f1-results">
+                      <thead>
+                        <tr>
+                          <th>Pos</th>
+                          <th>Team</th>
+                          <th>Pts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(f1Standings?.constructors ?? []).map((t) => (
+                          <tr key={t.teamName}>
+                            <td>{t.position}</td>
+                            <td>{t.teamName}</td>
+                            <td>{t.points}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </article>
+            </section>
+          </>
+        ) : (
         <>
           <section className="pane article-list">
             {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
@@ -822,6 +1131,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
             )}
           </section>
         </>
+        )
       ) : (
         <section className="pane article-list">
           <div className="empty">

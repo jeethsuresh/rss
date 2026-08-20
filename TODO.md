@@ -96,4 +96,5 @@ Track phase completion and follow-ups. Check items as they land.
 - [x] Top-level Read Later mode (2-pane, archive, send from RSS)
 - [x] Sports mode — MLB teams, schedules, live game detail (Stats API)
 - [x] Sports mode — F1 races, classification, race control (OpenF1)
+- [x] Sports league standings — MLB AL/NL divisions + wild card; F1 WDC/WCC
 - [ ] Archive / recently-read smart views (RSS)

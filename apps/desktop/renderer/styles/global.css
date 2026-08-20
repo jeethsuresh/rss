@@ -280,6 +280,17 @@ button {
   text-align: left;
 }
 
+.sports-standings-table td.sports-standings-team,
+.sports-standings-team {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sports-standings-team .sports-logo {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
 .sports-plays-header {
   display: flex;
   align-items: center;

@@ -428,3 +428,178 @@ func normalizeLiveFeed(raw liveFeed) *domain.MlbGameDetail {
 		HomeErrors: raw.LiveData.Linescore.Teams.Home.Errors,
 	}
 }
+
+func (c *Client) Standings(ctx context.Context, season int) (*domain.MlbStandings, error) {
+	if season <= 0 {
+		season = time.Now().Year()
+	}
+	divNames := map[int]string{}
+	var divRaw struct {
+		Divisions []struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"divisions"`
+	}
+	dq := url.Values{}
+	dq.Set("sportId", "1")
+	if err := c.getJSON(ctx, "/v1/divisions", dq, &divRaw); err == nil {
+		for _, d := range divRaw.Divisions {
+			divNames[d.ID] = d.Name
+		}
+	}
+
+	var raw struct {
+		Records []struct {
+			StandingsType string `json:"standingsType"`
+			League        struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"league"`
+			Division struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"division"`
+			TeamRecords []struct {
+				Team struct {
+					ID   int    `json:"id"`
+					Name string `json:"name"`
+				} `json:"team"`
+				Wins              int    `json:"wins"`
+				Losses            int    `json:"losses"`
+				WinningPercentage string `json:"winningPercentage"`
+				GamesBack         string `json:"gamesBack"`
+				WildCardGamesBack string `json:"wildCardGamesBack"`
+				RunDifferential   int    `json:"runDifferential"`
+				DivisionRank      string `json:"divisionRank"`
+				WildCardRank      string `json:"wildCardRank"`
+				DivisionLeader    bool   `json:"divisionLeader"`
+				Clinched          bool   `json:"clinched"`
+				Streak            struct {
+					StreakCode string `json:"streakCode"`
+				} `json:"streak"`
+			} `json:"teamRecords"`
+		} `json:"records"`
+	}
+	q := url.Values{}
+	q.Set("leagueId", "103,104")
+	q.Set("season", strconv.Itoa(season))
+	q.Set("standingsTypes", "regularSeason,wildCard")
+	if err := c.getJSON(ctx, "/v1/standings", q, &raw); err != nil {
+		return nil, err
+	}
+
+	leagueLabel := func(id int) string {
+		switch id {
+		case 103:
+			return "AL"
+		case 104:
+			return "NL"
+		default:
+			return fmt.Sprintf("L%d", id)
+		}
+	}
+	shortDiv := func(full string) string {
+		full = strings.TrimPrefix(full, "American League ")
+		full = strings.TrimPrefix(full, "National League ")
+		return full
+	}
+
+	sections := make([]domain.MlbStandingSection, 0, len(raw.Records))
+	for _, rec := range raw.Records {
+		kind := "division"
+		name := rec.Division.Name
+		if name == "" {
+			name = divNames[rec.Division.ID]
+		}
+		id := fmt.Sprintf("div-%d", rec.Division.ID)
+		if rec.StandingsType == "wildCard" {
+			kind = "wildcard"
+			name = "Wild Card"
+			id = fmt.Sprintf("wc-%d", rec.League.ID)
+		} else {
+			name = shortDiv(name)
+			if name == "" {
+				name = fmt.Sprintf("Division %d", rec.Division.ID)
+			}
+		}
+		rows := make([]domain.MlbStandingRow, 0, len(rec.TeamRecords))
+		for i, tr := range rec.TeamRecords {
+			rank := i + 1
+			if kind == "wildcard" && tr.WildCardRank != "" {
+				if n, err := strconv.Atoi(tr.WildCardRank); err == nil {
+					rank = n
+				}
+			} else if tr.DivisionRank != "" {
+				if n, err := strconv.Atoi(tr.DivisionRank); err == nil {
+					rank = n
+				}
+			}
+			abbr := ""
+			// Prefer abbreviation from teams cache if present
+			rows = append(rows, domain.MlbStandingRow{
+				Rank:              rank,
+				Team: domain.MlbTeam{
+					ID:           tr.Team.ID,
+					Name:         tr.Team.Name,
+					Abbreviation: abbr,
+					LogoURL:      logoURL(tr.Team.ID),
+				},
+				Wins:              tr.Wins,
+				Losses:            tr.Losses,
+				WinningPercentage: tr.WinningPercentage,
+				GamesBack:         tr.GamesBack,
+				WildCardGamesBack: tr.WildCardGamesBack,
+				RunDifferential:   tr.RunDifferential,
+				Streak:            tr.Streak.StreakCode,
+				DivisionLeader:    tr.DivisionLeader,
+				Clinched:          tr.Clinched,
+			})
+		}
+		sections = append(sections, domain.MlbStandingSection{
+			ID:     id,
+			League: leagueLabel(rec.League.ID),
+			Name:   name,
+			Kind:   kind,
+			Teams:  rows,
+		})
+	}
+
+	// Stable order: AL East/Central/West, AL WC, NL East/Central/West, NL WC
+	order := []string{"div-201", "div-202", "div-200", "wc-103", "div-204", "div-205", "div-203", "wc-104"}
+	byID := map[string]domain.MlbStandingSection{}
+	for _, s := range sections {
+		byID[s.ID] = s
+	}
+	ordered := make([]domain.MlbStandingSection, 0, len(order))
+	for _, id := range order {
+		if s, ok := byID[id]; ok {
+			ordered = append(ordered, s)
+			delete(byID, id)
+		}
+	}
+	for _, s := range sections {
+		if _, ok := byID[s.ID]; ok {
+			ordered = append(ordered, s)
+			delete(byID, s.ID)
+		}
+	}
+
+	// Fill abbreviations from team list when available
+	if teams, err := c.ListTeams(ctx); err == nil {
+		abbr := map[int]string{}
+		short := map[int]string{}
+		for _, t := range teams {
+			abbr[t.ID] = t.Abbreviation
+			short[t.ID] = t.ShortName
+		}
+		for i := range ordered {
+			for j := range ordered[i].Teams {
+				id := ordered[i].Teams[j].Team.ID
+				ordered[i].Teams[j].Team.Abbreviation = abbr[id]
+				ordered[i].Teams[j].Team.ShortName = short[id]
+			}
+		}
+	}
+
+	return &domain.MlbStandings{Season: season, Sections: ordered}, nil
+}
