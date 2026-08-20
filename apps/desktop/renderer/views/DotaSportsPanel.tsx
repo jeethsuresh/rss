@@ -159,7 +159,13 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
     void backend.sports
       .dotaEvents({ year })
       .then((list) => setEvents(list ?? []))
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load events"))
+      .catch((e) =>
+        setError(
+          e instanceof Error
+            ? e.message.replace(/^Error invoking remote method[^:]*:\s*/i, "")
+            : "Failed to load events",
+        ),
+      )
       .finally(() => setListBusy(false));
   }, [backend, year]);
 
@@ -170,16 +176,33 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
     }
     let cancelled = false;
     void Promise.all(
-      followed.map((id) =>
-        backend.sports.dotaTeamGet(id).catch(() => ({ id, name: `Team ${id}` }) as DotaTeam),
-      ),
+      followed.map(async (id) => {
+        try {
+          return await backend.sports.dotaTeamGet(id);
+        } catch {
+          return { id, name: `Team ${id}` } as DotaTeam;
+        }
+      }),
     ).then((teams) => {
-      if (!cancelled) setFollowedTeams(teams);
+      if (!cancelled) setFollowedTeams(teams.filter((t): t is DotaTeam => !!t));
     });
     return () => {
       cancelled = true;
     };
   }, [backend, followed]);
+
+  const teamTitle = useCallback(
+    (teamId: number) => {
+      const known = followedTeams.find((t) => t.id === teamId);
+      if (known?.name && !known.name.startsWith("Team ")) return known.name;
+      for (const m of matches) {
+        if (m.teamA.id === teamId && m.teamA.name) return m.teamA.name;
+        if (m.teamB.id === teamId && m.teamB.name) return m.teamB.name;
+      }
+      return known?.name ?? `Team ${teamId}`;
+    },
+    [followedTeams, matches],
+  );
 
   const openEvent = useCallback(
     async (eventId: string) => {
@@ -195,7 +218,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
         const list = await backend.sports.dotaEventMatches(eventId);
         setMatches(list ?? []);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load matches");
+        setError(e instanceof Error ? e.message.replace(/^Error invoking remote method[^:]*:\s*/i, "") : "Failed to load matches");
       } finally {
         setListBusy(false);
       }
@@ -212,13 +235,24 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       setListBusy(true);
       setError(null);
       try {
-        const list = await backend.sports.dotaTeamMatches({
-          teamId,
-          year: year ?? undefined,
-        });
+        const [, list] = await Promise.all([
+          backend.sports.dotaTeamGet(teamId).then((t) => {
+            if (t) {
+              setFollowedTeams((prev) => {
+                const rest = prev.filter((x) => x.id !== t.id);
+                return [...rest, t];
+              });
+            }
+            return t;
+          }).catch(() => null),
+          backend.sports.dotaTeamMatches({
+            teamId,
+            year: year ?? undefined,
+          }),
+        ]);
         setMatches(list ?? []);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load team matches");
+        setError(e instanceof Error ? e.message.replace(/^Error invoking remote method[^:]*:\s*/i, "") : "Failed to load team matches");
       } finally {
         setListBusy(false);
       }
@@ -238,7 +272,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
         const detail = await backend.sports.dotaMatchWatch(matchId);
         setMatchDetail(detail);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load match");
+        setError(e instanceof Error ? e.message.replace(/^Error invoking remote method[^:]*:\s*/i, "") : "Failed to load match");
       } finally {
         setListBusy(false);
         setDetailBusy(false);
@@ -387,6 +421,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
                     type="button"
                     className={`nav-item nav-item-nested ${nav.type === "browse" ? "active" : ""}`}
                     onClick={() => {
+                      setError(null);
                       setNav({ type: "browse" });
                       setMatchDetail(null);
                       setGameDetail(null);
@@ -528,7 +563,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
                         {ev.organizer ? <span>{ev.organizer}</span> : null}
                       </div>
                       <h3 className="article-title">{ev.name}</h3>
-                      <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+                      <div className="article-meta" style={{ marginTop: 4 }}>
                         <button
                           type="button"
                           className="btn"
@@ -537,7 +572,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
                             void togglePin(ev);
                           }}
                         >
-                          {pinned ? "Unpin" : "Pin"}
+                          {pinned ? "★ Pinned" : "☆ Pin"}
                         </button>
                       </div>
                     </button>
@@ -556,13 +591,15 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
 
         {(nav.type === "event" || nav.type === "team") && !matchDetail && (
           <>
-            <div style={{ padding: "8px 12px", display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ padding: "8px 12px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className="btn"
                 onClick={() => {
+                  setError(null);
                   setNav({ type: "browse" });
                   setMatches([]);
+                  setActiveEvent(null);
                 }}
               >
                 ← Back
@@ -570,10 +607,28 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
               <h2 style={{ margin: 0 }}>
                 {nav.type === "event"
                   ? activeEvent?.name ?? "Event"
-                  : followedTeams.find((t) => t.id === nav.teamId)?.name ?? `Team ${nav.teamId}`}
+                  : teamTitle(nav.teamId)}
               </h2>
               {nav.type === "event" && activeEvent ? (
-                <span className="count">{tierLabel(activeEvent.tier)}</span>
+                <>
+                  <span className="count">{tierLabel(activeEvent.tier)}</span>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => void togglePin(activeEvent)}
+                  >
+                    {pinSet.has(`${activeEvent.type}:${activeEvent.id}`) ? "Unpin" : "Pin"}
+                  </button>
+                </>
+              ) : null}
+              {nav.type === "team" ? (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void toggleFollow(nav.teamId)}
+                >
+                  {followedSet.has(nav.teamId) ? "Unfollow" : "Follow"}
+                </button>
               ) : null}
             </div>
             {(
@@ -599,28 +654,6 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
                         {m.eventName ? <span>{m.eventName}</span> : null}
                       </div>
                       <h3 className="article-title">{scoreLine(m)}</h3>
-                      <div className="modal-actions" style={{ justifyContent: "flex-start", gap: 6 }}>
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void toggleFollow(m.teamA.id);
-                          }}
-                        >
-                          {followedSet.has(m.teamA.id) ? "★" : "☆"} {m.teamA.shortName || m.teamA.name}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void toggleFollow(m.teamB.id);
-                          }}
-                        >
-                          {followedSet.has(m.teamB.id) ? "★" : "☆"} {m.teamB.shortName || m.teamB.name}
-                        </button>
-                      </div>
                     </button>
                   ))}
                 </div>

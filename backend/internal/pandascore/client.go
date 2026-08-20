@@ -201,16 +201,19 @@ type psLeague struct {
 }
 
 type psSerie struct {
-	ID         int      `json:"id"`
-	Name       string   `json:"name"`
-	FullName   string   `json:"full_name"`
-	Year       int      `json:"year"`
-	BeginAt    *string  `json:"begin_at"`
-	EndAt      *string  `json:"end_at"`
-	Tier       string   `json:"tier"`
-	LeagueID   int      `json:"league_id"`
-	League     *psLeague `json:"league"`
-	WinnerID   *int     `json:"winner_id"`
+	ID           int      `json:"id"`
+	Name         string   `json:"name"`
+	FullName     string   `json:"full_name"`
+	Year         int      `json:"year"`
+	BeginAt      *string  `json:"begin_at"`
+	EndAt        *string  `json:"end_at"`
+	Tier         string   `json:"tier"`
+	LeagueID     int      `json:"league_id"`
+	League       *psLeague `json:"league"`
+	WinnerID     *int     `json:"winner_id"`
+	Tournaments  []struct {
+		Tier string `json:"tier"`
+	} `json:"tournaments"`
 }
 
 type psTeam struct {
@@ -255,6 +258,7 @@ type psMatch struct {
 	SerieID      int     `json:"serie_id"`
 	TournamentID int     `json:"tournament_id"`
 	Serie        *psSerie `json:"serie"`
+	League       *psLeague `json:"league"`
 	Tournament   *struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
@@ -275,11 +279,65 @@ func teamFromPS(t *psTeam) domain.DotaTeam {
 	}
 }
 
-func eventFromSerie(s psSerie) domain.DotaEvent {
-	name := strings.TrimSpace(s.FullName)
-	if name == "" {
-		name = strings.TrimSpace(s.Name)
+func serieDisplayName(s psSerie) string {
+	league := ""
+	if s.League != nil {
+		league = strings.TrimSpace(s.League.Name)
 	}
+	full := strings.TrimSpace(s.FullName)
+	name := strings.TrimSpace(s.Name)
+	yearStr := ""
+	if s.Year > 0 {
+		yearStr = strconv.Itoa(s.Year)
+	}
+	isBareYear := func(v string) bool {
+		return v == "" || (yearStr != "" && v == yearStr)
+	}
+	// PandaScore often sets full_name to just "2026" for TI — prefer league + year.
+	if league != "" && isBareYear(full) && isBareYear(name) {
+		if yearStr != "" && !strings.Contains(league, yearStr) {
+			return league + " " + yearStr
+		}
+		return league
+	}
+	if !isBareYear(full) {
+		return full
+	}
+	if !isBareYear(name) {
+		return name
+	}
+	if league != "" {
+		if yearStr != "" && !strings.Contains(league, yearStr) {
+			return league + " " + yearStr
+		}
+		return league
+	}
+	if full != "" {
+		return full
+	}
+	if name != "" {
+		return name
+	}
+	return "Event"
+}
+
+func serieTier(s psSerie) string {
+	if t := strings.TrimSpace(s.Tier); t != "" {
+		return t
+	}
+	best := ""
+	rank := map[string]int{"s": 5, "a": 4, "b": 3, "c": 2, "d": 1}
+	for _, t := range s.Tournaments {
+		tr := strings.ToLower(strings.TrimSpace(t.Tier))
+		if rank[tr] > rank[best] {
+			best = tr
+		}
+	}
+	return best
+}
+
+func eventFromSerie(s psSerie) domain.DotaEvent {
+	name := serieDisplayName(s)
 	leagueName := ""
 	logo := ""
 	leagueID := ""
@@ -300,7 +358,7 @@ func eventFromSerie(s psSerie) domain.DotaEvent {
 		ID:         strconv.Itoa(s.ID),
 		Name:       name,
 		Type:       domain.DotaEventTournament,
-		Tier:       MapTier(s.Tier),
+		Tier:       MapTier(serieTier(s)),
 		Status:     MapEventStatus(s.BeginAt, s.EndAt, ""),
 		StartAt:    s.BeginAt,
 		EndAt:      s.EndAt,
@@ -344,10 +402,18 @@ func matchFromPS(m psMatch, yearFallback int) domain.DotaMatch {
 	}
 	if m.Serie != nil {
 		eventID = strconv.Itoa(m.Serie.ID)
-		eventName = m.Serie.FullName
-		if eventName == "" {
-			eventName = m.Serie.Name
+		// Match payloads often omit serie.league; copy from match.league when present.
+		serie := *m.Serie
+		if serie.League == nil && m.League != nil {
+			serie.League = m.League
+			if serie.LeagueID == 0 {
+				serie.LeagueID = m.League.ID
+			}
 		}
+		eventName = serieDisplayName(serie)
+	}
+	if eventName == "" && m.League != nil {
+		eventName = strings.TrimSpace(m.League.Name)
 	}
 	stage := ""
 	if m.Tournament != nil {
@@ -443,8 +509,9 @@ func (c *Client) ListSeriesForYear(ctx context.Context, year int) ([]domain.Dota
 }
 
 func (c *Client) GetSerie(ctx context.Context, serieID int) (*domain.DotaEvent, error) {
+	// Single-resource GETs are unscoped on PandaScore; /dota2/series/{id} returns "Route not found".
 	var raw psSerie
-	if err := c.getJSON(ctx, "/dota2/series/"+strconv.Itoa(serieID), nil, &raw); err != nil {
+	if err := c.getJSON(ctx, "/series/"+strconv.Itoa(serieID), nil, &raw); err != nil {
 		return nil, err
 	}
 	ev := eventFromSerie(raw)
@@ -456,7 +523,7 @@ func (c *Client) ListSerieMatches(ctx context.Context, serieID int) ([]domain.Do
 	q.Set("per_page", "100")
 	q.Set("sort", "-begin_at")
 	var raw []psMatch
-	if err := c.getJSON(ctx, "/dota2/series/"+strconv.Itoa(serieID)+"/matches", q, &raw); err != nil {
+	if err := c.getJSON(ctx, "/series/"+strconv.Itoa(serieID)+"/matches", q, &raw); err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return []domain.DotaMatch{}, nil
 		}
@@ -471,7 +538,7 @@ func (c *Client) ListSerieMatches(ctx context.Context, serieID int) ([]domain.Do
 
 func (c *Client) GetMatch(ctx context.Context, matchID int) (*domain.DotaMatchDetail, error) {
 	var raw psMatch
-	if err := c.getJSON(ctx, "/dota2/matches/"+strconv.Itoa(matchID), nil, &raw); err != nil {
+	if err := c.getJSON(ctx, "/matches/"+strconv.Itoa(matchID), nil, &raw); err != nil {
 		return nil, err
 	}
 	m := matchFromPS(raw, 0)
@@ -523,8 +590,24 @@ func (c *Client) SearchTeams(ctx context.Context, query string) ([]domain.DotaTe
 }
 
 func (c *Client) GetTeam(ctx context.Context, teamID int) (*domain.DotaTeam, error) {
+	// Single-resource GETs are unscoped; /dota2/teams/{id} returns "Route not found".
 	var raw psTeam
-	if err := c.getJSON(ctx, "/dota2/teams/"+strconv.Itoa(teamID), nil, &raw); err != nil {
+	if err := c.getJSON(ctx, "/teams/"+strconv.Itoa(teamID), nil, &raw); err != nil {
+		// Fallback: filtered list (still videogame-scoped).
+		if errors.Is(err, domain.ErrNotFound) {
+			q := url.Values{}
+			q.Set("filter[id]", strconv.Itoa(teamID))
+			q.Set("per_page", "1")
+			var list []psTeam
+			if err2 := c.getJSON(ctx, "/dota2/teams", q, &list); err2 != nil {
+				return nil, err
+			}
+			if len(list) == 0 {
+				return nil, domain.ErrNotFound
+			}
+			t := teamFromPS(&list[0])
+			return &t, nil
+		}
 		return nil, err
 	}
 	t := teamFromPS(&raw)
