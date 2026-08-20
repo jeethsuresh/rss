@@ -87,9 +87,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
+          # Ubuntu/Debian: `rpm` provides rpmbuild. There is no `rpm-build` package
+          # (that name is Fedora/RHEL-only).
           sudo apt-get install -y --no-install-recommends \
             rpm \
-            rpm-build \
             libarchive-tools \
             libfuse2 \
             fakeroot
