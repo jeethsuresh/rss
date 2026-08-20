@@ -7,7 +7,7 @@ type Props = {
   title?: string;
 };
 
-/** Renders a saved full web page in a sandboxed iframe (scripts allowed; no parent access). */
+/** Renders a saved full web page in a sandboxed iframe (scripts allowed; opaque origin — no parent access). */
 export function PageFrame({ html, pageUrl, title = "Article page" }: Props) {
   const [src, setSrc] = useState<string | null>(null);
 
@@ -29,7 +29,10 @@ export function PageFrame({ html, pageUrl, title = "Article page" }: Props) {
       className="page-frame"
       title={title}
       src={src}
-      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-same-origin"
+      // Do NOT set allow-same-origin with allow-scripts: blob URLs inherit the
+      // app origin, and page scripts can then call history.replaceState / touch
+      // the parent (SecurityError + broken Vite HMR when doc URL is blob:).
+      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
       referrerPolicy="no-referrer-when-downgrade"
     />
   );
