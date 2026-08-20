@@ -16,7 +16,7 @@ type Props = {
 type GameBucket = "completed" | "in_progress" | "scheduled";
 
 type Selection =
-  | { type: "all" }
+  | { type: "all"; bucket: GameBucket }
   | { type: "team"; id: number; bucket: GameBucket };
 
 const BUCKETS: { id: GameBucket; label: string }[] = [
@@ -83,7 +83,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [followed, setFollowed] = useState<number[]>([]);
   const [seasons, setSeasons] = useState<MlbSeason[]>([]);
   const [season, setSeason] = useState<number | null>(null);
-  const [selection, setSelection] = useState<Selection>({ type: "all" });
+  const [selection, setSelection] = useState<Selection>({ type: "all", bucket: "scheduled" });
   const [games, setGames] = useState<MlbGame[]>([]);
   const [activePk, setActivePk] = useState<number | null>(null);
   const [detail, setDetail] = useState<MlbGameDetail | null>(null);
@@ -125,9 +125,8 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   }, [backend, season, scheduleTeamId]);
 
   const visibleGames = useMemo(() => {
-    if (selection.type === "all") return games;
     return games.filter((g) => gameBucket(g.status) === selection.bucket);
-  }, [games, selection]);
+  }, [games, selection.bucket]);
 
   useEffect(() => {
     setActivePk((pk) => {
@@ -205,13 +204,23 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
         </select>
 
         <div className="section-label">Teams</div>
-        <button
-          type="button"
-          className={`nav-item ${selection.type === "all" ? "active" : ""}`}
-          onClick={() => setSelection({ type: "all" })}
-        >
-          <span>All followed</span>
-        </button>
+        <div className="sports-team-group">
+          <div className="nav-item sports-team-heading">
+            <span>All followed</span>
+          </div>
+          {BUCKETS.map((b) => (
+            <button
+              key={`all-${b.id}`}
+              type="button"
+              className={`nav-item nav-item-nested ${
+                selection.type === "all" && selection.bucket === b.id ? "active" : ""
+              }`}
+              onClick={() => setSelection({ type: "all", bucket: b.id })}
+            >
+              <span>{b.label}</span>
+            </button>
+          ))}
+        </div>
         {followedTeams.map((t) => (
           <div key={t.id} className="sports-team-group">
             <div className="nav-item sports-team-heading">
@@ -256,9 +265,9 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <div className="empty">
             <h2>No games</h2>
             <p>
-              {selection.type === "team"
-                ? `No ${BUCKETS.find((b) => b.id === selection.bucket)?.label.toLowerCase() ?? ""} games for this team in ${season}.`
-                : "Follow MLB teams and pick a season to see their schedule."}
+              {`No ${BUCKETS.find((b) => b.id === selection.bucket)?.label.toLowerCase() ?? ""} games${
+                selection.type === "team" ? " for this team" : ""
+              } in ${season}.`}
             </p>
           </div>
         ) : (

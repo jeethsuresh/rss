@@ -152,8 +152,8 @@ button {
 }
 
 .sports-season-select {
-  margin: 0 12px 8px;
-  width: calc(100% - 24px);
+  margin: 0 0 8px;
+  width: 100%;
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -176,11 +176,6 @@ button {
 .sports-team-heading {
   cursor: default;
   font-weight: 600;
-}
-
-.nav-item-nested {
-  padding-left: 40px;
-  font-size: 0.92rem;
 }
 
 .sports-logo {
