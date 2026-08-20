@@ -7,3 +7,12 @@ export function SportsSpinner({ label = "Refreshing" }: { label?: string }) {
     </span>
   );
 }
+
+/** Full pane placeholder while a new selection is loading (never reuse prior item UI). */
+export function SportsLoadingPane({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div className="empty">
+      <SportsSpinner label={label} />
+    </div>
+  );
+}

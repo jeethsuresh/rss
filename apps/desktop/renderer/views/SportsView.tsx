@@ -19,7 +19,7 @@ import type {
   SportsCacheUpdatedEvent,
   SportsRefreshEvent,
 } from "@rss-reader/shared";
-import { SportsSpinner } from "../components/SportsSpinner";
+import { SportsLoadingPane, SportsSpinner } from "../components/SportsSpinner";
 import { SPORTS_REGISTRY, type SportId } from "../lib/sportsRegistry";
 import { DotaSportsPanel } from "./DotaSportsPanel";
 
@@ -397,6 +397,9 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     if (season == null || activeSport !== "mlb" || mlbStandingsMode || !mlbScheduleKey) return;
     beginFetch(mlbScheduleKey);
     setError(null);
+    setGames([]);
+    setActivePk(null);
+    setDetail(null);
     try {
       const list = await backend.sports.schedule({ teamId: scheduleTeamId, season });
       setGames(list ?? []);
@@ -420,6 +423,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     if (season == null || activeSport !== "mlb" || !mlbStandingsMode || !mlbStandingsKey) return;
     beginFetch(mlbStandingsKey);
     setError(null);
+    setMlbStandings(null);
     try {
       const data = await backend.sports.standings({ season });
       setMlbStandings(data);
@@ -440,6 +444,9 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     if (f1Year == null || activeSport !== "f1" || f1StandingsMode || !f1RacesKey) return;
     beginFetch(f1RacesKey);
     setError(null);
+    setF1Races([]);
+    setActiveSessionKey(null);
+    setF1Detail(null);
     try {
       const list = await backend.sports.f1Races({ year: f1Year });
       setF1Races(list ?? []);
@@ -454,6 +461,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     if (f1Year == null || activeSport !== "f1" || !f1StandingsMode || !f1StandingsKey) return;
     beginFetch(f1StandingsKey);
     setError(null);
+    setF1Standings(null);
     try {
       const data = await backend.sports.f1Standings({ year: f1Year });
       setF1Standings(data);
@@ -585,6 +593,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     }
     const key = `mlb.game.${activePk}`;
     let cancelled = false;
+    setDetail(null);
     beginFetch(key);
     void backend.sports
       .gameWatch(activePk)
@@ -610,6 +619,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     }
     const key = `f1.race.${activeSessionKey}`;
     let cancelled = false;
+    setF1Detail(null);
     beginFetch(key);
     void backend.sports
       .f1RaceWatch(activeSessionKey)
@@ -1004,15 +1014,8 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <>
             <section className="pane article-list">
               {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
-              {mlbListRefreshing ? (
-                <div className="sports-refresh-banner">
-                  <SportsSpinner label="Refreshing standings" />
-                </div>
-              ) : null}
               {mlbListRefreshing && !mlbStandings ? (
-                <div className="empty">
-                  <p>Loading standings…</p>
-                </div>
+                <SportsLoadingPane label="Loading standings…" />
               ) : !mlbStandings || mlbStandings.sections.length === 0 ? (
                 <div className="empty">
                   <h2>No standings</h2>
@@ -1108,14 +1111,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <section className="pane article-list">
             {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
             {mlbListRefreshing ? (
-              <div className="sports-refresh-banner">
-                <SportsSpinner label="Refreshing schedule" />
-              </div>
-            ) : null}
-            {mlbListRefreshing && visibleGames.length === 0 ? (
-              <div className="empty">
-                <p>Loading schedule…</p>
-              </div>
+              <SportsLoadingPane label="Loading schedule…" />
             ) : visibleGames.length === 0 ? (
               <div className="empty">
                 <h2>No games</h2>
@@ -1158,16 +1154,15 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           </section>
 
           <section className="pane reader-pane">
-            {mlbDetailRefreshing ? (
-              <div className="sports-refresh-banner">
-                <SportsSpinner label="Refreshing game" />
-              </div>
-            ) : null}
             {!detail ? (
-              <div className="empty">
-                <h2>Sports</h2>
-                <p>Select a game to see the score, linescore, and plays.</p>
-              </div>
+              activePk != null || mlbDetailRefreshing ? (
+                <SportsLoadingPane label="Loading game…" />
+              ) : (
+                <div className="empty">
+                  <h2>Sports</h2>
+                  <p>Select a game to see the score, linescore, and plays.</p>
+                </div>
+              )
             ) : (
               <article className="reader sports-reader">
                 <div className="reader-kicker">
@@ -1316,15 +1311,8 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <>
             <section className="pane article-list">
               {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
-              {f1ListRefreshing ? (
-                <div className="sports-refresh-banner">
-                  <SportsSpinner label="Refreshing championship" />
-                </div>
-              ) : null}
               {f1ListRefreshing && !f1Standings ? (
-                <div className="empty">
-                  <p>Loading championship…</p>
-                </div>
+                <SportsLoadingPane label="Loading championship…" />
               ) : f1Mode === "wdc" ? (
                 !(f1Standings?.drivers.length) ? (
                   <div className="empty">
@@ -1420,14 +1408,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           <section className="pane article-list">
             {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
             {f1ListRefreshing ? (
-              <div className="sports-refresh-banner">
-                <SportsSpinner label="Refreshing races" />
-              </div>
-            ) : null}
-            {f1ListRefreshing && visibleRaces.length === 0 ? (
-              <div className="empty">
-                <p>Loading races…</p>
-              </div>
+              <SportsLoadingPane label="Loading races…" />
             ) : visibleRaces.length === 0 ? (
               <div className="empty">
                 <h2>No races</h2>
@@ -1469,16 +1450,15 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           </section>
 
           <section className="pane reader-pane">
-            {f1DetailRefreshing ? (
-              <div className="sports-refresh-banner">
-                <SportsSpinner label="Refreshing race" />
-              </div>
-            ) : null}
             {!f1Detail ? (
-              <div className="empty">
-                <h2>F1</h2>
-                <p>Select a race to see classification and race-control events.</p>
-              </div>
+              activeSessionKey != null || f1DetailRefreshing ? (
+                <SportsLoadingPane label="Loading race…" />
+              ) : (
+                <div className="empty">
+                  <h2>F1</h2>
+                  <p>Select a race to see classification and race-control events.</p>
+                </div>
+              )
             ) : (
               <article className="reader sports-reader">
                 <div className="reader-kicker">

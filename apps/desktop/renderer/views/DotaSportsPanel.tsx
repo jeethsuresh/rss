@@ -11,7 +11,7 @@ import type {
   DotaTeam,
   ReaderBackend,
 } from "@rss-reader/shared";
-import { SportsSpinner } from "./SportsSpinner";
+import { SportsLoadingPane, SportsSpinner } from "../components/SportsSpinner";
 import { SPORTS_REGISTRY, type SportId } from "../lib/sportsRegistry";
 
 type Props = {
@@ -80,7 +80,8 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
   const [gameDetail, setGameDetail] = useState<DotaGame | null>(null);
   const [teamSearch, setTeamSearch] = useState("");
   const [searchHits, setSearchHits] = useState<DotaTeam[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [listBusy, setListBusy] = useState(false);
+  const [detailBusy, setDetailBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeEvent, setActiveEvent] = useState<DotaEvent | null>(null);
 
@@ -128,13 +129,17 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
 
   useEffect(() => {
     if (year == null) return;
-    setBusy(true);
+    setListBusy(true);
     setError(null);
+    setEvents([]);
+    setMatches([]);
+    setMatchDetail(null);
+    setGameDetail(null);
     void backend.sports
       .dotaEvents({ year })
       .then((list) => setEvents(list ?? []))
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load events"))
-      .finally(() => setBusy(false));
+      .finally(() => setListBusy(false));
   }, [backend, year]);
 
   useEffect(() => {
@@ -160,7 +165,8 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       setNav({ type: "event", eventId });
       setGameDetail(null);
       setMatchDetail(null);
-      setBusy(true);
+      setMatches([]);
+      setListBusy(true);
       setError(null);
       try {
         const ev = events.find((e) => e.id === eventId) ?? null;
@@ -170,7 +176,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load matches");
       } finally {
-        setBusy(false);
+        setListBusy(false);
       }
     },
     [backend, events],
@@ -181,7 +187,8 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       setNav({ type: "team", teamId });
       setGameDetail(null);
       setMatchDetail(null);
-      setBusy(true);
+      setMatches([]);
+      setListBusy(true);
       setError(null);
       try {
         const list = await backend.sports.dotaTeamMatches({
@@ -192,7 +199,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load team matches");
       } finally {
-        setBusy(false);
+        setListBusy(false);
       }
     },
     [backend, year],
@@ -202,7 +209,9 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
     async (matchId: number, back: Nav) => {
       setNav({ type: "match", matchId, back });
       setGameDetail(null);
-      setBusy(true);
+      setMatchDetail(null);
+      setListBusy(true);
+      setDetailBusy(true);
       setError(null);
       try {
         const detail = await backend.sports.dotaMatchWatch(matchId);
@@ -210,7 +219,8 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load match");
       } finally {
-        setBusy(false);
+        setListBusy(false);
+        setDetailBusy(false);
       }
     },
     [backend],
@@ -235,6 +245,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
 
   const openGame = useCallback(
     async (g: DotaGame) => {
+      setGameDetail(null);
       setBusy(true);
       setError(null);
       try {
@@ -434,8 +445,10 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
 
       <section className="pane article-list">
         {error && <p className="error">{error}</p>}
-        {busy && <SportsSpinner label="Loading…" />}
-
+        {busy ? (
+          <SportsLoadingPane label="Loading…" />
+        ) : (
+          <>
         {nav.type === "browse" && (
           <>
             <h2 style={{ padding: "8px 12px", margin: 0 }}>{year} · Events</h2>
@@ -474,7 +487,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
                 })}
               </div>
             ))}
-            {!busy && events.length === 0 && (
+            {events.length === 0 && (
               <div className="empty">
                 <h2>No events</h2>
                 <p>No PandaScore series found for {year}.</p>
@@ -606,10 +619,14 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
             ))}
           </>
         )}
+          </>
+        )}
       </section>
 
       <section className="pane reader">
-        {!gameDetail && !matchDetail && nav.type === "browse" && (
+        {busy && !gameDetail && nav.type === "match" ? (
+          <SportsLoadingPane label="Loading…" />
+        ) : !gameDetail && !matchDetail && nav.type === "browse" ? (
           <div className="empty">
             <h2>Dota 2</h2>
             <p>Pick a tournament or followed team. STRATZ details load only when you open a game.</p>
@@ -617,8 +634,9 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
               <p className="muted">STRATZ token not set — series scores still work from PandaScore.</p>
             ) : null}
           </div>
-        )}
-        {gameDetail && (
+        ) : busy && !gameDetail ? (
+          <SportsLoadingPane label="Loading…" />
+        ) : gameDetail ? (
           <article className="reader-body" style={{ padding: 16 }}>
             <h1>Game {gameDetail.gameIndex}</h1>
             {!gameDetail.detailAvailable && (
@@ -691,12 +709,13 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
               </>
             )}
           </article>
-        )}
-        {!gameDetail && matchDetail && (
+        ) : matchDetail ? (
           <div className="empty">
             <h2>Series</h2>
             <p>Select a game for STRATZ stats when a Steam match id is known.</p>
           </div>
+        ) : (
+          <div className="empty" />
         )}
       </section>
     </div>
