@@ -151,6 +151,51 @@ button {
   width: min(280px, 28vw);
 }
 
+.sports-league-section {
+  margin-bottom: 10px;
+}
+
+.sports-league-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 10px 0 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.sports-league-toggle:hover {
+  background: color-mix(in srgb, var(--bg2) 70%, transparent);
+  color: var(--ink);
+}
+
+.sports-league-toggle.unavailable {
+  opacity: 0.75;
+}
+
+.sports-soon {
+  margin-left: auto;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sports-coming-soon {
+  margin: 0 10px 8px;
+  font-size: 0.85rem;
+}
+
+.sports-sublabel {
+  margin-top: 8px;
+}
+
 .sports-season-select {
   margin: 0 0 8px;
   width: 100%;

@@ -7,6 +7,7 @@ import type {
   MlbTeam,
   ReaderBackend,
 } from "@rss-reader/shared";
+import { SPORTS_REGISTRY, type SportId } from "../lib/sportsRegistry";
 
 type Props = {
   backend: ReaderBackend;
@@ -90,6 +91,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scoringOnly, setScoringOnly] = useState(false);
+  const [expandedSport, setExpandedSport] = useState<SportId>("mlb");
 
   const followedTeams = useMemo(
     () => teams.filter((t) => followed.includes(t.id)).sort((a, b) => a.name.localeCompare(b.name)),
@@ -200,69 +202,105 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   return (
     <div className="layout">
       <aside className="pane sidebar">
-        <div className="section-label">Season</div>
-        <select
-          className="sports-season-select"
-          value={season ?? ""}
-          onChange={(e) => setSeason(Number(e.target.value))}
-        >
-          {seasons.map((s) => (
-            <option key={s.seasonId} value={s.seasonId}>
-              {s.seasonId}
-            </option>
-          ))}
-        </select>
-
-        <div className="section-label">Teams</div>
-        <div className="sports-team-group">
-          <div className="nav-item sports-team-heading">
-            <span>All followed</span>
-          </div>
-          {BUCKETS.map((b) => (
-            <button
-              key={`all-${b.id}`}
-              type="button"
-              className={`nav-item nav-item-nested ${
-                selection.type === "all" && selection.bucket === b.id ? "active" : ""
-              }`}
-              onClick={() => setSelection({ type: "all", bucket: b.id })}
-            >
-              <span>{b.label}</span>
-            </button>
-          ))}
-        </div>
-        {followedTeams.map((t) => (
-          <div key={t.id} className="sports-team-group">
-            <div className="nav-item sports-team-heading">
-              <span className="sports-team-row">
-                {t.logoUrl ? <img src={t.logoUrl} alt="" className="sports-logo" /> : null}
-                {t.abbreviation || t.name}
-              </span>
-            </div>
-            {BUCKETS.map((b) => (
+        {SPORTS_REGISTRY.map((sport) => {
+          const open = expandedSport === sport.id;
+          return (
+            <div key={sport.id} className="sports-league-section">
               <button
-                key={b.id}
                 type="button"
-                className={`nav-item nav-item-nested ${
-                  selection.type === "team" && selection.id === t.id && selection.bucket === b.id
-                    ? "active"
-                    : ""
+                className={`section-label sports-league-toggle ${open ? "open" : ""} ${
+                  sport.available ? "" : "unavailable"
                 }`}
-                onClick={() => setSelection({ type: "team", id: t.id, bucket: b.id })}
+                onClick={() => setExpandedSport(sport.id)}
+                aria-expanded={open}
               >
-                <span>{b.label}</span>
+                <span>{open ? "▾" : "▸"}</span>
+                <span>{sport.label}</span>
+                {!sport.available ? <span className="sports-soon">Soon</span> : null}
               </button>
-            ))}
-          </div>
-        ))}
-        {followedTeams.length === 0 && (
-          <div className="empty" style={{ height: "auto", padding: 12 }}>
-            Follow teams in Settings → Sports
-          </div>
-        )}
-        <button type="button" className="nav-item" onClick={() => onOpenSettingsSports?.()}>
-          Manage teams…
-        </button>
+
+              {open && !sport.available && (
+                <p className="sports-coming-soon muted">{sport.comingSoonNote ?? "Coming soon"}</p>
+              )}
+
+              {open && sport.available && sport.id === "mlb" && (
+                <>
+                  <div className="section-label sports-sublabel">Season</div>
+                  <select
+                    className="sports-season-select"
+                    value={season ?? ""}
+                    onChange={(e) => setSeason(Number(e.target.value))}
+                  >
+                    {seasons.map((s) => (
+                      <option key={s.seasonId} value={s.seasonId}>
+                        {s.seasonId}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="sports-team-group">
+                    <div className="nav-item sports-team-heading">
+                      <span>All followed</span>
+                    </div>
+                    {BUCKETS.map((b) => (
+                      <button
+                        key={`all-${b.id}`}
+                        type="button"
+                        className={`nav-item nav-item-nested ${
+                          selection.type === "all" && selection.bucket === b.id ? "active" : ""
+                        }`}
+                        onClick={() => setSelection({ type: "all", bucket: b.id })}
+                      >
+                        <span>{b.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {followedTeams.map((t) => (
+                    <div key={t.id} className="sports-team-group">
+                      <div className="nav-item sports-team-heading">
+                        <span className="sports-team-row">
+                          {t.logoUrl ? <img src={t.logoUrl} alt="" className="sports-logo" /> : null}
+                          {t.abbreviation || t.name}
+                        </span>
+                      </div>
+                      {BUCKETS.map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          className={`nav-item nav-item-nested ${
+                            selection.type === "team" &&
+                            selection.id === t.id &&
+                            selection.bucket === b.id
+                              ? "active"
+                              : ""
+                          }`}
+                          onClick={() => setSelection({ type: "team", id: t.id, bucket: b.id })}
+                        >
+                          <span>{b.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                  {followedTeams.length === 0 && (
+                    <div className="empty" style={{ height: "auto", padding: 12 }}>
+                      Follow MLB teams in Settings → Sports
+                    </div>
+                  )}
+                  <button type="button" className="nav-item" onClick={() => onOpenSettingsSports?.()}>
+                    Manage baseball teams…
+                  </button>
+                </>
+              )}
+
+              {/* Scaffold: when adding a sport, render its panel here keyed by sport.id */}
+              {open && sport.available && sport.id !== "mlb" ? (
+                <p className="sports-coming-soon muted">
+                  {sport.label} is marked available but has no UI panel yet.
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
       </aside>
 
       <section className="pane article-list">

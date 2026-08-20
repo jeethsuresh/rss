@@ -305,8 +305,11 @@ export function SettingsPage({
 
           {section === "sports" && (
             <section className="settings-section">
-              <h2>MLB teams</h2>
-              <p className="muted">Follow one or more teams. Schedules and live games appear in the Sports tab.</p>
+              <h2>Baseball (MLB)</h2>
+              <p className="muted">
+                Follow one or more MLB teams. Schedules and live games appear under Baseball in the Sports
+                tab. Other sports will show up here as they are added.
+              </p>
               <input
                 className="search"
                 placeholder="Filter teams…"
