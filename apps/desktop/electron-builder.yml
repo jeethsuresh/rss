@@ -13,7 +13,6 @@ extraResources:
     filter:
       - rss-backend
       - rss-backend.exe
-# Needed so update-metadata generation does not crash with --publish never.
 publish:
   provider: github
   owner: jeethsuresh
@@ -31,12 +30,15 @@ linux:
   description: Desktop RSS reader with a local Go backend and SQLite storage.
   maintainer: Jeeth <jeeth@users.noreply.github.com>
   target:
-    # Ubuntu / Debian
     - deb
-    # Fedora / RHEL / openSUSE
     - rpm
-    # Arch Linux / Manjaro
     - pacman
-    # Distro-agnostic fallback
     - AppImage
-artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+# Spaces break rpmbuild/fpm package names and paths.
+deb:
+  packageName: rss-reader
+rpm:
+  packageName: rss-reader
+pacman:
+  packageName: rss-reader
+artifactName: RSS-Reader-${version}-${os}-${arch}.${ext}

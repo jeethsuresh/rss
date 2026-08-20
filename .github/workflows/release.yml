@@ -89,6 +89,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             rpm \
+            rpm-build \
             libarchive-tools \
             libfuse2 \
             fakeroot
