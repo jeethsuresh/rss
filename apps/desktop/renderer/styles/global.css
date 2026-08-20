@@ -228,9 +228,22 @@ button {
   text-align: left;
 }
 
+.sports-plays-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
 .sports-plays-heading {
   font-size: 1.05rem;
-  margin: 8px 0;
+  margin: 0;
+}
+
+.sports-plays-filter {
+  margin: 0;
 }
 
 .sports-plays {
