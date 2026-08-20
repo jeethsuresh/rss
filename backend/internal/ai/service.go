@@ -49,7 +49,7 @@ func New(
 		Queue:    queue,
 		Logs:     logs,
 		Log:      log,
-		client:   &http.Client{Timeout: 120 * time.Second},
+		client:   &http.Client{Timeout: 15 * time.Minute},
 	}
 }
 
@@ -214,7 +214,7 @@ func (s *Service) worker() {
 		}
 		s.emitStatus(ctx)
 		s.appendLog(ctx, "info", id, "processing", "")
-		jobCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+		jobCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 		err = s.processArticle(jobCtx, id)
 		cancel()
 		if err != nil {
