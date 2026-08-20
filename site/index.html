@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RSS Reader — Local-first desktop reading</title>
+    <meta
+      name="description"
+      content="Local-first desktop RSS reader with Read Later, MLB & F1 sports, and AI assist. Download for macOS, Windows, and Linux."
+    />
+    <base href="/rss/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+
+    <header class="hero">
+      <p class="eyebrow">Desktop · Local SQLite · Open source</p>
+      <h1 class="brand">RSS Reader</h1>
+      <p class="lede">
+        A local-first reader for feeds, saved pages, sports, and light AI assist —
+        data stays on your machine.
+      </p>
+      <div class="cta-row">
+        <a class="cta primary" href="#downloads">Download</a>
+        <a
+          class="cta ghost"
+          href="https://github.com/jeethsuresh/rss"
+          rel="noopener noreferrer"
+          >GitHub</a
+        >
+      </div>
+    </header>
+
+    <main>
+      <section class="capability" id="feeds">
+        <h2>Feeds</h2>
+        <p>
+          Subscribe to RSS and Atom sources, refresh on a schedule, and move
+          through articles with keyboard shortcuts. Star, mark read, and open
+          originals in your browser — without an account.
+        </p>
+      </section>
+
+      <section class="capability" id="read-later">
+        <h2>Read Later</h2>
+        <p>
+          Save URLs into a dedicated queue, archive when you’re done, and drop
+          links onto the dock or window. Capture pages to revisit without losing
+          the feed timeline.
+        </p>
+      </section>
+
+      <section class="capability" id="sports">
+        <h2>Sports</h2>
+        <p>
+          Follow MLB teams with schedules, standings, and game detail. Track F1
+          weekends across practice, qualifying, and race sessions with
+          classification and championship views.
+        </p>
+      </section>
+
+      <section class="capability" id="ai">
+        <h2>AI assist</h2>
+        <p>
+          Queue crawl and triage jobs against saved pages. Settings hold your
+          keys and preferences; the queue persists locally and resumes after
+          restart.
+        </p>
+      </section>
+
+      <section class="downloads" id="downloads">
+        <h2>Download</h2>
+        <p class="downloads-meta">
+          Latest release:
+          <span id="release-tag">loading…</span>
+          · Builds are <strong>unsigned</strong>
+        </p>
+        <ul class="download-list">
+          <li>
+            <a
+              class="download"
+              data-asset="mac-dmg"
+              href="https://github.com/jeethsuresh/rss/releases/download/v0.1.4/RSS-Reader-0.1.4-mac-arm64.dmg"
+              >macOS (Apple Silicon) · DMG</a
+            >
+          </li>
+          <li>
+            <a
+              class="download"
+              data-asset="win-exe"
+              href="https://github.com/jeethsuresh/rss/releases/download/v0.1.4/RSS-Reader-0.1.4-win-x64.exe"
+              >Windows · NSIS installer</a
+            >
+          </li>
+          <li>
+            <a
+              class="download"
+              data-asset="linux-deb"
+              href="https://github.com/jeethsuresh/rss/releases/download/v0.1.4/RSS-Reader-0.1.4-linux-amd64.deb"
+              >Ubuntu / Debian · .deb</a
+            >
+          </li>
+          <li>
+            <a
+              class="download"
+              data-asset="linux-rpm"
+              href="https://github.com/jeethsuresh/rss/releases/download/v0.1.4/RSS-Reader-0.1.4-linux-x86_64.rpm"
+              >Fedora / RHEL · .rpm</a
+            >
+          </li>
+          <li>
+            <a
+              class="download"
+              data-asset="linux-pacman"
+              href="https://github.com/jeethsuresh/rss/releases/download/v0.1.4/RSS-Reader-0.1.4-linux-x64.pacman"
+              >Arch · .pacman</a
+            >
+          </li>
+          <li>
+            <a
+              class="download"
+              data-asset="linux-appimage"
+              href="https://github.com/jeethsuresh/rss/releases/download/v0.1.4/RSS-Reader-0.1.4-linux-x86_64.AppImage"
+              >Linux · AppImage</a
+            >
+          </li>
+        </ul>
+        <p class="downloads-more">
+          <a
+            href="https://github.com/jeethsuresh/rss/releases"
+            rel="noopener noreferrer"
+            >All releases on GitHub</a
+          >
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        <a href="https://github.com/jeethsuresh/rss" rel="noopener noreferrer"
+          >jeethsuresh/rss</a
+        >
+        · Local database file <code>rss.db</code> in the app userData folder
+      </p>
+    </footer>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

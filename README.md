@@ -2,6 +2,8 @@
 
 Local-first desktop RSS reader. **Electron** is the shell; a **Go** child process owns feeds, polling, and SQLite. Designed so the same Go application can later run as a remote server without rewriting domain logic.
 
+**Product site / downloads:** [jeethsuresh.github.io/rss](https://jeethsuresh.github.io/rss/)
+
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) and [docs/future-server.md](docs/future-server.md).
