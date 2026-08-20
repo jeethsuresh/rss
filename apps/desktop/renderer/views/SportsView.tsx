@@ -91,7 +91,18 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scoringOnly, setScoringOnly] = useState(false);
-  const [expandedSport, setExpandedSport] = useState<SportId>("mlb");
+  const [expandedSports, setExpandedSports] = useState<ReadonlySet<SportId>>(
+    () => new Set<SportId>(["mlb"]),
+  );
+
+  const toggleSportExpanded = (id: SportId) => {
+    setExpandedSports((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const followedTeams = useMemo(
     () => teams.filter((t) => followed.includes(t.id)).sort((a, b) => a.name.localeCompare(b.name)),

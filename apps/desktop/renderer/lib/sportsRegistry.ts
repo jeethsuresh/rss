@@ -1,6 +1,6 @@
 /** Registry of sports sections in the Sports mode sidebar. Add new leagues here. */
 
-export type SportId = "mlb" | "nba" | "nfl" | "nhl";
+export type SportId = "mlb" | "nfl" | "f1";
 
 export type SportDefinition = {
   id: SportId;
@@ -26,13 +26,6 @@ export const SPORTS_REGISTRY: readonly SportDefinition[] = [
     available: true,
   },
   {
-    id: "nba",
-    label: "Basketball",
-    shortLabel: "NBA",
-    available: false,
-    comingSoonNote: "NBA support coming later",
-  },
-  {
     id: "nfl",
     label: "Football",
     shortLabel: "NFL",
@@ -40,11 +33,11 @@ export const SPORTS_REGISTRY: readonly SportDefinition[] = [
     comingSoonNote: "NFL support coming later",
   },
   {
-    id: "nhl",
-    label: "Hockey",
-    shortLabel: "NHL",
+    id: "f1",
+    label: "F1",
+    shortLabel: "F1",
     available: false,
-    comingSoonNote: "NHL support coming later",
+    comingSoonNote: "Formula 1 support coming later",
   },
 ] as const;
 
