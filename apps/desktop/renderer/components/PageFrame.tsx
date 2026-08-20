@@ -29,28 +29,41 @@ export function PageFrame({ html, pageUrl, title = "Article page" }: Props) {
       className="page-frame"
       title={title}
       src={src}
-      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
-      referrerPolicy="no-referrer"
+      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-same-origin"
+      referrerPolicy="no-referrer-when-downgrade"
     />
   );
 }
 
 function ensureBase(html: string, pageUrl: string): string {
-  if (!pageUrl || /<base\s/i.test(html)) {
+  const href = baseHrefFor(pageUrl);
+  if (!href) {
     return html;
   }
-  const base = `<base href="${escapeAttr(pageUrl)}">`;
-  const headMatch = html.match(/<head[^>]*>/i);
+  // Always prefer our origin-rooted base so relative CSS/JS resolve reliably.
+  const withoutBase = html.replace(/<base\b[^>]*>/gi, "");
+  const base = `<base href="${escapeAttr(href)}">`;
+  const headMatch = withoutBase.match(/<head[^>]*>/i);
   if (headMatch && headMatch.index != null) {
     const insertAt = headMatch.index + headMatch[0].length;
-    return html.slice(0, insertAt) + base + html.slice(insertAt);
+    return withoutBase.slice(0, insertAt) + base + withoutBase.slice(insertAt);
   }
-  const htmlMatch = html.match(/<html[^>]*>/i);
+  const htmlMatch = withoutBase.match(/<html[^>]*>/i);
   if (htmlMatch && htmlMatch.index != null) {
     const insertAt = htmlMatch.index + htmlMatch[0].length;
-    return html.slice(0, insertAt) + `<head>${base}</head>` + html.slice(insertAt);
+    return withoutBase.slice(0, insertAt) + `<head>${base}</head>` + withoutBase.slice(insertAt);
   }
-  return `<head>${base}</head>${html}`;
+  return `<head>${base}</head>${withoutBase}`;
+}
+
+/** Prefer site origin so `/styles.css` and relative assets resolve like a normal page load. */
+function baseHrefFor(pageUrl: string): string {
+  try {
+    const u = new URL(pageUrl);
+    return `${u.origin}/`;
+  } catch {
+    return pageUrl;
+  }
 }
 
 function escapeAttr(s: string): string {

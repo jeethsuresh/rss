@@ -9,7 +9,7 @@ import type {
   Story,
 } from "@rss-reader/shared";
 import { getBackend } from "./lib/backend";
-import { formatRelativeTime, sanitizeArticleHtml, stripHtml } from "./lib/html";
+import { formatRelativeTime, sanitizeArticleHtml, stripHtml, decodeHtmlEntities } from "./lib/html";
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
@@ -517,7 +517,11 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     if (bodyHtml && asFullPage) {
       return (
         <div className="reader-page-wrap">
-          <PageFrame html={bodyHtml} pageUrl={article.url} title={article.title || "Article page"} />
+          <PageFrame
+            html={bodyHtml}
+            pageUrl={article.url}
+            title={decodeHtmlEntities(article.title || "Article page")}
+          />
           {contentTab === "secondary" && (
             <div className="reader-actions" style={{ marginTop: 8 }}>
               <button className="btn" disabled={contentBusy} onClick={() => void recrawlActive()}>
@@ -889,7 +893,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     <span>{formatRelativeTime(story.updatedAt ?? story.createdAt)}</span>
                     {story.isStarred ? <span>★</span> : null}
                   </div>
-                  <h3 className="article-title">{story.title || "(untitled story)"}</h3>
+                  <h3 className="article-title">{decodeHtmlEntities(story.title || "(untitled story)")}</h3>
                   <p className="article-summary">{story.summary || ""}</p>
                 </button>
               ))
@@ -911,10 +915,10 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                   <span>{formatRelativeTime(article.publishedAt ?? article.discoveredAt)}</span>
                   {article.isStarred ? <span>★</span> : null}
                 </div>
-                <h3 className="article-title">
-                  <PriorityBadge priority={article.priority} />
-                  {article.title || "(untitled)"}
-                </h3>
+                  <h3 className="article-title">
+                    <PriorityBadge priority={article.priority} />
+                    {decodeHtmlEntities(article.title || "(untitled)")}
+                  </h3>
                 <p className="article-summary">{stripHtml(article.summary || article.content)}</p>
               </button>
             ))
@@ -941,7 +945,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     ? ` · ${new Date(activeStory.updatedAt).toLocaleString()}`
                     : ""}
                 </div>
-                <h1>{activeStory.title || "(untitled story)"}</h1>
+                <h1>{decodeHtmlEntities(activeStory.title || "(untitled story)")}</h1>
                 {activeStory.summary ? <p className="article-summary">{activeStory.summary}</p> : null}
                 <div className="reader-actions">
                   <button
@@ -982,7 +986,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                             <span>
                               {member.feedTitle || "Feed"}
                               {" · "}
-                              {member.title || "(untitled)"}
+                              {decodeHtmlEntities(member.title || "(untitled)")}
                               {priorityBadgeLabel(member.priority) ? (
                                 <>
                                   {" · "}
@@ -1023,8 +1027,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
               {renderContentTabs(active)}
               <h1>
                 <PriorityBadge priority={active.priority} />
-                {active.title || "(untitled)"}
-              </h1>
+                {decodeHtmlEntities(active.title || "(untitled)")}              </h1>
               <div className="reader-actions">
                 <button
                   className="btn"

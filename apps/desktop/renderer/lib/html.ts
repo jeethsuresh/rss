@@ -18,6 +18,12 @@ export function sanitizeArticleHtml(html: string): string {
   });
 }
 
+export function decodeHtmlEntities(text: string): string {
+  if (!text || (!text.includes("&") && !text.includes("&#"))) return text;
+  const doc = new DOMParser().parseFromString(`<!doctype html><body>${text}`, "text/html");
+  return doc.body.textContent ?? text;
+}
+
 export function formatRelativeTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const t = new Date(iso).getTime();
@@ -35,8 +41,10 @@ export function formatRelativeTime(iso: string | null | undefined): string {
 
 export function stripHtml(html: string): string {
   const cleaned = sanitizeArticleHtml(html);
-  return cleaned
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return decodeHtmlEntities(
+    cleaned
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }

@@ -345,6 +345,12 @@ button {
   color: var(--ink);
 }
 
+/* Must follow .nav-item padding shorthand so left indent wins */
+.nav-item.nav-item-nested {
+  padding: 7px 10px 7px 34px;
+  font-size: 0.92rem;
+}
+
 .count {
   font-size: 0.75rem;
   color: var(--unread);

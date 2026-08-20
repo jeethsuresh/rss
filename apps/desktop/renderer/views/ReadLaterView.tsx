@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared";
 import { PageFrame } from "../components/PageFrame";
-import { formatRelativeTime, stripHtml } from "../lib/html";
+import { formatRelativeTime, stripHtml, decodeHtmlEntities } from "../lib/html";
 
 type ContentTab = "primary" | "secondary";
 
@@ -133,7 +133,11 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
     if (bodyHtml) {
       return (
         <div className="reader-page-wrap">
-          <PageFrame html={bodyHtml} pageUrl={article.url} title={article.title || "Article page"} />
+          <PageFrame
+            html={bodyHtml}
+            pageUrl={article.url}
+            title={decodeHtmlEntities(article.title || "Article page")}
+          />
           {contentTab === "secondary" && (
             <div className="reader-actions" style={{ marginTop: 8 }}>
               <button className="btn" disabled={contentBusy} onClick={() => void recrawl()}>
@@ -192,7 +196,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
                 <span>{formatRelativeTime(a.discoveredAt)}</span>
                 {a.isStarred ? <span>★</span> : null}
               </div>
-              <h3 className="article-title">{a.title || "(untitled)"}</h3>
+              <h3 className="article-title">{decodeHtmlEntities(a.title || "(untitled)")}</h3>
               <p className="article-summary">{stripHtml(a.summary || a.url)}</p>
             </button>
           ))
@@ -228,7 +232,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
                 Saved crawl
               </button>
             </div>
-            <h1>{active.title || "(untitled)"}</h1>
+            <h1>{decodeHtmlEntities(active.title || "(untitled)")}</h1>
             <div className="reader-actions">
               <button
                 className="btn"
