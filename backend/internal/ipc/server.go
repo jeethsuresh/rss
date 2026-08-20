@@ -376,9 +376,10 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 	case "readLater.list":
 		var p struct {
 			Filter string `json:"filter"`
+			Search string `json:"search"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		return s.svc.ListReadLater(ctx, p.Filter)
+		return s.svc.ListReadLater(ctx, p.Filter, p.Search)
 	case "readLater.archive":
 		var p struct {
 			ID string `json:"id"`

@@ -127,7 +127,6 @@ export interface Settings {
   aiEnabled: boolean;
   aiBaseUrl: string;
   aiModel: string;
-  readLaterChrome: "tabs" | "brandControl";
 }
 
 export type ReadLaterFilter = "all" | "unread" | "starred" | "archived";
@@ -197,7 +196,7 @@ export interface ReaderBackend {
   readLater: {
     add(url: string): Promise<Article>;
     addFromArticle(articleId: string): Promise<Article>;
-    list(filter?: ReadLaterFilter): Promise<Article[]>;
+    list(filter?: ReadLaterFilter, search?: string): Promise<Article[]>;
     archive(id: string): Promise<Article>;
     unarchive(id: string): Promise<Article>;
   };

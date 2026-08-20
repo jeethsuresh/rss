@@ -31,7 +31,11 @@ const api: ReaderBackend = {
   readLater: {
     add: (url) => request("readLater.add", { url }),
     addFromArticle: (articleId) => request("readLater.addFromArticle", { articleId }),
-    list: (filter) => request("readLater.list", filter ? { filter } : {}),
+    list: (filter, search) =>
+      request("readLater.list", {
+        ...(filter ? { filter } : {}),
+        ...(search ? { search } : {}),
+      }),
     archive: (id) => request("readLater.archive", { id }),
     unarchive: (id) => request("readLater.unarchive", { id }),
   },

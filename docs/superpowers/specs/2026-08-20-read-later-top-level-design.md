@@ -9,25 +9,23 @@ Make Read Later a first-class app mode (not a sidebar section), with a working t
 
 ## Chrome
 
-- Default toolbar: equal mode tabs **`RSS Reader` | `Read Later`**.
-- Settings → General: `readLaterChrome`: `tabs` (default) | `brandControl` (keep “RSS Reader” brand + separate Read Later control). Minimal; removable later.
+- Toolbar mode tabs **`RSS Reader` | `Read Later`** only (no alternate chrome toggle).
 - Settings / connection status available in both modes.
 - Remove the RSS sidebar “Read later” / “+ Add link” block entirely.
 
 ## Read Later surface
 
-Two panes only (no feeds/folders/stories sidebar).
+Same **3-pane** layout as RSS for uniformity.
 
-**Left pane top (always):**
+**Left sidebar:** All | Unread | Starred | Archived (nav items, same style as RSS filters).
 
-- Filters: **All | Unread | Starred | Archived**
-  - All / Unread / Starred exclude archived items
-  - Archived shows only archived items
-- Always-visible URL text field + Add (Enter or button). No `window.prompt`.
+**Toolbar (Read Later mode):** search field + always-visible URL field + Add (mirrors RSS search / Add feed).
 
-**Left pane body:** list of matching Read Later articles (title, host/url, read/star cues).
+**Middle pane:** article list (title, host, relative time).
 
-**Right pane:** selected article reader — Live / Saved crawl tabs + `PageFrame` full HTML (existing crawl behavior). Actions: mark read/unread, star/unstar, Archive / Unarchive, Open original.
+**Right pane:** reader — Live / Saved crawl + PageFrame. Actions: mark read/unread, star, Archive / Unarchive, Open original.
+
+- All / Unread / Starred exclude archived; Archived shows only archived.
 
 ## Send from RSS
 

@@ -170,20 +170,6 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
                 />
                 Desktop notifications
               </label>
-              <label className="field">
-                Read Later entry
-                <select
-                  value={settings.readLaterChrome ?? "tabs"}
-                  onChange={(e) =>
-                    void patch({
-                      readLaterChrome: e.target.value as Settings["readLaterChrome"],
-                    })
-                  }
-                >
-                  <option value="tabs">Mode tabs (RSS Reader | Read Later)</option>
-                  <option value="brandControl">Brand + Read Later control</option>
-                </select>
-              </label>
             </section>
           )}
 

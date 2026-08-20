@@ -102,8 +102,8 @@ func (s *Service) kickReadLaterFetch(articleID string) {
 	}
 }
 
-func (s *Service) ListReadLater(ctx context.Context, filter string) ([]domain.Article, error) {
-	q := domain.ArticleQuery{ReadLaterOnly: true, Limit: 200}
+func (s *Service) ListReadLater(ctx context.Context, filter string, search string) ([]domain.Article, error) {
+	q := domain.ArticleQuery{ReadLaterOnly: true, Limit: 200, Search: strings.TrimSpace(search)}
 	switch filter {
 	case "unread":
 		q.UnreadOnly = true

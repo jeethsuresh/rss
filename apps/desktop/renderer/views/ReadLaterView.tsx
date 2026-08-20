@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared";
 import { PageFrame } from "../components/PageFrame";
-import { formatRelativeTime } from "../lib/html";
+import { formatRelativeTime, stripHtml } from "../lib/html";
 
 type ContentTab = "primary" | "secondary";
 
 type Props = {
   backend: ReaderBackend;
+  search: string;
   focusArticleId?: string | null;
   onFocusConsumed?: () => void;
 };
@@ -19,12 +20,17 @@ function hostOf(url: string): string {
   }
 }
 
-export function ReadLaterView({ backend, focusArticleId, onFocusConsumed }: Props) {
+const FILTERS: { id: ReadLaterFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "unread", label: "Unread" },
+  { id: "starred", label: "Starred" },
+  { id: "archived", label: "Archived" },
+];
+
+export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed }: Props) {
   const [filter, setFilter] = useState<ReadLaterFilter>("all");
   const [articles, setArticles] = useState<Article[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [addUrl, setAddUrl] = useState("");
-  const [busy, setBusy] = useState(false);
   const [contentBusy, setContentBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
@@ -32,13 +38,13 @@ export function ReadLaterView({ backend, focusArticleId, onFocusConsumed }: Prop
   const active = articles.find((a) => a.id === activeId) ?? null;
 
   const load = useCallback(async () => {
-    const list = (await backend.readLater.list(filter)) ?? [];
+    const list = (await backend.readLater.list(filter, search.trim() || undefined)) ?? [];
     setArticles(list);
     setActiveId((id) => {
       if (id && list.some((a) => a.id === id)) return id;
       return list[0]?.id ?? null;
     });
-  }, [backend, filter]);
+  }, [backend, filter, search]);
 
   useEffect(() => {
     void load().catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
@@ -84,30 +90,8 @@ export function ReadLaterView({ backend, focusArticleId, onFocusConsumed }: Prop
     };
   }, [active?.id, active?.liveContent, contentTab, backend]);
 
-  const addLink = async () => {
-    const url = addUrl.trim();
-    if (!url) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const art = await backend.readLater.add(url);
-      setAddUrl("");
-      setFilter("all");
-      setActiveId(art.id);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save link");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const patchLocal = (updated: Article) => {
     setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-  };
-
-  const handleTab = async (tab: ContentTab) => {
-    setContentTab(tab);
   };
 
   const recrawl = async () => {
@@ -173,75 +157,45 @@ export function ReadLaterView({ backend, focusArticleId, onFocusConsumed }: Prop
     );
   };
 
-  const filters: { id: ReadLaterFilter; label: string }[] = [
-    { id: "all", label: "All" },
-    { id: "unread", label: "Unread" },
-    { id: "starred", label: "Starred" },
-    { id: "archived", label: "Archived" },
-  ];
-
   return (
-    <div className="layout read-later-layout">
-      <section className="pane article-list">
-        <div className="rl-toolbar">
-          <div className="content-tabs rl-filters">
-            {filters.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                className={`content-tab ${filter === f.id ? "active" : ""}`}
-                onClick={() => setFilter(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-          <form
-            className="rl-add"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void addLink();
-            }}
+    <div className="layout">
+      <aside className="pane sidebar">
+        {FILTERS.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            className={`nav-item ${filter === f.id ? "active" : ""}`}
+            onClick={() => setFilter(f.id)}
           >
-            <input
-              className="search"
-              placeholder="https://… paste a URL to save"
-              value={addUrl}
-              onChange={(e) => setAddUrl(e.target.value)}
-              disabled={busy}
-            />
-            <button className="btn primary" type="submit" disabled={busy || !addUrl.trim()}>
-              {busy ? "Adding…" : "Add"}
-            </button>
-          </form>
-          {error && <p className="error">{error}</p>}
-        </div>
+            <span>{f.label}</span>
+          </button>
+        ))}
+      </aside>
 
+      <section className="pane article-list">
+        {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
         {articles.length === 0 ? (
-          <div className="empty" style={{ height: "auto", padding: 24 }}>
-            <p>No Read Later items here.</p>
-            <p className="muted">Paste a URL above, or send an article from RSS Reader.</p>
+          <div className="empty">
+            <h2>Nothing here</h2>
+            <p>Paste a URL in the toolbar, or send an article from RSS Reader.</p>
           </div>
         ) : (
-          <div className="list">
-            {articles.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                className={`article-row ${a.id === activeId ? "active" : ""} ${a.isRead ? "read" : "unread"}`}
-                onClick={() => setActiveId(a.id)}
-              >
-                <div className="article-title">
-                  {!a.isRead ? <strong>{a.title || "(untitled)"}</strong> : a.title || "(untitled)"}
-                  {a.isStarred ? " ★" : ""}
-                </div>
-                <div className="article-meta muted">
-                  {hostOf(a.url)}
-                  {a.discoveredAt ? ` · ${formatRelativeTime(a.discoveredAt)}` : ""}
-                </div>
-              </button>
-            ))}
-          </div>
+          articles.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className={`article-row ${a.id === activeId ? "active" : ""} ${a.isRead ? "" : "unread"}`}
+              onClick={() => setActiveId(a.id)}
+            >
+              <div className="article-meta">
+                <span>{hostOf(a.url)}</span>
+                <span>{formatRelativeTime(a.discoveredAt)}</span>
+                {a.isStarred ? <span>★</span> : null}
+              </div>
+              <h3 className="article-title">{a.title || "(untitled)"}</h3>
+              <p className="article-summary">{stripHtml(a.summary || a.url)}</p>
+            </button>
+          ))
         )}
       </section>
 
@@ -249,7 +203,7 @@ export function ReadLaterView({ backend, focusArticleId, onFocusConsumed }: Prop
         {!active ? (
           <div className="empty">
             <h2>Read Later</h2>
-            <p>Select a saved link, or add one above.</p>
+            <p>Select a saved link to read.</p>
           </div>
         ) : (
           <article className="reader">
@@ -262,14 +216,14 @@ export function ReadLaterView({ backend, focusArticleId, onFocusConsumed }: Prop
               <button
                 type="button"
                 className={`content-tab ${contentTab === "primary" ? "active" : ""}`}
-                onClick={() => void handleTab("primary")}
+                onClick={() => setContentTab("primary")}
               >
                 Live
               </button>
               <button
                 type="button"
                 className={`content-tab ${contentTab === "secondary" ? "active" : ""}`}
-                onClick={() => void handleTab("secondary")}
+                onClick={() => setContentTab("secondary")}
               >
                 Saved crawl
               </button>

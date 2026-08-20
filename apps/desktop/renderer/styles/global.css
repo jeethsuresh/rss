@@ -141,29 +141,14 @@ button {
   margin: 0 16px 8px;
 }
 
-.read-later-layout {
-  grid-template-columns: minmax(280px, 380px) 1fr;
-}
-
-.rl-toolbar {
-  padding: 10px 12px 4px;
-  border-bottom: 1px solid var(--border);
+.rl-add-toolbar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
 }
 
-.rl-filters {
-  margin: 0;
-}
-
-.rl-add {
-  display: flex;
-  gap: 8px;
-}
-
-.rl-add .search {
-  flex: 1;
+.rl-url-input {
+  width: min(280px, 28vw);
 }
 
 .toolbar-spacer {

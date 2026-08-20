@@ -88,6 +88,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [search, setSearch] = useState("");
+  const [rlSearch, setRlSearch] = useState("");
+  const [rlAddUrl, setRlAddUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -389,6 +391,24 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     }
   };
 
+  const addReadLaterUrl = async () => {
+    const url = rlAddUrl.trim();
+    if (!url) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await backend.readLater.add(url);
+      setRlAddUrl("");
+      setRlSearch("");
+      setReadLaterFocusId(saved.id);
+      setAppMode("readLater");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save link");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleContentTab = useCallback(
     async (tab: ContentTab) => {
       setContentTab(tab);
@@ -541,7 +561,13 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         if (e.key === "Escape") setView("reader");
         return;
       }
-      if (appMode === "readLater") return;
+      if (appMode === "readLater") {
+        if (e.key === "/") {
+          e.preventDefault();
+          document.getElementById("rl-search-input")?.focus();
+        }
+        return;
+      }
 
       switch (e.key) {
         case "j":
@@ -645,47 +671,33 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
 
   const totalUnread = visibleFeeds.reduce((n, f) => n + f.unreadCount, 0);
   const densityClass = settings?.articleDensity === "compact" ? "density-compact" : "";
-  const chromeStyle = settings?.readLaterChrome === "brandControl" ? "brandControl" : "tabs";
 
   return (
     <div className={`app ${densityClass}`}>
       <header className="toolbar">
-        {chromeStyle === "tabs" ? (
-          <div className="mode-tabs" role="tablist" aria-label="App mode">
-            <button
-              type="button"
-              role="tab"
-              className={`mode-tab ${appMode === "rss" ? "active" : ""}`}
-              aria-selected={appMode === "rss"}
-              onClick={() => setAppMode("rss")}
-            >
-              RSS Reader
-            </button>
-            <button
-              type="button"
-              role="tab"
-              className={`mode-tab ${appMode === "readLater" ? "active" : ""}`}
-              aria-selected={appMode === "readLater"}
-              onClick={() => setAppMode("readLater")}
-            >
-              Read Later
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="brand">RSS Reader</div>
-            <button
-              type="button"
-              className={`btn ${appMode === "readLater" ? "primary" : ""}`}
-              onClick={() => setAppMode(appMode === "readLater" ? "rss" : "readLater")}
-            >
-              {appMode === "readLater" ? "Back to RSS" : "Read Later"}
-            </button>
-          </>
-        )}
+        <div className="mode-tabs" role="tablist" aria-label="App mode">
+          <button
+            type="button"
+            role="tab"
+            className={`mode-tab ${appMode === "rss" ? "active" : ""}`}
+            aria-selected={appMode === "rss"}
+            onClick={() => setAppMode("rss")}
+          >
+            RSS Reader
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`mode-tab ${appMode === "readLater" ? "active" : ""}`}
+            aria-selected={appMode === "readLater"}
+            onClick={() => setAppMode("readLater")}
+          >
+            Read Later
+          </button>
+        </div>
         <span className={`status-dot ${error ? "error" : ""}`} title={error ?? "Connected"} />
         <div className="toolbar-spacer" />
-        {appMode === "rss" && (
+        {appMode === "rss" ? (
           <input
             id="search-input"
             className="search"
@@ -694,11 +706,38 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             onChange={(e) => setSearch(e.target.value)}
             disabled={isStoriesMode}
           />
+        ) : (
+          <input
+            id="rl-search-input"
+            className="search"
+            placeholder="Search saved links  (/)"
+            value={rlSearch}
+            onChange={(e) => setRlSearch(e.target.value)}
+          />
         )}
-        {appMode === "rss" && (
+        {appMode === "rss" ? (
           <button className="btn" onClick={() => void refreshAll()} disabled={busy}>
             {busy ? "Refreshing…" : "Refresh"}
           </button>
+        ) : (
+          <form
+            className="rl-add-toolbar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void addReadLaterUrl();
+            }}
+          >
+            <input
+              className="search rl-url-input"
+              placeholder="https://… paste a URL"
+              value={rlAddUrl}
+              onChange={(e) => setRlAddUrl(e.target.value)}
+              disabled={busy}
+            />
+            <button className="btn primary" type="submit" disabled={busy || !rlAddUrl.trim()}>
+              {busy ? "Adding…" : "Add"}
+            </button>
+          </form>
         )}
         <button className="btn" onClick={() => setView("settings")}>
           Settings
@@ -710,11 +749,12 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         )}
       </header>
 
-      {error && appMode === "rss" && <p className="error toolbar-error">{error}</p>}
+      {error && <p className="error toolbar-error">{error}</p>}
 
       {appMode === "readLater" ? (
         <ReadLaterView
           backend={backend}
+          search={rlSearch}
           focusArticleId={readLaterFocusId}
           onFocusConsumed={() => setReadLaterFocusId(null)}
         />
