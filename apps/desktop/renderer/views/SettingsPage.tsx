@@ -54,6 +54,10 @@ export function SettingsPage({
   const [aiModelDraft, setAiModelDraft] = useState(settings.aiModel);
   const [pandaTokenDraft, setPandaTokenDraft] = useState(settings.pandaScoreApiToken ?? "");
   const [stratzTokenDraft, setStratzTokenDraft] = useState(settings.stratzApiToken ?? "");
+  const [dotaProviderDraft, setDotaProviderDraft] = useState<"opendota" | "pandascore">(
+    settings.dotaProvider === "opendota" ? "opendota" : "pandascore",
+  );
+  const [providerSaving, setProviderSaving] = useState(false);
 
   // Refs so Save always reads the latest draft even if a blur/re-render races the click.
   const pollDraftRef = useRef(pollDraft);
@@ -76,6 +80,8 @@ export function SettingsPage({
   const sportsTokensDirty =
     pandaTokenDraft.trim() !== (settings.pandaScoreApiToken ?? "").trim() ||
     stratzTokenDraft.trim() !== (settings.stratzApiToken ?? "").trim();
+  const dotaProviderDirty =
+    dotaProviderDraft !== (settings.dotaProvider === "opendota" ? "opendota" : "pandascore");
 
   const reloadFeeds = useCallback(async () => {
     setFeeds(await backend.feeds.list());
@@ -119,6 +125,12 @@ export function SettingsPage({
       setStratzTokenDraft(settings.stratzApiToken ?? "");
     }
   }, [settings.pandaScoreApiToken, settings.stratzApiToken, sportsTokensDirty]);
+
+  useEffect(() => {
+    if (!dotaProviderDirty) {
+      setDotaProviderDraft(settings.dotaProvider === "opendota" ? "opendota" : "pandascore");
+    }
+  }, [settings.dotaProvider, dotaProviderDirty]);
 
   useEffect(() => {
     return backend.onEvent((ev) => {
@@ -240,6 +252,18 @@ export function SettingsPage({
       setError(e instanceof Error ? e.message : "Could not save API tokens");
     } finally {
       setTokensSaving(false);
+    }
+  };
+
+  const saveDotaProvider = async () => {
+    setError(null);
+    setProviderSaving(true);
+    try {
+      await patch({ dotaProvider: dotaProviderDraft });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save Dota provider");
+    } finally {
+      setProviderSaving(false);
     }
   };
 
@@ -477,64 +501,100 @@ export function SettingsPage({
 
           {section === "sports" && (
             <section className="settings-section">
-              <h2>Dota 2 APIs</h2>
+              <h2>Dota data source</h2>
               <p className="muted">
-                Edit tokens, then Save. Stored locally in the app database (env vars remain a fallback
-                if empty).
+                OpenDota needs no API keys. PandaScore + STRATZ needs tokens and unlocks richer live
+                coverage.
               </p>
-              <label className="field field-wide">
-                PandaScore API token
-                <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={pandaTokenDraft}
-                  onChange={(e) => setPandaTokenDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void saveSportsTokens();
-                    }
-                  }}
-                  placeholder="Required for Dota events & matches"
-                />
-              </label>
-              <label className="field field-wide">
-                STRATZ API token
-                <input
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={stratzTokenDraft}
-                  onChange={(e) => setStratzTokenDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void saveSportsTokens();
-                    }
-                  }}
-                  placeholder="Optional — game heroes, bans, player stats"
-                />
+              <label className="field">
+                Provider
+                <select
+                  value={dotaProviderDraft}
+                  onChange={(e) =>
+                    setDotaProviderDraft(e.target.value === "opendota" ? "opendota" : "pandascore")
+                  }
+                >
+                  <option value="pandascore">PandaScore + STRATZ</option>
+                  <option value="opendota">OpenDota only</option>
+                </select>
               </label>
               <div className="settings-row">
                 <button
                   type="button"
                   className="btn primary"
-                  disabled={tokensSaving || !sportsTokensDirty}
+                  disabled={providerSaving || !dotaProviderDirty}
                   onMouseDown={keepFocusForSave}
-                  onClick={() => void saveSportsTokens()}
+                  onClick={() => void saveDotaProvider()}
                 >
-                  {tokensSaving ? "Saving…" : "Save tokens"}
+                  {providerSaving ? "Saving…" : "Save provider"}
                 </button>
-                {sportsTokensDirty ? <span className="muted">Unsaved changes</span> : null}
-                {!sportsTokensDirty && !tokensSaving ? (
-                  <span className="muted">
-                    {pandaTokenDraft.trim() ? "PandaScore set" : "PandaScore empty"}
-                    {" · "}
-                    {stratzTokenDraft.trim() ? "STRATZ set" : "STRATZ empty"}
-                  </span>
-                ) : null}
+                {dotaProviderDirty ? <span className="muted">Unsaved changes</span> : null}
               </div>
+
+              <h2>Dota 2 APIs</h2>
+              {dotaProviderDraft === "opendota" ? (
+                <p className="muted">Tokens are not used while OpenDota is selected.</p>
+              ) : (
+                <>
+                  <p className="muted">
+                    Edit tokens, then Save. Stored locally in the app database (env vars remain a
+                    fallback if empty).
+                  </p>
+                  <label className="field field-wide">
+                    PandaScore API token
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={pandaTokenDraft}
+                      onChange={(e) => setPandaTokenDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void saveSportsTokens();
+                        }
+                      }}
+                      placeholder="Required for Dota events & matches"
+                    />
+                  </label>
+                  <label className="field field-wide">
+                    STRATZ API token
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={stratzTokenDraft}
+                      onChange={(e) => setStratzTokenDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void saveSportsTokens();
+                        }
+                      }}
+                      placeholder="Optional — game heroes, bans, player stats"
+                    />
+                  </label>
+                  <div className="settings-row">
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={tokensSaving || !sportsTokensDirty}
+                      onMouseDown={keepFocusForSave}
+                      onClick={() => void saveSportsTokens()}
+                    >
+                      {tokensSaving ? "Saving…" : "Save tokens"}
+                    </button>
+                    {sportsTokensDirty ? <span className="muted">Unsaved changes</span> : null}
+                    {!sportsTokensDirty && !tokensSaving ? (
+                      <span className="muted">
+                        {pandaTokenDraft.trim() ? "PandaScore set" : "PandaScore empty"}
+                        {" · "}
+                        {stratzTokenDraft.trim() ? "STRATZ set" : "STRATZ empty"}
+                      </span>
+                    ) : null}
+                  </div>
+                </>
+              )}
 
               <h2>Baseball (MLB)</h2>
               <p className="muted">

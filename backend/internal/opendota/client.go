@@ -29,6 +29,10 @@ type Client struct {
 	teamMu    sync.Mutex
 	teamByKey map[string]int // norm name/tag → team_id
 	teamsAt   time.Time
+
+	heroMu    sync.Mutex
+	heroNames map[int]string
+	heroesAt  time.Time
 }
 
 func NewClient() *Client {

@@ -517,7 +517,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
     </aside>
   );
 
-  if (status && !status.pandaScoreConfigured) {
+  if (status && !status.ready) {
     return (
       <div className="layout">
         {sidebar}
@@ -525,8 +525,9 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
           <div className="empty">
             <h2>Dota 2</h2>
             <p>
-              Add your PandaScore token in Settings → Sports. Optional STRATZ token unlocks game
-              details.
+              {status.provider === "opendota"
+                ? "OpenDota is unavailable right now. Try again in a moment."
+                : "Add your PandaScore token in Settings → Sports. Optional STRATZ token unlocks game details."}
             </p>
           </div>
         </section>
@@ -729,9 +730,19 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
         ) : !gameDetail && !matchDetail && nav.type === "browse" ? (
           <div className="empty">
             <h2>Dota 2</h2>
-            <p>Pick a tournament or followed team. STRATZ details load only when you open a game.</p>
-            {status && !status.stratzConfigured ? (
+            <p>
+              Pick a tournament or followed team.
+              {status?.provider === "opendota"
+                ? " Game details load from OpenDota when you open a game."
+                : " STRATZ details load only when you open a game."}
+            </p>
+            {status && status.provider !== "opendota" && !status.stratzConfigured ? (
               <p className="muted">Add a STRATZ token in Settings → Sports for game heroes and player stats.</p>
+            ) : null}
+            {status?.provider ? (
+              <p className="muted">
+                via {status.provider === "opendota" ? "OpenDota" : "PandaScore"}
+              </p>
             ) : null}
           </div>
         ) : gameDetail ? (

@@ -130,6 +130,7 @@ export interface Settings {
   readLaterChrome?: "tabs" | "brandControl";
   pandaScoreApiToken?: string;
   stratzApiToken?: string;
+  dotaProvider?: "opendota" | "pandascore";
 }
 
 export type ReadLaterFilter = "all" | "unread" | "starred" | "archived";
@@ -552,6 +553,8 @@ export interface DotaMatchDetail {
 }
 
 export interface DotaProvidersStatus {
+  provider: "opendota" | "pandascore";
+  ready: boolean;
   pandaScoreConfigured: boolean;
   stratzConfigured: boolean;
 }

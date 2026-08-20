@@ -56,8 +56,17 @@ func (r *SportsRepo) SetFollowedTeamIDs(ctx context.Context, ids []int) error {
 	return tx.Commit()
 }
 
-func (r *SportsRepo) GetDotaFollowedTeamIDs(ctx context.Context) ([]int, error) {
-	rows, err := r.db.SQL.QueryContext(ctx, `SELECT team_id FROM sports_dota_followed_teams ORDER BY created_at ASC`)
+func normalizeDotaProvider(provider string) string {
+	if provider == "opendota" {
+		return "opendota"
+	}
+	return "pandascore"
+}
+
+func (r *SportsRepo) GetDotaFollowedTeamIDs(ctx context.Context, provider string) ([]int, error) {
+	provider = normalizeDotaProvider(provider)
+	rows, err := r.db.SQL.QueryContext(ctx,
+		`SELECT team_id FROM sports_dota_followed_teams WHERE provider = ? ORDER BY created_at ASC`, provider)
 	if err != nil {
 		return nil, err
 	}
@@ -73,17 +82,19 @@ func (r *SportsRepo) GetDotaFollowedTeamIDs(ctx context.Context) ([]int, error) 
 	return out, rows.Err()
 }
 
-func (r *SportsRepo) SetDotaFollowedTeamIDs(ctx context.Context, ids []int) error {
+func (r *SportsRepo) SetDotaFollowedTeamIDs(ctx context.Context, provider string, ids []int) error {
+	provider = normalizeDotaProvider(provider)
 	tx, err := r.db.SQL.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sports_dota_followed_teams`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sports_dota_followed_teams WHERE provider = ?`, provider); err != nil {
 		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO sports_dota_followed_teams(team_id, created_at) VALUES (?, ?)`)
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO sports_dota_followed_teams(provider, team_id, created_at) VALUES (?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -94,15 +105,18 @@ func (r *SportsRepo) SetDotaFollowedTeamIDs(ctx context.Context, ids []int) erro
 			continue
 		}
 		seen[id] = true
-		if _, err := stmt.ExecContext(ctx, id, now); err != nil {
+		if _, err := stmt.ExecContext(ctx, provider, id, now); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-func (r *SportsRepo) GetDotaPinnedEvents(ctx context.Context) ([]domain.DotaPinnedEvent, error) {
-	rows, err := r.db.SQL.QueryContext(ctx, `SELECT event_id, event_type FROM sports_dota_pinned_events ORDER BY created_at ASC`)
+func (r *SportsRepo) GetDotaPinnedEvents(ctx context.Context, provider string) ([]domain.DotaPinnedEvent, error) {
+	provider = normalizeDotaProvider(provider)
+	rows, err := r.db.SQL.QueryContext(ctx,
+		`SELECT event_id, event_type FROM sports_dota_pinned_events WHERE provider = ? ORDER BY created_at ASC`,
+		provider)
 	if err != nil {
 		return nil, err
 	}
@@ -120,17 +134,19 @@ func (r *SportsRepo) GetDotaPinnedEvents(ctx context.Context) ([]domain.DotaPinn
 	return out, rows.Err()
 }
 
-func (r *SportsRepo) SetDotaPinnedEvents(ctx context.Context, pins []domain.DotaPinnedEvent) error {
+func (r *SportsRepo) SetDotaPinnedEvents(ctx context.Context, provider string, pins []domain.DotaPinnedEvent) error {
+	provider = normalizeDotaProvider(provider)
 	tx, err := r.db.SQL.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sports_dota_pinned_events`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sports_dota_pinned_events WHERE provider = ?`, provider); err != nil {
 		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO sports_dota_pinned_events(event_id, event_type, created_at) VALUES (?, ?, ?)`)
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO sports_dota_pinned_events(provider, event_id, event_type, created_at) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -149,7 +165,7 @@ func (r *SportsRepo) SetDotaPinnedEvents(ctx context.Context, pins []domain.Dota
 			continue
 		}
 		seen[key] = true
-		if _, err := stmt.ExecContext(ctx, p.EventID, typ, now); err != nil {
+		if _, err := stmt.ExecContext(ctx, provider, p.EventID, typ, now); err != nil {
 			return err
 		}
 	}

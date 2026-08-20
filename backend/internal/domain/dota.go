@@ -151,6 +151,8 @@ type DotaMatchDetail struct {
 }
 
 type DotaProvidersStatus struct {
-	PandaScoreConfigured bool `json:"pandaScoreConfigured"`
-	StratzConfigured     bool `json:"stratzConfigured"`
+	Provider             string `json:"provider"` // opendota | pandascore
+	Ready                bool   `json:"ready"`
+	PandaScoreConfigured bool   `json:"pandaScoreConfigured"`
+	StratzConfigured     bool   `json:"stratzConfigured"`
 }

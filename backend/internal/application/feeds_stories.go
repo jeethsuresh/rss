@@ -115,6 +115,13 @@ func (s *Service) UpdateSettings(ctx context.Context, patch map[string]any) (*do
 	if v, ok := patch["stratzApiToken"].(string); ok {
 		sset.StratzAPIToken = strings.TrimSpace(v)
 	}
+	if v, ok := patch["dotaProvider"].(string); ok {
+		if v == "opendota" {
+			sset.DotaProvider = "opendota"
+		} else {
+			sset.DotaProvider = "pandascore"
+		}
+	}
 	if err := s.Settings.Update(ctx, sset); err != nil {
 		return nil, err
 	}
