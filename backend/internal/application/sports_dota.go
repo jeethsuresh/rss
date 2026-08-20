@@ -197,7 +197,14 @@ func (s *Service) SportsDotaGameGet(ctx context.Context, matchID int, gameIndex 
 		base = &g
 	}
 	if base == nil {
-		return nil, domain.ErrNotFound
+		return &domain.DotaGame{
+			ID:              fmt.Sprintf("%d:%d", matchID, gameIndex),
+			MatchID:         matchID,
+			GameIndex:       gameIndex,
+			DetailAvailable: false,
+			DetailError:     "Game not found for this series",
+			MappingConfidence: "unknown",
+		}, nil
 	}
 	if base.StratzMatchID != nil && *base.StratzMatchID > 0 && s.Sports.Stratz != nil && s.Sports.Stratz.Configured() {
 		enriched, err := s.fetchStratzGame(ctx, *base.StratzMatchID, matchID, base.GameIndex)

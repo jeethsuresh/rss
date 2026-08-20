@@ -3,6 +3,7 @@ package pandascore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -424,6 +425,10 @@ func (c *Client) ListSeriesForYear(ctx context.Context, year int) ([]domain.Dota
 	q.Set("page", "1")
 	var raw []psSerie
 	if err := c.getJSON(ctx, "/dota2/series", q, &raw); err != nil {
+		// PandaScore sometimes 404s empty year windows; treat as no events.
+		if errors.Is(err, domain.ErrNotFound) {
+			return []domain.DotaEvent{}, nil
+		}
 		return nil, err
 	}
 	out := make([]domain.DotaEvent, 0, len(raw))
@@ -452,6 +457,9 @@ func (c *Client) ListSerieMatches(ctx context.Context, serieID int) ([]domain.Do
 	q.Set("sort", "-begin_at")
 	var raw []psMatch
 	if err := c.getJSON(ctx, "/dota2/series/"+strconv.Itoa(serieID)+"/matches", q, &raw); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return []domain.DotaMatch{}, nil
+		}
 		return nil, err
 	}
 	out := make([]domain.DotaMatch, 0, len(raw))
@@ -487,6 +495,9 @@ func (c *Client) ListTeamMatches(ctx context.Context, teamID int, year int) ([]d
 	}
 	var raw []psMatch
 	if err := c.getJSON(ctx, "/dota2/matches", q, &raw); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return []domain.DotaMatch{}, nil
+		}
 		return nil, err
 	}
 	out := make([]domain.DotaMatch, 0, len(raw))

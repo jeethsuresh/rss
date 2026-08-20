@@ -84,6 +84,27 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
   const [detailBusy, setDetailBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeEvent, setActiveEvent] = useState<DotaEvent | null>(null);
+  const [expandedSports, setExpandedSports] = useState<ReadonlySet<SportId>>(
+    () => new Set<SportId>([activeSport]),
+  );
+
+  useEffect(() => {
+    setExpandedSports((prev) => {
+      if (prev.has(activeSport)) return prev;
+      const next = new Set(prev);
+      next.add(activeSport);
+      return next;
+    });
+  }, [activeSport]);
+
+  const toggleSportExpanded = (id: SportId) => {
+    setExpandedSports((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const pinSet = useMemo(() => new Set(pins.map((p) => `${p.eventType}:${p.eventId}`)), [pins]);
   const followedSet = useMemo(() => new Set(followed), [followed]);
@@ -313,21 +334,155 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
     return { upcoming, live, completed };
   }, [matches]);
 
+  const sidebar = (
+    <aside className="pane sidebar">
+      {SPORTS_REGISTRY.map((sport) => {
+        const open = expandedSports.has(sport.id);
+        return (
+          <div key={sport.id} className="sports-league-section">
+            <button
+              type="button"
+              className={`section-label sports-league-toggle ${open ? "open" : ""} ${
+                sport.available ? "" : "unavailable"
+              }`}
+              onClick={() => {
+                toggleSportExpanded(sport.id);
+                if (sport.available) onSelectSport(sport.id);
+              }}
+              aria-expanded={open}
+            >
+              <span>{open ? "▾" : "▸"}</span>
+              <span>{sport.label}</span>
+              {!sport.available ? <span className="sports-soon">Soon</span> : null}
+              {sport.available && sport.id === "dota" && listBusy ? (
+                <SportsSpinner label="Updating" />
+              ) : null}
+            </button>
+
+            {open && sport.id === "dota" && (
+              <>
+                <div className="section-label sports-sublabel">Year</div>
+                <select
+                  className="sports-season-select"
+                  value={year ?? ""}
+                  onChange={(e) => {
+                    setYear(Number(e.target.value));
+                    setNav({ type: "browse" });
+                    setMatchDetail(null);
+                    setGameDetail(null);
+                  }}
+                >
+                  {years.map((y) => (
+                    <option key={y.year} value={y.year}>
+                      {y.year}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="sports-team-group">
+                  <div className="nav-item sports-team-heading">
+                    <span>Browse</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`nav-item nav-item-nested ${nav.type === "browse" ? "active" : ""}`}
+                    onClick={() => {
+                      setNav({ type: "browse" });
+                      setMatchDetail(null);
+                      setGameDetail(null);
+                    }}
+                  >
+                    <span>Tournaments &amp; Leagues</span>
+                  </button>
+                </div>
+
+                <div className="sports-team-group">
+                  <div className="nav-item sports-team-heading">
+                    <span>Following</span>
+                  </div>
+                  {followedTeams.length === 0 ? (
+                    <div className="empty" style={{ height: "auto", padding: 12 }}>
+                      Follow teams via search below
+                    </div>
+                  ) : (
+                    followedTeams.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className={`nav-item nav-item-nested ${
+                          nav.type === "team" && nav.teamId === t.id ? "active" : ""
+                        }`}
+                        onClick={() => void openTeam(t.id)}
+                      >
+                        <span>★ {t.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                <div className="sports-team-group">
+                  <div className="nav-item sports-team-heading">
+                    <span>Pinned</span>
+                  </div>
+                  {pinnedEvents.length === 0 ? (
+                    <div className="empty" style={{ height: "auto", padding: 12 }}>
+                      Pin events from Browse
+                    </div>
+                  ) : (
+                    pinnedEvents.map((ev) => (
+                      <button
+                        key={ev.id}
+                        type="button"
+                        className={`nav-item nav-item-nested ${
+                          nav.type === "event" && nav.eventId === ev.id ? "active" : ""
+                        }`}
+                        onClick={() => void openEvent(ev.id)}
+                      >
+                        <span>★ {ev.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                <div className="sports-team-group" style={{ padding: "4px 10px 12px" }}>
+                  <input
+                    className="search"
+                    placeholder="Search teams…"
+                    value={teamSearch}
+                    onChange={(e) => setTeamSearch(e.target.value)}
+                    style={{ width: "100%" }}
+                  />
+                  {searchHits.map((t) => (
+                    <div
+                      key={t.id}
+                      className="nav-item nav-item-nested"
+                      style={{ display: "flex", gap: 6, alignItems: "center" }}
+                    >
+                      <button
+                        type="button"
+                        style={{ flex: 1, textAlign: "left", background: "none", border: 0, padding: 0, color: "inherit", font: "inherit", cursor: "pointer" }}
+                        onClick={() => void openTeam(t.id)}
+                      >
+                        {t.name}
+                      </button>
+                      <button type="button" className="btn" onClick={() => void toggleFollow(t.id)}>
+                        {followedSet.has(t.id) ? "Unfollow" : "Follow"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </aside>
+  );
+
   if (status && !status.pandaScoreConfigured) {
     return (
       <div className="layout">
-        <aside className="pane sidebar">
-          {SPORTS_REGISTRY.map((sport) => (
-            <button
-              key={sport.id}
-              type="button"
-              className={`nav-item ${activeSport === sport.id ? "active" : ""}`}
-              onClick={() => onSelectSport(sport.id)}
-            >
-              {sport.label}
-            </button>
-          ))}
-        </aside>
+        {sidebar}
         <section className="pane article-list">
           <div className="empty">
             <h2>Dota 2</h2>
@@ -344,104 +499,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
 
   return (
     <div className="layout">
-      <aside className="pane sidebar">
-        {SPORTS_REGISTRY.map((sport) => (
-          <button
-            key={sport.id}
-            type="button"
-            className={`nav-item ${activeSport === sport.id ? "active" : ""}`}
-            onClick={() => onSelectSport(sport.id)}
-          >
-            {sport.label}
-          </button>
-        ))}
-        <div className="section-label">Dota 2</div>
-        <div className="section-label">Year</div>
-        {years.map((y) => (
-          <button
-            key={y.year}
-            type="button"
-            className={`nav-item ${year === y.year ? "active" : ""}`}
-            onClick={() => {
-              setYear(y.year);
-              setNav({ type: "browse" });
-              setMatchDetail(null);
-              setGameDetail(null);
-            }}
-          >
-            {y.year}
-          </button>
-        ))}
-
-        <div className="section-label">Following</div>
-        {followedTeams.length === 0 && (
-          <div className="empty" style={{ height: "auto", padding: 8 }}>
-            Follow teams via search
-          </div>
-        )}
-        {followedTeams.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`nav-item nav-item-nested ${
-              nav.type === "team" && nav.teamId === t.id ? "active" : ""
-            }`}
-            onClick={() => void openTeam(t.id)}
-          >
-            ★ {t.name}
-          </button>
-        ))}
-
-        <div className="section-label">Pinned</div>
-        {pinnedEvents.length === 0 && (
-          <div className="empty" style={{ height: "auto", padding: 8 }}>
-            Pin events from Browse
-          </div>
-        )}
-        {pinnedEvents.map((ev) => (
-          <button
-            key={ev.id}
-            type="button"
-            className={`nav-item nav-item-nested ${
-              nav.type === "event" && nav.eventId === ev.id ? "active" : ""
-            }`}
-            onClick={() => void openEvent(ev.id)}
-          >
-            ★ {ev.name}
-          </button>
-        ))}
-
-        <div className="section-label">Browse</div>
-        <button
-          type="button"
-          className={`nav-item ${nav.type === "browse" ? "active" : ""}`}
-          onClick={() => {
-            setNav({ type: "browse" });
-            setMatchDetail(null);
-            setGameDetail(null);
-          }}
-        >
-          Tournaments &amp; Leagues
-        </button>
-        <div style={{ padding: "8px 10px" }}>
-          <input
-            placeholder="Search teams…"
-            value={teamSearch}
-            onChange={(e) => setTeamSearch(e.target.value)}
-            style={{ width: "100%" }}
-          />
-          {searchHits.map((t) => (
-            <div key={t.id} className="nav-item nav-item-nested" style={{ display: "flex", gap: 6 }}>
-              <button type="button" style={{ flex: 1, textAlign: "left" }} onClick={() => void openTeam(t.id)}>
-                {t.name}
-              </button>
-              <button type="button" className="btn" onClick={() => void toggleFollow(t.id)}>
-                {followedSet.has(t.id) ? "Unfollow" : "Follow"}
-              </button>
-            </div>
-          ))}
-        </div>
-      </aside>
+      {sidebar}
 
       <section className="pane article-list">
         {error && <p className="error">{error}</p>}

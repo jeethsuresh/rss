@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type {
   AILogEntry,
   AIStatus,
@@ -55,16 +55,27 @@ export function SettingsPage({
   const [pandaTokenDraft, setPandaTokenDraft] = useState(settings.pandaScoreApiToken ?? "");
   const [stratzTokenDraft, setStratzTokenDraft] = useState(settings.stratzApiToken ?? "");
 
+  // Refs so Save always reads the latest draft even if a blur/re-render races the click.
+  const pollDraftRef = useRef(pollDraft);
+  const aiBaseUrlDraftRef = useRef(aiBaseUrlDraft);
+  const aiModelDraftRef = useRef(aiModelDraft);
+  const pandaTokenDraftRef = useRef(pandaTokenDraft);
+  const stratzTokenDraftRef = useRef(stratzTokenDraft);
+  pollDraftRef.current = pollDraft;
+  aiBaseUrlDraftRef.current = aiBaseUrlDraft;
+  aiModelDraftRef.current = aiModelDraft;
+  pandaTokenDraftRef.current = pandaTokenDraft;
+  stratzTokenDraftRef.current = stratzTokenDraft;
+
   const pollParsed = Number(pollDraft);
   const pollValid = Number.isFinite(pollParsed) && pollParsed >= 60;
-  const generalDirty =
-    pollValid && pollParsed !== settings.defaultPollIntervalSeconds;
+  const generalDirty = pollValid && pollParsed !== settings.defaultPollIntervalSeconds;
   const aiDirty =
     aiBaseUrlDraft.trim() !== (settings.aiBaseUrl ?? "").trim() ||
     aiModelDraft.trim() !== (settings.aiModel ?? "").trim();
   const sportsTokensDirty =
-    pandaTokenDraft !== (settings.pandaScoreApiToken ?? "") ||
-    stratzTokenDraft !== (settings.stratzApiToken ?? "");
+    pandaTokenDraft.trim() !== (settings.pandaScoreApiToken ?? "").trim() ||
+    stratzTokenDraft.trim() !== (settings.stratzApiToken ?? "").trim();
 
   const reloadFeeds = useCallback(async () => {
     setFeeds(await backend.feeds.list());
@@ -90,7 +101,7 @@ export function SettingsPage({
     setSection(initialSection);
   }, [initialSection]);
 
-  // Keep drafts in sync when settings change externally, but never clobber unsaved edits.
+  // Sync drafts from props only when that field group is clean (never clobber unsaved edits).
   useEffect(() => {
     if (!generalDirty) setPollDraft(String(settings.defaultPollIntervalSeconds));
   }, [settings.defaultPollIntervalSeconds, generalDirty]);
@@ -155,15 +166,22 @@ export function SettingsPage({
     return next;
   };
 
+  /** Prevent input blur from disabling the Save button before click fires. */
+  const keepFocusForSave = (e: ReactMouseEvent) => {
+    e.preventDefault();
+  };
+
   const saveGeneral = async () => {
-    if (!pollValid) {
+    const raw = pollDraftRef.current;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 60) {
       setError("Poll interval must be at least 60 seconds");
       return;
     }
     setError(null);
     setGeneralSaving(true);
     try {
-      await patch({ defaultPollIntervalSeconds: pollParsed });
+      await patch({ defaultPollIntervalSeconds: n });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save settings");
     } finally {
@@ -176,8 +194,8 @@ export function SettingsPage({
     setAiSaving(true);
     try {
       await patch({
-        aiBaseUrl: aiBaseUrlDraft.trim(),
-        aiModel: aiModelDraft.trim(),
+        aiBaseUrl: aiBaseUrlDraftRef.current.trim(),
+        aiModel: aiModelDraftRef.current.trim(),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save AI settings");
@@ -191,11 +209,12 @@ export function SettingsPage({
     setAiTest(null);
     setAiTesting(true);
     try {
-      if (aiDirty) {
-        await patch({
-          aiBaseUrl: aiBaseUrlDraft.trim(),
-          aiModel: aiModelDraft.trim(),
-        });
+      const url = aiBaseUrlDraftRef.current.trim();
+      const model = aiModelDraftRef.current.trim();
+      const needsSave =
+        url !== (settings.aiBaseUrl ?? "").trim() || model !== (settings.aiModel ?? "").trim();
+      if (needsSave) {
+        await patch({ aiBaseUrl: url, aiModel: model });
       }
       const result = await backend.ai.test();
       setAiTest(result);
@@ -214,8 +233,8 @@ export function SettingsPage({
     setTokensSaving(true);
     try {
       await patch({
-        pandaScoreApiToken: pandaTokenDraft.trim(),
-        stratzApiToken: stratzTokenDraft.trim(),
+        pandaScoreApiToken: pandaTokenDraftRef.current.trim(),
+        stratzApiToken: stratzTokenDraftRef.current.trim(),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save API tokens");
@@ -269,8 +288,8 @@ export function SettingsPage({
             <section className="settings-section">
               <h2>General</h2>
               <p className="muted">
-                Dropdowns and toggles save immediately. Number fields use local drafts — save when
-                you are done editing.
+                Dropdowns and toggles save immediately. Number fields keep a local draft until you
+                press Save.
               </p>
               <label className="field">
                 Theme
@@ -303,9 +322,6 @@ export function SettingsPage({
                   step={60}
                   value={pollDraft}
                   onChange={(e) => setPollDraft(e.target.value)}
-                  onBlur={() => {
-                    if (generalDirty) void saveGeneral();
-                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -322,6 +338,7 @@ export function SettingsPage({
                     type="button"
                     className="btn"
                     disabled={generalSaving || !generalDirty}
+                    onMouseDown={keepFocusForSave}
                     onClick={() => void saveGeneral()}
                   >
                     {generalSaving ? "Saving…" : "Save poll interval"}
@@ -462,8 +479,8 @@ export function SettingsPage({
             <section className="settings-section">
               <h2>Dota 2 APIs</h2>
               <p className="muted">
-                Edit tokens freely, then save. Values stay local in the app database (env vars remain a
-                fallback if empty).
+                Edit tokens, then Save. Stored locally in the app database (env vars remain a fallback
+                if empty).
               </p>
               <label className="field field-wide">
                 PandaScore API token
@@ -473,8 +490,11 @@ export function SettingsPage({
                   spellCheck={false}
                   value={pandaTokenDraft}
                   onChange={(e) => setPandaTokenDraft(e.target.value)}
-                  onBlur={() => {
-                    if (sportsTokensDirty) void saveSportsTokens();
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveSportsTokens();
+                    }
                   }}
                   placeholder="Required for Dota events & matches"
                 />
@@ -487,8 +507,11 @@ export function SettingsPage({
                   spellCheck={false}
                   value={stratzTokenDraft}
                   onChange={(e) => setStratzTokenDraft(e.target.value)}
-                  onBlur={() => {
-                    if (sportsTokensDirty) void saveSportsTokens();
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveSportsTokens();
+                    }
                   }}
                   placeholder="Optional — game heroes, bans, player stats"
                 />
@@ -498,6 +521,7 @@ export function SettingsPage({
                   type="button"
                   className="btn primary"
                   disabled={tokensSaving || !sportsTokensDirty}
+                  onMouseDown={keepFocusForSave}
                   onClick={() => void saveSportsTokens()}
                 >
                   {tokensSaving ? "Saving…" : "Save tokens"}
@@ -505,9 +529,9 @@ export function SettingsPage({
                 {sportsTokensDirty ? <span className="muted">Unsaved changes</span> : null}
                 {!sportsTokensDirty && !tokensSaving ? (
                   <span className="muted">
-                    {pandaTokenDraft ? "PandaScore set" : "PandaScore empty"}
+                    {pandaTokenDraft.trim() ? "PandaScore set" : "PandaScore empty"}
                     {" · "}
-                    {stratzTokenDraft ? "STRATZ set" : "STRATZ empty"}
+                    {stratzTokenDraft.trim() ? "STRATZ set" : "STRATZ empty"}
                   </span>
                 ) : null}
               </div>
@@ -561,8 +585,8 @@ export function SettingsPage({
             <section className="settings-section">
               <h2>Local AI (LM Studio)</h2>
               <p className="muted">
-                Point the reader at a local OpenAI-compatible server. Edit freely — nothing is written
-                until you save or leave the field.
+                Point the reader at a local OpenAI-compatible server. Nothing is written until you press
+                Save (or Test, which saves first if needed).
               </p>
               <label className="check">
                 <input
@@ -584,9 +608,6 @@ export function SettingsPage({
                     setAiBaseUrlDraft(e.target.value);
                     setAiTest(null);
                   }}
-                  onBlur={() => {
-                    if (aiDirty) void saveAiConnection();
-                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -606,9 +627,6 @@ export function SettingsPage({
                     setAiModelDraft(e.target.value);
                     setAiTest(null);
                   }}
-                  onBlur={() => {
-                    if (aiDirty) void saveAiConnection();
-                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -623,6 +641,7 @@ export function SettingsPage({
                   type="button"
                   className="btn"
                   disabled={aiSaving || !aiDirty}
+                  onMouseDown={keepFocusForSave}
                   onClick={() => void saveAiConnection()}
                 >
                   {aiSaving ? "Saving…" : "Save connection"}
@@ -631,6 +650,7 @@ export function SettingsPage({
                   type="button"
                   className="btn primary"
                   disabled={aiTesting || aiSaving}
+                  onMouseDown={keepFocusForSave}
                   onClick={() => void testAiConnection()}
                 >
                   {aiTesting ? "Testing…" : "Test connection"}
