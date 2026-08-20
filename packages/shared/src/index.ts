@@ -62,6 +62,7 @@ export interface Article {
   isRead: boolean;
   isStarred: boolean;
   isReadLater: boolean;
+  archivedAt?: string | null;
   priority: Priority;
   storyId?: string;
   discoveredAt: string;
@@ -126,7 +127,10 @@ export interface Settings {
   aiEnabled: boolean;
   aiBaseUrl: string;
   aiModel: string;
+  readLaterChrome: "tabs" | "brandControl";
 }
+
+export type ReadLaterFilter = "all" | "unread" | "starred" | "archived";
 
 export interface AIStatus {
   running: boolean;
@@ -192,7 +196,10 @@ export interface ReaderBackend {
   };
   readLater: {
     add(url: string): Promise<Article>;
-    list(): Promise<Article[]>;
+    addFromArticle(articleId: string): Promise<Article>;
+    list(filter?: ReadLaterFilter): Promise<Article[]>;
+    archive(id: string): Promise<Article>;
+    unarchive(id: string): Promise<Article>;
   };
   stories: {
     list(): Promise<Story[]>;
@@ -249,7 +256,10 @@ export const RPC_METHODS = [
   "articles.recrawl",
   "articles.fetchLive",
   "readLater.add",
+  "readLater.addFromArticle",
   "readLater.list",
+  "readLater.archive",
+  "readLater.unarchive",
   "stories.list",
   "stories.get",
   "stories.markRead",

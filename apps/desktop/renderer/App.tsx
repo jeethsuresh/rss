@@ -11,6 +11,7 @@ import type {
 import { getBackend } from "./lib/backend";
 import { formatRelativeTime, sanitizeArticleHtml, stripHtml } from "./lib/html";
 import { SettingsPage } from "./views/SettingsPage";
+import { ReadLaterView } from "./views/ReadLaterView";
 import { PageFrame } from "./components/PageFrame";
 
 type Selection =
@@ -18,12 +19,11 @@ type Selection =
   | { type: "unread" }
   | { type: "starred" }
   | { type: "stories" }
-  | { type: "readLater" }
   | { type: "feed"; id: string }
   | { type: "folder"; id: string };
 
+type AppMode = "rss" | "readLater";
 type ContentTab = "primary" | "secondary";
-
 type View = "reader" | "settings";
 
 function priorityBadgeLabel(priority: Priority): string | null {
@@ -93,6 +93,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [showAdd, setShowAdd] = useState(false);
   const [addUrl, setAddUrl] = useState("");
   const [view, setView] = useState<View>("reader");
+  const [appMode, setAppMode] = useState<AppMode>("rss");
+  const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
   const [expandedMemberIds, setExpandedMemberIds] = useState<Record<string, boolean>>({});
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
   const [contentBusy, setContentBusy] = useState(false);
@@ -125,16 +127,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const loadArticles = useCallback(
     async (append = false) => {
       if (selected.type === "stories") return;
-      if (selected.type === "readLater") {
-        const list = await backend.readLater.list();
-        setArticles(list ?? []);
-        setNextCursor(null);
-        setActiveId((id) => {
-          if (id && list.some((a) => a.id === id)) return id;
-          return list[0]?.id ?? null;
-        });
-        return;
-      }
       const query = {
         unreadOnly: selected.type === "unread" ? true : undefined,
         starredOnly: selected.type === "starred" ? true : undefined,
@@ -381,17 +373,17 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     setContentTab("primary");
   }, [activeId]);
 
-  const addReadLaterLink = async () => {
-    const url = window.prompt("URL to save for later");
-    if (!url?.trim()) return;
+  const addReadLaterFromActive = async () => {
+    if (!active || active.isReadLater || !active.url) return;
     setBusy(true);
     setError(null);
     try {
-      await backend.readLater.add(url.trim());
-      setSelected({ type: "readLater" });
-      await loadArticles(false);
+      const saved = await backend.readLater.addFromArticle(active.id);
+      setReadLaterFocusId(saved.id);
+      setAppMode("readLater");
+      setView("reader");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save link");
+      setError(e instanceof Error ? e.message : "Could not send to Read Later");
     } finally {
       setBusy(false);
     }
@@ -549,6 +541,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         if (e.key === "Escape") setView("reader");
         return;
       }
+      if (appMode === "readLater") return;
 
       switch (e.key) {
         case "j":
@@ -610,6 +603,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     return () => window.removeEventListener("keydown", onKey);
   }, [
     view,
+    appMode,
     active,
     activeStory,
     isStoriesMode,
@@ -651,32 +645,80 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
 
   const totalUnread = visibleFeeds.reduce((n, f) => n + f.unreadCount, 0);
   const densityClass = settings?.articleDensity === "compact" ? "density-compact" : "";
+  const chromeStyle = settings?.readLaterChrome === "brandControl" ? "brandControl" : "tabs";
 
   return (
     <div className={`app ${densityClass}`}>
       <header className="toolbar">
-        <div className="brand">RSS Reader</div>
+        {chromeStyle === "tabs" ? (
+          <div className="mode-tabs" role="tablist" aria-label="App mode">
+            <button
+              type="button"
+              role="tab"
+              className={`mode-tab ${appMode === "rss" ? "active" : ""}`}
+              aria-selected={appMode === "rss"}
+              onClick={() => setAppMode("rss")}
+            >
+              RSS Reader
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`mode-tab ${appMode === "readLater" ? "active" : ""}`}
+              aria-selected={appMode === "readLater"}
+              onClick={() => setAppMode("readLater")}
+            >
+              Read Later
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="brand">RSS Reader</div>
+            <button
+              type="button"
+              className={`btn ${appMode === "readLater" ? "primary" : ""}`}
+              onClick={() => setAppMode(appMode === "readLater" ? "rss" : "readLater")}
+            >
+              {appMode === "readLater" ? "Back to RSS" : "Read Later"}
+            </button>
+          </>
+        )}
         <span className={`status-dot ${error ? "error" : ""}`} title={error ?? "Connected"} />
         <div className="toolbar-spacer" />
-        <input
-          id="search-input"
-          className="search"
-          placeholder="Search articles  (/)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          disabled={isStoriesMode || selected.type === "readLater"}
-        />
-        <button className="btn" onClick={() => void refreshAll()} disabled={busy}>
-          {busy ? "Refreshing…" : "Refresh"}
-        </button>
+        {appMode === "rss" && (
+          <input
+            id="search-input"
+            className="search"
+            placeholder="Search articles  (/)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            disabled={isStoriesMode}
+          />
+        )}
+        {appMode === "rss" && (
+          <button className="btn" onClick={() => void refreshAll()} disabled={busy}>
+            {busy ? "Refreshing…" : "Refresh"}
+          </button>
+        )}
         <button className="btn" onClick={() => setView("settings")}>
           Settings
         </button>
-        <button className="btn primary" onClick={() => setShowAdd(true)}>
-          Add feed
-        </button>
+        {appMode === "rss" && (
+          <button className="btn primary" onClick={() => setShowAdd(true)}>
+            Add feed
+          </button>
+        )}
       </header>
 
+      {error && appMode === "rss" && <p className="error toolbar-error">{error}</p>}
+
+      {appMode === "readLater" ? (
+        <ReadLaterView
+          backend={backend}
+          focusArticleId={readLaterFocusId}
+          onFocusConsumed={() => setReadLaterFocusId(null)}
+        />
+      ) : (
       <div className="layout">
         <aside className="pane sidebar">
           <button
@@ -733,17 +775,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             </button>
           ))}
 
-          <div className="section-label">Read later</div>
-          <button
-            className={`nav-item ${selected.type === "readLater" ? "active" : ""}`}
-            onClick={() => setSelected({ type: "readLater" })}
-          >
-            <span>Read later</span>
-          </button>
-          <button className="nav-item" onClick={() => void addReadLaterLink()}>
-            + Add link
-          </button>
-
           <div className="section-label">Feeds</div>
           {visibleFeeds.length === 0 && (
             <div className="empty" style={{ height: "auto", padding: 12 }}>
@@ -793,11 +824,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           ) : articles.length === 0 ? (
             <div className="empty">
               <h2>Nothing here</h2>
-              <p>
-                {selected.type === "readLater"
-                  ? "Save a link with + Add link in the sidebar."
-                  : "Add a feed or widen your filters."}
-              </p>
+              <p>Add a feed or widen your filters.</p>
             </div>
           ) : (
             articles.map((article) => (
@@ -947,6 +974,11 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                 >
                   {active.isStarred ? "Unstar" : "Star"}
                 </button>
+                {!active.isReadLater && active.url ? (
+                  <button className="btn" disabled={busy} onClick={() => void addReadLaterFromActive()}>
+                    Send to Read Later
+                  </button>
+                ) : null}
                 {active.url && (
                   <button className="btn primary" onClick={() => void window.desktop.openExternal(active.url)}>
                     Open original
@@ -958,6 +990,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           )}
         </section>
       </div>
+      )}
 
       {showAdd && (
         <div className="modal-backdrop" onClick={() => setShowAdd(false)}>

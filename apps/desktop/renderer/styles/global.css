@@ -112,6 +112,60 @@ button {
   letter-spacing: 0.01em;
 }
 
+.mode-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg2) 80%, transparent);
+  border: 1px solid var(--border);
+}
+
+.mode-tab {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mode-tab.active {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.toolbar-error {
+  margin: 0 16px 8px;
+}
+
+.read-later-layout {
+  grid-template-columns: minmax(280px, 380px) 1fr;
+}
+
+.rl-toolbar {
+  padding: 10px 12px 4px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rl-filters {
+  margin: 0;
+}
+
+.rl-add {
+  display: flex;
+  gap: 8px;
+}
+
+.rl-add .search {
+  flex: 1;
+}
+
 .toolbar-spacer {
   flex: 1;
 }

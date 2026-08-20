@@ -58,6 +58,9 @@ func (s *Service) ListArticles(ctx context.Context, q domain.ArticleQuery) (doma
 			q.DefaultSort = settings.DefaultSort
 		}
 	}
+	if !q.ReadLaterOnly {
+		q.ExcludeReadLater = true
+	}
 	return s.Articles.List(ctx, q)
 }
 

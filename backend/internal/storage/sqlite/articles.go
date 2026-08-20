@@ -21,7 +21,7 @@ const articleSelect = `
 		       a.published_at, a.updated_at, a.external_id, a.is_read, a.is_starred,
 		       a.priority, COALESCE(a.story_id, ''),
 		       a.rss_content, a.crawled_content, a.live_content, a.crawl_status,
-		       a.crawl_error, a.crawl_unreliable, a.is_read_later,
+		       a.crawl_error, a.crawl_unreliable, a.is_read_later, a.archived_at,
 		       a.discovered_at, f.title
 		FROM articles a
 		JOIN feeds f ON f.id = a.feed_id`
@@ -49,6 +49,13 @@ func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.A
 	}
 	if q.ReadLaterOnly {
 		where = append(where, "a.is_read_later = 1")
+	} else if q.ExcludeReadLater {
+		where = append(where, "a.is_read_later = 0")
+	}
+	if q.ArchivedOnly {
+		where = append(where, "a.archived_at IS NOT NULL")
+	} else if q.ExcludeArchived {
+		where = append(where, "a.archived_at IS NULL")
 	}
 	if q.Search != "" {
 		where = append(where, `a.rowid IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH ?)`)
@@ -295,6 +302,24 @@ func (r *ArticleRepo) SetLiveContent(ctx context.Context, id string, live string
 	return nil
 }
 
+func (r *ArticleRepo) SetArchived(ctx context.Context, id string, archived bool) error {
+	var archivedAt any
+	if archived {
+		archivedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		archivedAt = nil
+	}
+	res, err := r.db.SQL.ExecContext(ctx, `UPDATE articles SET archived_at=? WHERE id=? AND is_read_later=1`, archivedAt, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ArticleRepo) ListNeedingCrawl(ctx context.Context, limit int) ([]domain.Article, error) {
 	if limit <= 0 {
 		limit = 50
@@ -364,7 +389,7 @@ func (r *ArticleRepo) SearchCompact(ctx context.Context, query string, limit int
 
 func scanArticle(row rowScanner) (domain.Article, error) {
 	var a domain.Article
-	var published, updated sql.NullString
+	var published, updated, archived sql.NullString
 	var isRead, isStarred, crawlUnreliable, isReadLater int
 	var priority, storyID, crawlStatus, discovered string
 	err := row.Scan(
@@ -372,7 +397,7 @@ func scanArticle(row rowScanner) (domain.Article, error) {
 		&published, &updated, &a.ExternalID, &isRead, &isStarred,
 		&priority, &storyID,
 		&a.RSSContent, &a.CrawledContent, &a.LiveContent, &crawlStatus,
-		&a.CrawlError, &crawlUnreliable, &isReadLater,
+		&a.CrawlError, &crawlUnreliable, &isReadLater, &archived,
 		&discovered, &a.FeedTitle,
 	)
 	if err != nil {
@@ -380,6 +405,7 @@ func scanArticle(row rowScanner) (domain.Article, error) {
 	}
 	a.PublishedAt = parseTimePtr(published)
 	a.UpdatedAt = parseTimePtr(updated)
+	a.ArchivedAt = parseTimePtr(archived)
 	a.IsRead = isRead == 1
 	a.IsStarred = isStarred == 1
 	a.Priority = domain.Priority(priority)

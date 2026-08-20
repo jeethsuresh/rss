@@ -102,6 +102,13 @@ func (s *Service) UpdateSettings(ctx context.Context, patch map[string]any) (*do
 	if v, ok := patch["aiModel"].(string); ok {
 		sset.AIModel = strings.TrimSpace(v)
 	}
+	if v, ok := patch["readLaterChrome"].(string); ok {
+		if v == "brandControl" {
+			sset.ReadLaterChrome = "brandControl"
+		} else {
+			sset.ReadLaterChrome = "tabs"
+		}
+	}
 	if err := s.Settings.Update(ctx, sset); err != nil {
 		return nil, err
 	}

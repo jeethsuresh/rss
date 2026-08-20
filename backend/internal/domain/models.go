@@ -58,6 +58,7 @@ type Article struct {
 	CrawlError      string      `json:"crawlError"`
 	CrawlUnreliable bool        `json:"crawlUnreliable"`
 	IsReadLater     bool        `json:"isReadLater"`
+	ArchivedAt      *time.Time  `json:"archivedAt,omitempty"`
 	PublishedAt     *time.Time  `json:"publishedAt"`
 	UpdatedAt       *time.Time  `json:"updatedAt"`
 	ExternalID      string      `json:"externalId"`
@@ -98,19 +99,23 @@ type Settings struct {
 	AIEnabled                  bool   `json:"aiEnabled"`
 	AIBaseURL                  string `json:"aiBaseUrl"`
 	AIModel                    string `json:"aiModel"`
+	ReadLaterChrome            string `json:"readLaterChrome"` // tabs | brandControl
 }
 
 type ArticleQuery struct {
-	FeedID       string
-	FolderID     string
-	UnreadOnly   bool
-	StarredOnly  bool
-	Search       string
-	Limit        int
-	Cursor       string
-	DefaultSort  string
-	Since        *time.Time
-	ReadLaterOnly bool
+	FeedID         string
+	FolderID       string
+	UnreadOnly     bool
+	StarredOnly    bool
+	Search         string
+	Limit          int
+	Cursor         string
+	DefaultSort    string
+	Since          *time.Time
+	ReadLaterOnly  bool
+	ArchivedOnly   bool
+	ExcludeArchived bool
+	ExcludeReadLater bool
 }
 
 type ArticleListResult struct {

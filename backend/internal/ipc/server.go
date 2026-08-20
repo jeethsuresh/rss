@@ -365,8 +365,36 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.AddReadLater(ctx, p.URL)
+	case "readLater.addFromArticle":
+		var p struct {
+			ArticleID string `json:"articleId"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ArticleID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.AddReadLaterFromArticle(ctx, p.ArticleID)
 	case "readLater.list":
-		return s.svc.ListReadLater(ctx)
+		var p struct {
+			Filter string `json:"filter"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return s.svc.ListReadLater(ctx, p.Filter)
+	case "readLater.archive":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.ArchiveReadLater(ctx, p.ID)
+	case "readLater.unarchive":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.UnarchiveReadLater(ctx, p.ID)
 	case "articles.recrawl":
 		var p struct {
 			ID string `json:"id"`
