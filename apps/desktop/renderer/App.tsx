@@ -17,8 +17,11 @@ type Selection =
   | { type: "unread" }
   | { type: "starred" }
   | { type: "stories" }
+  | { type: "readLater" }
   | { type: "feed"; id: string }
   | { type: "folder"; id: string };
+
+type ContentTab = "primary" | "secondary";
 
 type View = "reader" | "settings";
 
@@ -90,6 +93,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [addUrl, setAddUrl] = useState("");
   const [view, setView] = useState<View>("reader");
   const [expandedMemberIds, setExpandedMemberIds] = useState<Record<string, boolean>>({});
+  const [contentTab, setContentTab] = useState<ContentTab>("primary");
+  const [contentBusy, setContentBusy] = useState(false);
 
   const active = articles.find((a) => a.id === activeId) ?? null;
   const isStoriesMode = selected.type === "stories";
@@ -119,6 +124,16 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const loadArticles = useCallback(
     async (append = false) => {
       if (selected.type === "stories") return;
+      if (selected.type === "readLater") {
+        const list = await backend.readLater.list();
+        setArticles(list ?? []);
+        setNextCursor(null);
+        setActiveId((id) => {
+          if (id && list.some((a) => a.id === id)) return id;
+          return list[0]?.id ?? null;
+        });
+        return;
+      }
       const query = {
         unreadOnly: selected.type === "unread" ? true : undefined,
         starredOnly: selected.type === "starred" ? true : undefined,
@@ -273,6 +288,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         }
         case "ai.status":
           break;
+        case "ai.log":
+          break;
         case "sync.status":
           break;
         default: {
@@ -358,6 +375,143 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     },
     [isStoriesMode, stories, activeStoryId, selectStory, articles, activeId, selectArticle],
   );
+
+  useEffect(() => {
+    setContentTab("primary");
+  }, [activeId]);
+
+  const addReadLaterLink = async () => {
+    const url = window.prompt("URL to save for later");
+    if (!url?.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await backend.readLater.add(url.trim());
+      setSelected({ type: "readLater" });
+      await loadArticles(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save link");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleContentTab = useCallback(
+    async (tab: ContentTab) => {
+      setContentTab(tab);
+      if (!active) return;
+      const needsLiveFetch = active.isReadLater && tab === "primary" && !active.liveContent;
+      if (!needsLiveFetch) return;
+      setContentBusy(true);
+      try {
+        const updated = await backend.articles.fetchLive(active.id);
+        patchArticle(updated);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to fetch live content");
+      } finally {
+        setContentBusy(false);
+      }
+    },
+    [active, backend, patchArticle],
+  );
+
+  const recrawlActive = useCallback(async () => {
+    if (!active) return;
+    setContentBusy(true);
+    setError(null);
+    try {
+      const updated = await backend.articles.recrawl(active.id);
+      patchArticle(updated);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Recrawl failed");
+    } finally {
+      setContentBusy(false);
+    }
+  }, [active, backend, patchArticle]);
+
+  useEffect(() => {
+    if (!active?.isReadLater || contentTab !== "primary" || active.liveContent) return;
+    setContentBusy(true);
+    void backend.articles
+      .fetchLive(active.id)
+      .then((updated) => patchArticle(updated))
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : "Failed to fetch live content"),
+      )
+      .finally(() => setContentBusy(false));
+  }, [active?.id, active?.isReadLater, active?.liveContent, contentTab, backend, patchArticle]);
+
+  const renderContentTabs = (article: Article) => {
+    const primaryLabel = article.isReadLater ? "Live" : "Feed";
+    const secondaryLabel = article.isReadLater ? "Saved crawl" : "Full page";
+    return (
+      <div className="content-tabs">
+        <button
+          type="button"
+          className={`content-tab ${contentTab === "primary" ? "active" : ""}`}
+          onClick={() => void handleContentTab("primary")}
+        >
+          {primaryLabel}
+        </button>
+        <button
+          type="button"
+          className={`content-tab ${contentTab === "secondary" ? "active" : ""}`}
+          onClick={() => void handleContentTab("secondary")}
+        >
+          {secondaryLabel}
+        </button>
+      </div>
+    );
+  };
+
+  const renderContentBody = (article: Article) => {
+    let bodyHtml: string | null = null;
+    let statusMessage: string | null = null;
+
+    if (contentTab === "primary") {
+      if (article.isReadLater) {
+        if (article.liveContent) {
+          bodyHtml = article.liveContent;
+        } else if (contentBusy) {
+          statusMessage = "Fetching live content…";
+        } else {
+          statusMessage = "No live content yet.";
+        }
+      } else {
+        bodyHtml = article.rssContent || article.content || article.summary || null;
+      }
+    } else if (article.crawlStatus === "pending") {
+      statusMessage = "Crawl in progress…";
+    } else if (article.crawlStatus === "failed") {
+      statusMessage = article.crawlError || "Crawl failed.";
+    } else if (article.crawledContent) {
+      bodyHtml = article.crawledContent;
+    } else if (article.crawlStatus === "none") {
+      statusMessage = "No crawled content yet.";
+    } else {
+      statusMessage = "No crawled content available.";
+    }
+
+    return bodyHtml ? (
+      <div
+        className="reader-body"
+        dangerouslySetInnerHTML={{
+          __html: sanitizeArticleHtml(bodyHtml),
+        }}
+      />
+    ) : (
+      <div className="reader-body">
+        <p className="muted">{statusMessage ?? "No content"}</p>
+        {contentTab === "secondary" && (
+          <button className="btn" disabled={contentBusy} onClick={() => void recrawlActive()}>
+            {contentBusy ? "Retrying…" : "Retry crawl"}
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const visibleFeeds = feeds.filter((f) => !f.isReadLater);
 
   const toggleMemberExpand = useCallback((articleId: string) => {
     setExpandedMemberIds((prev) => ({ ...prev, [articleId]: !prev[articleId] }));
@@ -475,7 +629,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     );
   }
 
-  const totalUnread = feeds.reduce((n, f) => n + f.unreadCount, 0);
+  const totalUnread = visibleFeeds.reduce((n, f) => n + f.unreadCount, 0);
   const densityClass = settings?.articleDensity === "compact" ? "density-compact" : "";
 
   return (
@@ -490,7 +644,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           placeholder="Search articles  (/)"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          disabled={isStoriesMode}
+          disabled={isStoriesMode || selected.type === "readLater"}
         />
         <button className="btn" onClick={() => void refreshAll()} disabled={busy}>
           {busy ? "Refreshing…" : "Refresh"}
@@ -559,13 +713,24 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             </button>
           ))}
 
+          <div className="section-label">Read later</div>
+          <button
+            className={`nav-item ${selected.type === "readLater" ? "active" : ""}`}
+            onClick={() => setSelected({ type: "readLater" })}
+          >
+            <span>Read later</span>
+          </button>
+          <button className="nav-item" onClick={() => void addReadLaterLink()}>
+            + Add link
+          </button>
+
           <div className="section-label">Feeds</div>
-          {feeds.length === 0 && (
+          {visibleFeeds.length === 0 && (
             <div className="empty" style={{ height: "auto", padding: 12 }}>
               No feeds yet
             </div>
           )}
-          {feeds.map((feed) => (
+          {visibleFeeds.map((feed) => (
             <button
               key={feed.id}
               className={`feed-item ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
@@ -608,7 +773,11 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           ) : articles.length === 0 ? (
             <div className="empty">
               <h2>Nothing here</h2>
-              <p>Add a feed or widen your filters.</p>
+              <p>
+                {selected.type === "readLater"
+                  ? "Save a link with + Add link in the sidebar."
+                  : "Add a feed or widen your filters."}
+              </p>
             </div>
           ) : (
             articles.map((article) => (
@@ -731,6 +900,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                 {active.author ? ` · ${active.author}` : ""}
                 {active.publishedAt ? ` · ${new Date(active.publishedAt).toLocaleString()}` : ""}
               </div>
+              {renderContentTabs(active)}
               <h1>
                 <PriorityBadge priority={active.priority} />
                 {active.title || "(untitled)"}
@@ -763,12 +933,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                   </button>
                 )}
               </div>
-              <div
-                className="reader-body"
-                dangerouslySetInnerHTML={{
-                  __html: sanitizeArticleHtml(active.content || active.summary || "<p>No content</p>"),
-                }}
-              />
+              {renderContentBody(active)}
             </article>
           )}
         </section>

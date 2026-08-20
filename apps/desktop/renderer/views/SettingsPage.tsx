@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import type { AIStatus, AITestResult, Feed, FeedImportResult, ReaderBackend, Settings } from "@rss-reader/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  AILogEntry,
+  AIStatus,
+  AITestResult,
+  BackendEventName,
+  Feed,
+  FeedImportResult,
+  ReaderBackend,
+  Settings,
+} from "@rss-reader/shared";
 
 type Props = {
   backend: ReaderBackend;
@@ -16,6 +25,8 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
   const [importResult, setImportResult] = useState<FeedImportResult | null>(null);
   const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
   const [aiTest, setAiTest] = useState<AITestResult | null>(null);
+  const [aiLogs, setAiLogs] = useState<AILogEntry[]>([]);
+  const logPanelRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<"general" | "feeds" | "ai">("general");
@@ -27,18 +38,41 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
   useEffect(() => {
     void reloadFeeds();
     void backend.ai.status().then(setAiStatus).catch(() => undefined);
+    void backend.ai.logs(200).then(setAiLogs).catch(() => undefined);
   }, [backend, reloadFeeds]);
 
   useEffect(() => {
     return backend.onEvent((ev) => {
-      if (ev.event === "ai.status") {
-        setAiStatus(ev.payload as AIStatus);
-      }
-      if (ev.event === "feed.updated" || ev.event === "feed.error") {
-        void reloadFeeds();
+      const name: BackendEventName = ev.event;
+      switch (name) {
+        case "ai.status":
+          setAiStatus(ev.payload as AIStatus);
+          break;
+        case "ai.log":
+          setAiLogs((prev) => [...prev, ev.payload as AILogEntry].slice(-200));
+          break;
+        case "feed.updated":
+        case "feed.error":
+          void reloadFeeds();
+          break;
+        case "articles.added":
+        case "article.updated":
+        case "story.updated":
+        case "sync.status":
+          break;
+        default: {
+          const _exhaustive: never = name;
+          void _exhaustive;
+          break;
+        }
       }
     });
   }, [backend, reloadFeeds]);
+
+  useEffect(() => {
+    const panel = logPanelRef.current;
+    if (panel) panel.scrollTop = panel.scrollHeight;
+  }, [aiLogs]);
 
   const patch = async (partial: Partial<Settings>) => {
     const next = await backend.settings.update(partial);
@@ -47,6 +81,7 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
   };
 
   const filtered = feeds.filter((f) => {
+    if (f.isReadLater) return false;
     const q = feedFilter.trim().toLowerCase();
     if (!q) return true;
     return f.title.toLowerCase().includes(q) || f.url.toLowerCase().includes(q);
@@ -166,6 +201,7 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
                     <div>
                       <strong>{f.title || f.url}</strong>
                       <div className="muted">{f.url}</div>
+                      <div className="muted">Bad crawls: {f.badCrawlPercent.toFixed(0)}%</div>
                       {f.lastError ? <div className="error">{f.lastError}</div> : null}
                     </div>
                     <div className="feed-table-actions">
@@ -319,10 +355,43 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
               {aiStatus && (
                 <p className="muted">
                   AI queue: {aiStatus.processed}/{aiStatus.total}
+                  {aiStatus.pending > 0 ? ` · pending: ${aiStatus.pending}` : ""}
+                  {aiStatus.failed > 0 ? ` · failed: ${aiStatus.failed}` : ""}
                   {aiStatus.running ? " (running)" : ""}
                   {aiStatus.lastError ? ` · last error: ${aiStatus.lastError}` : ""}
                 </p>
               )}
+              {aiStatus && aiStatus.failed > 0 && (
+                <div className="settings-row">
+                  <button
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      void backend.ai
+                        .retryFailed()
+                        .then((r) => setAiStatus(r.status))
+                        .catch((e: unknown) => setError(e instanceof Error ? e.message : "Retry failed"))
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    Retry failed
+                  </button>
+                </div>
+              )}
+              <div className="ai-log-panel" ref={logPanelRef}>
+                {aiLogs.length === 0 ? (
+                  <div className="muted">No AI log entries yet.</div>
+                ) : (
+                  aiLogs.map((entry) => (
+                    <div key={entry.id} className="ai-log-line">
+                      <span className="ai-log-ts">{new Date(entry.ts).toLocaleTimeString()}</span>
+                      <span className={`ai-log-level ai-log-level-${entry.level}`}>{entry.level}</span>
+                      <span className="ai-log-message">{entry.message}</span>
+                    </div>
+                  ))
+                )}
+              </div>
               <p className="muted">
                 When enabled, newly fetched articles are queued for priority scoring and story grouping via
                 LM Studio tool calls.

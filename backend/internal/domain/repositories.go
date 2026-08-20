@@ -19,9 +19,12 @@ type FeedRepository interface {
 	List(ctx context.Context) ([]Feed, error)
 	Get(ctx context.Context, id string) (*Feed, error)
 	GetByURL(ctx context.Context, url string) (*Feed, error)
+	GetReadLater(ctx context.Context) (*Feed, error)
+	EnsureReadLater(ctx context.Context) (*Feed, error)
 	Create(ctx context.Context, feed *Feed) error
 	Update(ctx context.Context, feed *Feed) error
 	Delete(ctx context.Context, id string) error
+	RecordCrawlResult(ctx context.Context, feedID string, failed bool) error
 }
 
 type ArticleRepository interface {
@@ -31,8 +34,11 @@ type ArticleRepository interface {
 	UpsertMany(ctx context.Context, articles []Article) (inserted int, err error)
 	Update(ctx context.Context, article *Article) error
 	SetPriority(ctx context.Context, id string, priority Priority) error
+	SetCrawlResult(ctx context.Context, id string, status CrawlStatus, crawled string, errMsg string, unreliable bool) error
+	SetLiveContent(ctx context.Context, id string, live string) error
 	FindByExternalKey(ctx context.Context, feedID, externalID, url, fingerprint string) (*Article, error)
 	SearchCompact(ctx context.Context, query string, limit int) ([]Article, error)
+	ListNeedingCrawl(ctx context.Context, limit int) ([]Article, error)
 }
 
 type StoryRepository interface {
@@ -59,4 +65,20 @@ type FolderRepository interface {
 type SettingsRepository interface {
 	Get(ctx context.Context) (*Settings, error)
 	Update(ctx context.Context, settings *Settings) error
+}
+
+type AIQueueRepository interface {
+	Enqueue(ctx context.Context, articleID string) error
+	ClaimNext(ctx context.Context) (articleID string, ok bool, err error)
+	MarkDone(ctx context.Context, articleID string) error
+	MarkFailed(ctx context.Context, articleID string, errMsg string) error
+	ResetRunning(ctx context.Context) error
+	Counts(ctx context.Context) (pending, running, done, failed int, err error)
+	ListRecent(ctx context.Context, limit int) ([]AIQueueItem, error)
+	RetryFailed(ctx context.Context) (int, error)
+}
+
+type AILogRepository interface {
+	Append(ctx context.Context, entry AILogEntry) error
+	List(ctx context.Context, limit int) ([]AILogEntry, error)
 }

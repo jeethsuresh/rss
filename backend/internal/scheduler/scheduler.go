@@ -51,7 +51,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 	now := time.Now().UTC()
 	for _, f := range feeds {
-		if !f.Enabled {
+		if !f.Enabled || f.IsReadLater {
 			continue
 		}
 		interval := time.Duration(f.PollIntervalSeconds) * time.Second

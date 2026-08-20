@@ -23,6 +23,7 @@ type Service struct {
 	Stories  domain.StoryRepository
 	RSS      *rss.Fetcher
 	AI       AIService
+	Crawler  CrawlerService
 	Log      *slog.Logger
 	Emit     EventEmitter
 	Version  string
@@ -34,7 +35,16 @@ type AIService interface {
 	Enqueue(ids ...string)
 	ScanWindow(ctx context.Context, window string) error
 	Test(ctx context.Context) (*domain.AITestResult, error)
-	Status() domain.AIStatus
+	Status(ctx context.Context) domain.AIStatus
+	ListLogs(ctx context.Context, limit int) ([]domain.AILogEntry, error)
+	RetryFailed(ctx context.Context) (int, error)
+	Resume(ctx context.Context)
+}
+
+type CrawlerService interface {
+	EnqueueAndKick(ctx context.Context)
+	CrawlOne(ctx context.Context, articleID string) error
+	FetchLive(ctx context.Context, articleID string) (string, error)
 }
 
 func (s *Service) emit(name string, payload any) {
@@ -118,6 +128,9 @@ func (s *Service) AddFeed(ctx context.Context, rawURL string) (*domain.Feed, err
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
 		s.enqueueUnscannedForFeed(ctx, feed.ID)
+		if s.Crawler != nil {
+			s.Crawler.EnqueueAndKick(ctx)
+		}
 	}
 	return s.Feeds.Get(ctx, feed.ID)
 }
@@ -203,6 +216,9 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
 		s.enqueueUnscannedForFeed(ctx, feed.ID)
+		if s.Crawler != nil {
+			s.Crawler.EnqueueAndKick(ctx)
+		}
 	}
 	return s.Feeds.Get(ctx, feed.ID)
 }
@@ -232,7 +248,7 @@ func (s *Service) RefreshAll(ctx context.Context) error {
 		return err
 	}
 	for _, f := range feeds {
-		if !f.Enabled {
+		if !f.Enabled || f.IsReadLater {
 			continue
 		}
 		if _, err := s.RefreshFeed(ctx, f.ID); err != nil {

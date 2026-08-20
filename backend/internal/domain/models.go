@@ -11,6 +11,15 @@ const (
 	PriorityHigh   Priority = "high"
 )
 
+type CrawlStatus string
+
+const (
+	CrawlNone    CrawlStatus = "none"
+	CrawlPending CrawlStatus = "pending"
+	CrawlOK      CrawlStatus = "ok"
+	CrawlFailed  CrawlStatus = "failed"
+)
+
 type Feed struct {
 	ID                  string     `json:"id"`
 	URL                 string     `json:"url"`
@@ -26,40 +35,51 @@ type Feed struct {
 	PollIntervalSeconds int        `json:"pollIntervalSeconds"`
 	Enabled             bool       `json:"enabled"`
 	UnreadCount         int        `json:"unreadCount"`
+	IsReadLater         bool       `json:"isReadLater"`
+	CrawlAttempts       int        `json:"crawlAttempts"`
+	CrawlFailures       int        `json:"crawlFailures"`
+	BadCrawlPercent     float64    `json:"badCrawlPercent"`
 	CreatedAt           time.Time  `json:"createdAt"`
 	UpdatedAt           time.Time  `json:"updatedAt"`
 }
 
 type Article struct {
-	ID           string     `json:"id"`
-	FeedID       string     `json:"feedId"`
-	Title        string     `json:"title"`
-	URL          string     `json:"url"`
-	Author       string     `json:"author"`
-	Content      string     `json:"content"`
-	Summary      string     `json:"summary"`
-	PublishedAt  *time.Time `json:"publishedAt"`
-	UpdatedAt    *time.Time `json:"updatedAt"`
-	ExternalID   string     `json:"externalId"`
-	IsRead       bool       `json:"isRead"`
-	IsStarred    bool       `json:"isStarred"`
-	Priority     Priority   `json:"priority"`
-	StoryID      string     `json:"storyId,omitempty"`
-	DiscoveredAt time.Time  `json:"discoveredAt"`
-	FeedTitle    string     `json:"feedTitle,omitempty"`
+	ID              string      `json:"id"`
+	FeedID          string      `json:"feedId"`
+	Title           string      `json:"title"`
+	URL             string      `json:"url"`
+	Author          string      `json:"author"`
+	Content         string      `json:"content"` // active display helper = rss or crawled preferred
+	Summary         string      `json:"summary"`
+	RSSContent      string      `json:"rssContent"`
+	CrawledContent  string      `json:"crawledContent"`
+	LiveContent     string      `json:"liveContent"`
+	CrawlStatus     CrawlStatus `json:"crawlStatus"`
+	CrawlError      string      `json:"crawlError"`
+	CrawlUnreliable bool        `json:"crawlUnreliable"`
+	IsReadLater     bool        `json:"isReadLater"`
+	PublishedAt     *time.Time  `json:"publishedAt"`
+	UpdatedAt       *time.Time  `json:"updatedAt"`
+	ExternalID      string      `json:"externalId"`
+	IsRead          bool        `json:"isRead"`
+	IsStarred       bool        `json:"isStarred"`
+	Priority        Priority    `json:"priority"`
+	StoryID         string      `json:"storyId,omitempty"`
+	DiscoveredAt    time.Time   `json:"discoveredAt"`
+	FeedTitle       string      `json:"feedTitle,omitempty"`
 }
 
 type Story struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	Summary      string    `json:"summary"`
-	IsRead       bool      `json:"isRead"`
-	IsStarred    bool      `json:"isStarred"`
-	MemberCount  int       `json:"memberCount"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	ArticleIDs   []string  `json:"articleIds,omitempty"`
-	Articles     []Article `json:"articles,omitempty"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Summary     string    `json:"summary"`
+	IsRead      bool      `json:"isRead"`
+	IsStarred   bool      `json:"isStarred"`
+	MemberCount int       `json:"memberCount"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	ArticleIDs  []string  `json:"articleIds,omitempty"`
+	Articles    []Article `json:"articles,omitempty"`
 }
 
 type Folder struct {
@@ -81,15 +101,16 @@ type Settings struct {
 }
 
 type ArticleQuery struct {
-	FeedID      string
-	FolderID    string
-	UnreadOnly  bool
-	StarredOnly bool
-	Search      string
-	Limit       int
-	Cursor      string
-	DefaultSort string
-	Since       *time.Time
+	FeedID       string
+	FolderID     string
+	UnreadOnly   bool
+	StarredOnly  bool
+	Search       string
+	Limit        int
+	Cursor       string
+	DefaultSort  string
+	Since        *time.Time
+	ReadLaterOnly bool
 }
 
 type ArticleListResult struct {
@@ -115,6 +136,8 @@ type AIStatus struct {
 	Running   bool   `json:"running"`
 	Processed int    `json:"processed"`
 	Total     int    `json:"total"`
+	Pending   int    `json:"pending"`
+	Failed    int    `json:"failed"`
 	LastError string `json:"lastError"`
 }
 
@@ -122,4 +145,21 @@ type AITestResult struct {
 	OK      bool     `json:"ok"`
 	Message string   `json:"message"`
 	Models  []string `json:"models,omitempty"`
+}
+
+type AILogEntry struct {
+	ID        string `json:"id"`
+	TS        string `json:"ts"`
+	Level     string `json:"level"`
+	ArticleID string `json:"articleId,omitempty"`
+	Message   string `json:"message"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+type AIQueueItem struct {
+	ArticleID  string `json:"articleId"`
+	Status     string `json:"status"`
+	Attempts   int    `json:"attempts"`
+	LastError  string `json:"lastError"`
+	EnqueuedAt string `json:"enqueuedAt"`
 }

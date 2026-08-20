@@ -32,9 +32,15 @@ export interface Feed {
   pollIntervalSeconds: number;
   enabled: boolean;
   unreadCount: number;
+  isReadLater: boolean;
+  crawlAttempts: number;
+  crawlFailures: number;
+  badCrawlPercent: number;
   createdAt: string;
   updatedAt: string;
 }
+
+export type CrawlStatus = "none" | "pending" | "ok" | "failed";
 
 export interface Article {
   id: string;
@@ -44,11 +50,18 @@ export interface Article {
   author: string;
   content: string;
   summary: string;
+  rssContent: string;
+  crawledContent: string;
+  liveContent: string;
+  crawlStatus: CrawlStatus;
+  crawlError: string;
+  crawlUnreliable: boolean;
   publishedAt: string | null;
   updatedAt: string | null;
   externalId: string;
   isRead: boolean;
   isStarred: boolean;
+  isReadLater: boolean;
   priority: Priority;
   storyId?: string;
   discoveredAt: string;
@@ -119,7 +132,18 @@ export interface AIStatus {
   running: boolean;
   processed: number;
   total: number;
+  pending: number;
+  failed: number;
   lastError: string;
+}
+
+export interface AILogEntry {
+  id: string;
+  ts: string;
+  level: string;
+  articleId?: string;
+  message: string;
+  detail?: string;
 }
 
 export interface AITestResult {
@@ -135,6 +159,7 @@ export type BackendEventName =
   | "article.updated"
   | "story.updated"
   | "ai.status"
+  | "ai.log"
   | "sync.status";
 
 export interface BackendEvent<T = unknown> {
@@ -162,6 +187,12 @@ export interface ReaderBackend {
     markRead(id: string): Promise<Article>;
     markUnread(id: string): Promise<Article>;
     toggleStar(id: string): Promise<Article>;
+    recrawl(id: string): Promise<Article>;
+    fetchLive(id: string): Promise<Article>;
+  };
+  readLater: {
+    add(url: string): Promise<Article>;
+    list(): Promise<Article[]>;
   };
   stories: {
     list(): Promise<Story[]>;
@@ -185,6 +216,8 @@ export interface ReaderBackend {
     test(): Promise<AITestResult>;
     scan(window: "24h" | "7d"): Promise<{ queued: boolean; status: AIStatus }>;
     status(): Promise<AIStatus>;
+    logs(limit?: number): Promise<AILogEntry[]>;
+    retryFailed(): Promise<{ requeued: number; status: AIStatus }>;
   };
   system: {
     ping(): Promise<{ ok: true; version: string }>;
@@ -213,6 +246,10 @@ export const RPC_METHODS = [
   "articles.markRead",
   "articles.markUnread",
   "articles.toggleStar",
+  "articles.recrawl",
+  "articles.fetchLive",
+  "readLater.add",
+  "readLater.list",
   "stories.list",
   "stories.get",
   "stories.markRead",
@@ -228,6 +265,8 @@ export const RPC_METHODS = [
   "ai.test",
   "ai.scan",
   "ai.status",
+  "ai.logs",
+  "ai.retryFailed",
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];

@@ -333,12 +333,56 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 		if err := s.svc.AI.ScanWindow(ctx, p.Window); err != nil {
 			return nil, err
 		}
-		return map[string]any{"queued": true, "status": s.svc.AI.Status()}, nil
+		return map[string]any{"queued": true, "status": s.svc.AI.Status(ctx)}, nil
 	case "ai.status":
 		if s.svc.AI == nil {
 			return domain.AIStatus{}, nil
 		}
-		return s.svc.AI.Status(), nil
+		return s.svc.AI.Status(ctx), nil
+	case "ai.logs":
+		var p struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		if s.svc.AI == nil {
+			return []domain.AILogEntry{}, nil
+		}
+		return s.svc.AI.ListLogs(ctx, p.Limit)
+	case "ai.retryFailed":
+		if s.svc.AI == nil {
+			return nil, fmt.Errorf("ai unavailable")
+		}
+		n, err := s.svc.AI.RetryFailed(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"requeued": n, "status": s.svc.AI.Status(ctx)}, nil
+	case "readLater.add":
+		var p struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.URL == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.AddReadLater(ctx, p.URL)
+	case "readLater.list":
+		return s.svc.ListReadLater(ctx)
+	case "articles.recrawl":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.RecrawlArticle(ctx, p.ID)
+	case "articles.fetchLive":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.FetchLiveArticle(ctx, p.ID)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupported, req.Method)
 	}

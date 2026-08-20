@@ -12,6 +12,7 @@ import (
 
 	"github.com/jeeth/rss-reader/backend/internal/ai"
 	"github.com/jeeth/rss-reader/backend/internal/application"
+	"github.com/jeeth/rss-reader/backend/internal/crawl"
 	"github.com/jeeth/rss-reader/backend/internal/ipc"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
 	"github.com/jeeth/rss-reader/backend/internal/scheduler"
@@ -52,7 +53,11 @@ func main() {
 	folders := sqlite.NewFolderRepo(db)
 	settings := sqlite.NewSettingsRepo(db)
 	stories := sqlite.NewStoryRepo(db)
-	aiSvc := ai.New(articles, stories, settings, log)
+	queue := sqlite.NewAIQueueRepo(db)
+	aiLogs := sqlite.NewAILogRepo(db)
+
+	crawlSvc := crawl.New(articles, feeds, log)
+	aiSvc := ai.New(articles, stories, settings, feeds, queue, aiLogs, log)
 
 	svc := &application.Service{
 		Feeds:    feeds,
@@ -62,9 +67,14 @@ func main() {
 		Stories:  stories,
 		RSS:      rss.NewFetcher(),
 		AI:       aiSvc,
+		Crawler:  crawlSvc,
 		Log:      log,
 		Version:  version,
 		DBPath:   *dbPath,
+	}
+
+	if _, err := feeds.EnsureReadLater(context.Background()); err != nil {
+		log.Warn("ensure read later feed", "err", err)
 	}
 
 	if *seed {
@@ -81,6 +91,10 @@ func main() {
 
 	server := ipc.NewServer(svc, log, os.Stdout)
 	aiSvc.Emit = server.Emit
+	crawlSvc.Emit = server.Emit
+	aiSvc.Resume(ctx)
+	crawlSvc.EnqueueAndKick(ctx)
+
 	log.Info("backend started", "version", version, "db", *dbPath)
 
 	errCh := make(chan error, 1)
@@ -109,10 +123,16 @@ func seedDev(ctx context.Context, svc *application.Service, log *slog.Logger) er
 	if err != nil {
 		return err
 	}
-	if len(feeds) > 0 {
+	normal := 0
+	for _, f := range feeds {
+		if !f.IsReadLater {
+			normal++
+		}
+	}
+	if normal > 0 {
 		return nil
 	}
-	log.Info("seeding sample feed metadata only (no network in seed flag beyond add)")
+	log.Info("seeding sample feed")
 	_, err = svc.AddFeed(ctx, "https://hnrss.org/frontpage")
 	if err != nil {
 		return fmt.Errorf("seed add: %w", err)

@@ -21,63 +21,104 @@ type Service struct {
 	Articles domain.ArticleRepository
 	Stories  domain.StoryRepository
 	Settings domain.SettingsRepository
+	Feeds    domain.FeedRepository
+	Queue    domain.AIQueueRepository
+	Logs     domain.AILogRepository
 	Log      *slog.Logger
 	Emit     func(name string, payload any)
 
-	mu        sync.Mutex
-	queue     []string
-	queued    map[string]bool
-	running   bool
-	processed int
-	total     int
-	lastError string
-	client    *http.Client
+	mu      sync.Mutex
+	running bool
+	client  *http.Client
 }
 
-func New(articles domain.ArticleRepository, stories domain.StoryRepository, settings domain.SettingsRepository, log *slog.Logger) *Service {
+func New(
+	articles domain.ArticleRepository,
+	stories domain.StoryRepository,
+	settings domain.SettingsRepository,
+	feeds domain.FeedRepository,
+	queue domain.AIQueueRepository,
+	logs domain.AILogRepository,
+	log *slog.Logger,
+) *Service {
 	return &Service{
 		Articles: articles,
 		Stories:  stories,
 		Settings: settings,
+		Feeds:    feeds,
+		Queue:    queue,
+		Logs:     logs,
 		Log:      log,
-		queued:   map[string]bool{},
 		client:   &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
-func (s *Service) Status() domain.AIStatus {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return domain.AIStatus{
-		Running:   s.running || len(s.queue) > 0,
-		Processed: s.processed,
-		Total:     s.total,
-		LastError: s.lastError,
+func (s *Service) appendLog(ctx context.Context, level, articleID, message, detail string) {
+	entry := domain.AILogEntry{
+		ID:        uuid.NewString(),
+		TS:        time.Now().UTC().Format(time.RFC3339Nano),
+		Level:     level,
+		ArticleID: articleID,
+		Message:   message,
+		Detail:    detail,
+	}
+	_ = s.Logs.Append(ctx, entry)
+	if s.Emit != nil {
+		s.Emit("ai.log", entry)
 	}
 }
 
-func (s *Service) emitStatus() {
-	if s.Emit != nil {
-		s.Emit("ai.status", s.Status())
+func (s *Service) Status(ctx context.Context) domain.AIStatus {
+	pending, running, done, failed, _ := s.Queue.Counts(ctx)
+	s.mu.Lock()
+	isRunning := s.running
+	s.mu.Unlock()
+	return domain.AIStatus{
+		Running:   isRunning || pending > 0 || running > 0,
+		Processed: done,
+		Total:     pending + running + done + failed,
+		Pending:   pending,
+		Failed:    failed,
 	}
+}
+
+func (s *Service) emitStatus(ctx context.Context) {
+	if s.Emit != nil {
+		s.Emit("ai.status", s.Status(ctx))
+	}
+}
+
+func (s *Service) Resume(ctx context.Context) {
+	_ = s.Queue.ResetRunning(ctx)
+	s.appendLog(ctx, "info", "", "AI queue resumed", "")
+	s.Kick(ctx)
+}
+
+func (s *Service) Kick(ctx context.Context) {
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return
+	}
+	s.running = true
+	s.mu.Unlock()
+	go s.worker()
 }
 
 func (s *Service) Enqueue(ids ...string) {
-	s.mu.Lock()
+	ctx := context.Background()
 	for _, id := range ids {
-		if id == "" || s.queued[id] {
+		if id == "" {
 			continue
 		}
-		s.queued[id] = true
-		s.queue = append(s.queue, id)
-		s.total++
+		if err := s.Queue.Enqueue(ctx, id); err != nil {
+			s.Log.Warn("enqueue", "id", id, "err", err)
+			continue
+		}
+		s.appendLog(ctx, "info", id, "queued for AI triage", "")
 	}
-	start := !s.running && len(s.queue) > 0
-	s.mu.Unlock()
-	s.emitStatus()
-	if start {
-		go s.worker()
-	}
+	s.emitStatus(ctx)
+	s.Kick(ctx)
 }
 
 func (s *Service) ScanWindow(ctx context.Context, window string) error {
@@ -101,8 +142,24 @@ func (s *Service) ScanWindow(ctx context.Context, window string) error {
 	if err != nil {
 		return err
 	}
+	s.appendLog(ctx, "info", "", fmt.Sprintf("scan window %s (%d articles)", window, len(ids)), "")
 	s.Enqueue(ids...)
 	return nil
+}
+
+func (s *Service) RetryFailed(ctx context.Context) (int, error) {
+	n, err := s.Queue.RetryFailed(ctx)
+	if err != nil {
+		return 0, err
+	}
+	s.appendLog(ctx, "info", "", fmt.Sprintf("retry failed: %d re-queued", n), "")
+	s.emitStatus(ctx)
+	s.Kick(ctx)
+	return n, nil
+}
+
+func (s *Service) ListLogs(ctx context.Context, limit int) ([]domain.AILogEntry, error) {
+	return s.Logs.List(ctx, limit)
 }
 
 func (s *Service) Test(ctx context.Context) (*domain.AITestResult, error) {
@@ -138,40 +195,36 @@ func (s *Service) Test(ctx context.Context) (*domain.AITestResult, error) {
 }
 
 func (s *Service) worker() {
-	s.mu.Lock()
-	s.running = true
-	s.mu.Unlock()
-	s.emitStatus()
+	ctx := context.Background()
 	defer func() {
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
-		s.emitStatus()
+		s.emitStatus(ctx)
 	}()
 
 	for {
-		s.mu.Lock()
-		if len(s.queue) == 0 {
-			s.mu.Unlock()
+		id, ok, err := s.Queue.ClaimNext(ctx)
+		if err != nil {
+			s.appendLog(ctx, "error", "", "claim next failed", err.Error())
 			return
 		}
-		id := s.queue[0]
-		s.queue = s.queue[1:]
-		s.mu.Unlock()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		err := s.processArticle(ctx, id)
-		cancel()
-
-		s.mu.Lock()
-		delete(s.queued, id)
-		s.processed++
-		if err != nil {
-			s.lastError = err.Error()
-			s.Log.Warn("ai process article", "id", id, "err", err)
+		if !ok {
+			return
 		}
-		s.mu.Unlock()
-		s.emitStatus()
+		s.emitStatus(ctx)
+		s.appendLog(ctx, "info", id, "processing", "")
+		jobCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+		err = s.processArticle(jobCtx, id)
+		cancel()
+		if err != nil {
+			_ = s.Queue.MarkFailed(ctx, id, err.Error())
+			s.appendLog(ctx, "error", id, "failed", err.Error())
+		} else {
+			_ = s.Queue.MarkDone(ctx, id)
+			s.appendLog(ctx, "info", id, "done", "")
+		}
+		s.emitStatus(ctx)
 	}
 }
 
@@ -213,25 +266,26 @@ func (s *Service) processArticle(ctx context.Context, id string) error {
 		return err
 	}
 	if !settings.AIEnabled {
-		return nil
+		return fmt.Errorf("AI disabled")
 	}
 	article, err := s.Articles.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	system := `You triage RSS articles for a local reader.
-Respond by calling tools when helpful, then finish with a single JSON object (no markdown) of the form:
+	bodyForAI := triageBody(article)
+
+	system := `You triage RSS/read-later articles for a local reader.
+You may call tools. When finished, output a single JSON object (no markdown):
 {"priority":"high|medium|low","storyAction":"none|create|join","storyId":"","storyTitle":"","storySummary":"","memberIds":["..."]}
 Rules:
-- priority reflects importance/urgency for the user.
-- Use search_articles to find related coverage before creating/joining a story.
-- storyAction=join requires storyId of an existing story OR memberIds including known article ids from search.
-- storyAction=create needs storyTitle, storySummary, and memberIds including this article id.
-- Prefer none when no strong similarity.`
+- Prefer crawled/full-page text when available and not marked unreliable.
+- If crawled text looks wrong (nav chrome, paywall, empty), call mark_crawl_unreliable then use the feed/RSS preview text.
+- Use search_articles to find related coverage before create/join.
+- storyAction=join needs storyId or memberIds from search; create needs title/summary/memberIds including this article.`
 
-	user := fmt.Sprintf("Article id=%s feed=%q title=%q summary=%q",
-		article.ID, article.FeedTitle, article.Title, truncate(stripTags(article.Summary), 600))
+	user := fmt.Sprintf("Article id=%s feed=%q title=%q crawlStatus=%s unreliable=%v\nText:\n%s",
+		article.ID, article.FeedTitle, article.Title, article.CrawlStatus, article.CrawlUnreliable, truncate(bodyForAI, 3500))
 
 	messages := []chatMessage{
 		{Role: "system", Content: system},
@@ -242,7 +296,7 @@ Rules:
 			"type": "function",
 			"function": map[string]any{
 				"name":        "search_articles",
-				"description": "Search existing articles by keywords for similar coverage",
+				"description": "Search existing articles for similar coverage",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -253,11 +307,24 @@ Rules:
 				},
 			},
 		},
+		map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "mark_crawl_unreliable",
+				"description": "Mark this article's crawled page as bad; continue using RSS/feed preview. Also increments per-feed bad crawl stats.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"reason": map[string]any{"type": "string"},
+					},
+				},
+			},
+		},
 	}
 
 	model := settings.AIModel
 	var final string
-	for round := 0; round < 4; round++ {
+	for round := 0; round < 5; round++ {
 		msg, err := s.chat(ctx, settings.AIBaseURL, model, messages, tools)
 		if err != nil {
 			return err
@@ -265,17 +332,18 @@ Rules:
 		if len(msg.ToolCalls) > 0 {
 			messages = append(messages, msg)
 			for _, tc := range msg.ToolCalls {
-				result, toolErr := s.runTool(ctx, tc)
+				result, toolErr := s.runTool(ctx, article, tc)
 				content := result
 				if toolErr != nil {
 					content = fmt.Sprintf(`{"error":%q}`, toolErr.Error())
 				}
 				messages = append(messages, chatMessage{
-					Role:       "tool",
-					ToolCallID: tc.ID,
-					Name:       tc.Function.Name,
-					Content:    content,
+					Role: "tool", ToolCallID: tc.ID, Name: tc.Function.Name, Content: content,
 				})
+			}
+			// refresh article after mark_crawl_unreliable
+			if refreshed, err := s.Articles.Get(ctx, id); err == nil {
+				article = refreshed
 			}
 			continue
 		}
@@ -322,9 +390,6 @@ Rules:
 		}
 	case "create":
 		members := uniqueStrings(append(out.MemberIDs, article.ID))
-		if len(members) < 2 {
-			// still allow single-member story seed for later joins
-		}
 		now := time.Now().UTC()
 		st := &domain.Story{
 			ID:        uuid.NewString(),
@@ -350,9 +415,21 @@ Rules:
 	return nil
 }
 
-func (s *Service) runTool(ctx context.Context, tc toolCall) (string, error) {
-	name := tc.Function.Name
-	switch name {
+func triageBody(a *domain.Article) string {
+	if !a.CrawlUnreliable && a.CrawlStatus == domain.CrawlOK && strings.TrimSpace(a.CrawledContent) != "" {
+		return stripTags(a.CrawledContent)
+	}
+	if strings.TrimSpace(a.RSSContent) != "" {
+		return stripTags(a.RSSContent)
+	}
+	if strings.TrimSpace(a.Content) != "" {
+		return stripTags(a.Content)
+	}
+	return stripTags(a.Summary)
+}
+
+func (s *Service) runTool(ctx context.Context, article *domain.Article, tc toolCall) (string, error) {
+	switch tc.Function.Name {
 	case "search_articles":
 		var args struct {
 			Query string `json:"query"`
@@ -379,15 +456,27 @@ func (s *Service) runTool(ctx context.Context, tc toolCall) (string, error) {
 		}
 		b, _ := json.Marshal(hits)
 		return string(b), nil
+	case "mark_crawl_unreliable":
+		var args struct {
+			Reason string `json:"reason"`
+		}
+		_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+		reason := firstNonEmpty(args.Reason, "model flagged crawl as unreliable")
+		_ = s.Articles.SetCrawlResult(ctx, article.ID, domain.CrawlFailed, article.CrawledContent, reason, true)
+		_ = s.Feeds.RecordCrawlResult(ctx, article.FeedID, true)
+		s.appendLog(ctx, "warn", article.ID, "mark_crawl_unreliable", reason)
+		if s.Emit != nil {
+			s.Emit("article.updated", map[string]any{"articleId": article.ID, "crawlUnreliable": true})
+		}
+		return `{"ok":true,"use":"rss_preview"}`, nil
 	default:
-		return "", fmt.Errorf("unknown tool %s", name)
+		return "", fmt.Errorf("unknown tool %s", tc.Function.Name)
 	}
 }
 
 func (s *Service) chat(ctx context.Context, baseURL, model string, messages []chatMessage, tools []any) (chatMessage, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 	if model == "" {
-		// LM Studio often accepts any placeholder; try empty then "local-model"
 		model = "local-model"
 	}
 	payload := chatRequest{Model: model, Messages: messages, Tools: tools}
@@ -454,12 +543,12 @@ func extractJSON(s string) string {
 func uniqueStrings(in []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if s == "" || seen[s] {
+	for _, v := range in {
+		if v == "" || seen[v] {
 			continue
 		}
-		seen[s] = true
-		out = append(out, s)
+		seen[v] = true
+		out = append(out, v)
 	}
 	return out
 }

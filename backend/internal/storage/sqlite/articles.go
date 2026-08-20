@@ -19,7 +19,10 @@ func NewArticleRepo(db *DB) *ArticleRepo { return &ArticleRepo{db: db} }
 const articleSelect = `
 		SELECT a.id, a.feed_id, a.title, a.url, a.author, a.content, a.summary,
 		       a.published_at, a.updated_at, a.external_id, a.is_read, a.is_starred,
-		       a.priority, COALESCE(a.story_id, ''), a.discovered_at, f.title
+		       a.priority, COALESCE(a.story_id, ''),
+		       a.rss_content, a.crawled_content, a.live_content, a.crawl_status,
+		       a.crawl_error, a.crawl_unreliable, a.is_read_later,
+		       a.discovered_at, f.title
 		FROM articles a
 		JOIN feeds f ON f.id = a.feed_id`
 
@@ -43,6 +46,9 @@ func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.A
 	}
 	if q.StarredOnly {
 		where = append(where, "a.is_starred = 1")
+	}
+	if q.ReadLaterOnly {
+		where = append(where, "a.is_read_later = 1")
 	}
 	if q.Search != "" {
 		where = append(where, `a.rowid IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH ?)`)
@@ -147,14 +153,16 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO articles (
 			id, feed_id, title, url, author, content, summary,
-			published_at, updated_at, external_id, fingerprint, is_read, is_starred, discovered_at, priority
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			published_at, updated_at, external_id, fingerprint, is_read, is_starred,
+			discovered_at, priority, rss_content, crawl_status, is_read_later
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?)
 		ON CONFLICT(feed_id, fingerprint) DO UPDATE SET
 			title=excluded.title,
 			url=CASE WHEN excluded.url != '' THEN excluded.url ELSE articles.url END,
 			author=excluded.author,
 			content=CASE WHEN excluded.content != '' THEN excluded.content ELSE articles.content END,
 			summary=CASE WHEN excluded.summary != '' THEN excluded.summary ELSE articles.summary END,
+			rss_content=CASE WHEN excluded.rss_content != '' THEN excluded.rss_content ELSE articles.rss_content END,
 			published_at=COALESCE(excluded.published_at, articles.published_at),
 			updated_at=excluded.updated_at,
 			external_id=CASE WHEN excluded.external_id != '' THEN excluded.external_id ELSE articles.external_id END
@@ -168,10 +176,19 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 		if pri == "" {
 			pri = domain.PriorityNone
 		}
+		rssContent := a.RSSContent
+		if rssContent == "" {
+			rssContent = a.Content
+		}
+		content := a.Content
+		if content == "" {
+			content = rssContent
+		}
 		res, err := stmt.ExecContext(ctx,
-			a.ID, a.FeedID, a.Title, a.URL, a.Author, a.Content, a.Summary,
+			a.ID, a.FeedID, a.Title, a.URL, a.Author, content, a.Summary,
 			nullTime(a.PublishedAt), nullTime(a.UpdatedAt), a.ExternalID, aFingerprint(a),
 			boolToInt(a.IsRead), boolToInt(a.IsStarred), a.DiscoveredAt.UTC().Format(time.RFC3339Nano), string(pri),
+			rssContent, boolToInt(a.IsReadLater),
 		)
 		if err != nil {
 			return inserted, err
@@ -224,6 +241,62 @@ func (r *ArticleRepo) Update(ctx context.Context, article *domain.Article) error
 	return nil
 }
 
+func (r *ArticleRepo) SetCrawlResult(ctx context.Context, id string, status domain.CrawlStatus, crawled string, errMsg string, unreliable bool) error {
+	res, err := r.db.SQL.ExecContext(ctx, `
+		UPDATE articles SET crawl_status=?, crawled_content=?, crawl_error=?, crawl_unreliable=? WHERE id=?`,
+		string(status), crawled, errMsg, boolToInt(unreliable), id,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ArticleRepo) SetLiveContent(ctx context.Context, id string, live string) error {
+	res, err := r.db.SQL.ExecContext(ctx, `UPDATE articles SET live_content=? WHERE id=?`, live, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ArticleRepo) ListNeedingCrawl(ctx context.Context, limit int) ([]domain.Article, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := articleSelect + `
+		WHERE a.url != ''
+		  AND (
+		    a.crawl_status IN ('none', 'pending')
+		    OR (a.crawl_unreliable = 0 AND a.crawl_status = 'failed' AND a.crawled_content = '')
+		  )
+		ORDER BY CASE WHEN a.crawl_status IN ('none', 'pending') THEN 0 ELSE 1 END,
+		         a.discovered_at ASC
+		LIMIT ?`
+	rows, err := r.db.SQL.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Article{}
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (r *ArticleRepo) SetPriority(ctx context.Context, id string, priority domain.Priority) error {
 	res, err := r.db.SQL.ExecContext(ctx, `UPDATE articles SET priority=? WHERE id=?`, string(priority), id)
 	if err != nil {
@@ -265,12 +338,15 @@ func (r *ArticleRepo) SearchCompact(ctx context.Context, query string, limit int
 func scanArticle(row rowScanner) (domain.Article, error) {
 	var a domain.Article
 	var published, updated sql.NullString
-	var isRead, isStarred int
-	var priority, storyID, discovered string
+	var isRead, isStarred, crawlUnreliable, isReadLater int
+	var priority, storyID, crawlStatus, discovered string
 	err := row.Scan(
 		&a.ID, &a.FeedID, &a.Title, &a.URL, &a.Author, &a.Content, &a.Summary,
 		&published, &updated, &a.ExternalID, &isRead, &isStarred,
-		&priority, &storyID, &discovered, &a.FeedTitle,
+		&priority, &storyID,
+		&a.RSSContent, &a.CrawledContent, &a.LiveContent, &crawlStatus,
+		&a.CrawlError, &crawlUnreliable, &isReadLater,
+		&discovered, &a.FeedTitle,
 	)
 	if err != nil {
 		return a, err
@@ -284,6 +360,15 @@ func scanArticle(row rowScanner) (domain.Article, error) {
 		a.Priority = domain.PriorityNone
 	}
 	a.StoryID = storyID
+	a.CrawlStatus = domain.CrawlStatus(crawlStatus)
+	if a.CrawlStatus == "" {
+		a.CrawlStatus = domain.CrawlNone
+	}
+	a.CrawlUnreliable = crawlUnreliable == 1
+	a.IsReadLater = isReadLater == 1
+	if a.Content == "" && a.RSSContent != "" {
+		a.Content = a.RSSContent
+	}
 	a.DiscoveredAt = mustParseTime(discovered)
 	return a, nil
 }

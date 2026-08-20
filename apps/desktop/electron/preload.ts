@@ -25,6 +25,12 @@ const api: ReaderBackend = {
     markRead: (id) => request("articles.markRead", { id }),
     markUnread: (id) => request("articles.markUnread", { id }),
     toggleStar: (id) => request("articles.toggleStar", { id }),
+    recrawl: (id) => request("articles.recrawl", { id }),
+    fetchLive: (id) => request("articles.fetchLive", { id }),
+  },
+  readLater: {
+    add: (url) => request("readLater.add", { url }),
+    list: () => request("readLater.list"),
   },
   stories: {
     list: () => request("stories.list"),
@@ -48,6 +54,8 @@ const api: ReaderBackend = {
     test: () => request("ai.test"),
     scan: (window) => request("ai.scan", { window }),
     status: () => request("ai.status"),
+    logs: (limit) => request("ai.logs", limit !== undefined ? { limit } : {}),
+    retryFailed: () => request("ai.retryFailed"),
   },
   system: {
     ping: () => request("system.ping"),
