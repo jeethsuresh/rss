@@ -42,7 +42,6 @@ export function SettingsPage({
   const [aiTesting, setAiTesting] = useState(false);
   const [generalSaving, setGeneralSaving] = useState(false);
   const [aiSaving, setAiSaving] = useState(false);
-  const [tokensSaving, setTokensSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<SettingsSection>(initialSection);
   const [mlbTeams, setMlbTeams] = useState<MlbTeam[]>([]);
@@ -52,24 +51,14 @@ export function SettingsPage({
   const [pollDraft, setPollDraft] = useState(String(settings.defaultPollIntervalSeconds));
   const [aiBaseUrlDraft, setAiBaseUrlDraft] = useState(settings.aiBaseUrl);
   const [aiModelDraft, setAiModelDraft] = useState(settings.aiModel);
-  const [pandaTokenDraft, setPandaTokenDraft] = useState(settings.pandaScoreApiToken ?? "");
-  const [stratzTokenDraft, setStratzTokenDraft] = useState(settings.stratzApiToken ?? "");
-  const [dotaProviderDraft, setDotaProviderDraft] = useState<"opendota" | "pandascore">(
-    settings.dotaProvider === "opendota" ? "opendota" : "pandascore",
-  );
-  const [providerSaving, setProviderSaving] = useState(false);
 
   // Refs so Save always reads the latest draft even if a blur/re-render races the click.
   const pollDraftRef = useRef(pollDraft);
   const aiBaseUrlDraftRef = useRef(aiBaseUrlDraft);
   const aiModelDraftRef = useRef(aiModelDraft);
-  const pandaTokenDraftRef = useRef(pandaTokenDraft);
-  const stratzTokenDraftRef = useRef(stratzTokenDraft);
   pollDraftRef.current = pollDraft;
   aiBaseUrlDraftRef.current = aiBaseUrlDraft;
   aiModelDraftRef.current = aiModelDraft;
-  pandaTokenDraftRef.current = pandaTokenDraft;
-  stratzTokenDraftRef.current = stratzTokenDraft;
 
   const pollParsed = Number(pollDraft);
   const pollValid = Number.isFinite(pollParsed) && pollParsed >= 60;
@@ -77,11 +66,6 @@ export function SettingsPage({
   const aiDirty =
     aiBaseUrlDraft.trim() !== (settings.aiBaseUrl ?? "").trim() ||
     aiModelDraft.trim() !== (settings.aiModel ?? "").trim();
-  const sportsTokensDirty =
-    pandaTokenDraft.trim() !== (settings.pandaScoreApiToken ?? "").trim() ||
-    stratzTokenDraft.trim() !== (settings.stratzApiToken ?? "").trim();
-  const dotaProviderDirty =
-    dotaProviderDraft !== (settings.dotaProvider === "opendota" ? "opendota" : "pandascore");
 
   const reloadFeeds = useCallback(async () => {
     setFeeds(await backend.feeds.list());
@@ -119,18 +103,6 @@ export function SettingsPage({
     }
   }, [settings.aiBaseUrl, settings.aiModel, aiDirty]);
 
-  useEffect(() => {
-    if (!sportsTokensDirty) {
-      setPandaTokenDraft(settings.pandaScoreApiToken ?? "");
-      setStratzTokenDraft(settings.stratzApiToken ?? "");
-    }
-  }, [settings.pandaScoreApiToken, settings.stratzApiToken, sportsTokensDirty]);
-
-  useEffect(() => {
-    if (!dotaProviderDirty) {
-      setDotaProviderDraft(settings.dotaProvider === "opendota" ? "opendota" : "pandascore");
-    }
-  }, [settings.dotaProvider, dotaProviderDirty]);
 
   useEffect(() => {
     return backend.onEvent((ev) => {
@@ -153,7 +125,6 @@ export function SettingsPage({
         case "sync.status":
         case "sports.game.updated":
         case "sports.f1.race.updated":
-        case "sports.dota.match.updated":
         case "sports.refresh":
         case "sports.cache.updated":
           break;
@@ -240,32 +211,6 @@ export function SettingsPage({
     }
   };
 
-  const saveSportsTokens = async () => {
-    setError(null);
-    setTokensSaving(true);
-    try {
-      await patch({
-        pandaScoreApiToken: pandaTokenDraftRef.current.trim(),
-        stratzApiToken: stratzTokenDraftRef.current.trim(),
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save API tokens");
-    } finally {
-      setTokensSaving(false);
-    }
-  };
-
-  const saveDotaProvider = async () => {
-    setError(null);
-    setProviderSaving(true);
-    try {
-      await patch({ dotaProvider: dotaProviderDraft });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save Dota provider");
-    } finally {
-      setProviderSaving(false);
-    }
-  };
 
   const filtered = feeds.filter((f) => {
     if (f.isReadLater) return false;
@@ -501,101 +446,6 @@ export function SettingsPage({
 
           {section === "sports" && (
             <section className="settings-section">
-              <h2>Dota data source</h2>
-              <p className="muted">
-                OpenDota needs no API keys. PandaScore + STRATZ needs tokens and unlocks richer live
-                coverage.
-              </p>
-              <label className="field">
-                Provider
-                <select
-                  value={dotaProviderDraft}
-                  onChange={(e) =>
-                    setDotaProviderDraft(e.target.value === "opendota" ? "opendota" : "pandascore")
-                  }
-                >
-                  <option value="pandascore">PandaScore + STRATZ</option>
-                  <option value="opendota">OpenDota only</option>
-                </select>
-              </label>
-              <div className="settings-row">
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={providerSaving || !dotaProviderDirty}
-                  onMouseDown={keepFocusForSave}
-                  onClick={() => void saveDotaProvider()}
-                >
-                  {providerSaving ? "Saving…" : "Save provider"}
-                </button>
-                {dotaProviderDirty ? <span className="muted">Unsaved changes</span> : null}
-              </div>
-
-              <h2>Dota 2 APIs</h2>
-              {dotaProviderDraft === "opendota" ? (
-                <p className="muted">Tokens are not used while OpenDota is selected.</p>
-              ) : (
-                <>
-                  <p className="muted">
-                    Edit tokens, then Save. Stored locally in the app database (env vars remain a
-                    fallback if empty).
-                  </p>
-                  <label className="field field-wide">
-                    PandaScore API token
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={pandaTokenDraft}
-                      onChange={(e) => setPandaTokenDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void saveSportsTokens();
-                        }
-                      }}
-                      placeholder="Required for Dota events & matches"
-                    />
-                  </label>
-                  <label className="field field-wide">
-                    STRATZ API token
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={stratzTokenDraft}
-                      onChange={(e) => setStratzTokenDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void saveSportsTokens();
-                        }
-                      }}
-                      placeholder="Optional — game heroes, bans, player stats"
-                    />
-                  </label>
-                  <div className="settings-row">
-                    <button
-                      type="button"
-                      className="btn primary"
-                      disabled={tokensSaving || !sportsTokensDirty}
-                      onMouseDown={keepFocusForSave}
-                      onClick={() => void saveSportsTokens()}
-                    >
-                      {tokensSaving ? "Saving…" : "Save tokens"}
-                    </button>
-                    {sportsTokensDirty ? <span className="muted">Unsaved changes</span> : null}
-                    {!sportsTokensDirty && !tokensSaving ? (
-                      <span className="muted">
-                        {pandaTokenDraft.trim() ? "PandaScore set" : "PandaScore empty"}
-                        {" · "}
-                        {stratzTokenDraft.trim() ? "STRATZ set" : "STRATZ empty"}
-                      </span>
-                    ) : null}
-                  </div>
-                </>
-              )}
-
               <h2>Baseball (MLB)</h2>
               <p className="muted">
                 Follow one or more MLB teams. Schedules and live games appear under Baseball in the Sports

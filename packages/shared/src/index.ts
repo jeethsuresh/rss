@@ -128,9 +128,6 @@ export interface Settings {
   aiBaseUrl: string;
   aiModel: string;
   readLaterChrome?: "tabs" | "brandControl";
-  pandaScoreApiToken?: string;
-  stratzApiToken?: string;
-  dotaProvider?: "opendota" | "pandascore";
 }
 
 export type ReadLaterFilter = "all" | "unread" | "starred" | "archived";
@@ -171,7 +168,6 @@ export type BackendEventName =
   | "sync.status"
   | "sports.game.updated"
   | "sports.f1.race.updated"
-  | "sports.dota.match.updated"
   | "sports.refresh"
   | "sports.cache.updated";
 
@@ -433,132 +429,6 @@ export interface F1Standings {
   constructors: F1TeamStanding[];
 }
 
-export type DotaEventTier =
-  | "premier"
-  | "professional"
-  | "semi-pro"
-  | "amateur"
-  | "unknown";
-
-export type DotaEventStatus = "upcoming" | "ongoing" | "completed";
-export type DotaMatchStatus = "upcoming" | "live" | "completed" | "canceled";
-export type DotaEventType = "league" | "tournament";
-export type DotaSide = "radiant" | "dire";
-
-export interface DotaSeason {
-  year: number;
-}
-
-export interface DotaTeam {
-  id: number;
-  name: string;
-  shortName?: string;
-  logoUrl?: string;
-}
-
-export interface DotaEvent {
-  id: string;
-  name: string;
-  type: DotaEventType;
-  tier: DotaEventTier;
-  status: DotaEventStatus;
-  startAt?: string;
-  endAt?: string;
-  logoUrl?: string;
-  leagueId?: string;
-  leagueName?: string;
-  tournamentId?: string;
-  year: number;
-  organizer?: string;
-}
-
-export interface DotaPinnedEvent {
-  eventId: string;
-  eventType: DotaEventType;
-}
-
-export interface DotaMatch {
-  id: number;
-  eventId?: string;
-  eventName?: string;
-  teamA: DotaTeam;
-  teamB: DotaTeam;
-  scheduledAt?: string;
-  status: DotaMatchStatus;
-  bestOf?: number;
-  scoreA?: number;
-  scoreB?: number;
-  year: number;
-  stage?: string;
-}
-
-export interface DotaHeroPick {
-  heroId: number;
-  heroName: string;
-  playerId?: number;
-  team?: DotaSide;
-}
-
-export interface DotaHeroBan {
-  heroId: number;
-  heroName: string;
-  team?: DotaSide;
-}
-
-export interface DotaItem {
-  itemId: number;
-  name?: string;
-}
-
-export interface DotaPlayer {
-  playerId: number;
-  name: string;
-  heroId: number;
-  heroName: string;
-  team: DotaSide;
-  kills: number;
-  deaths: number;
-  assists: number;
-  gpm: number;
-  xpm: number;
-  netWorth: number;
-  items?: DotaItem[];
-}
-
-export interface DotaGame {
-  id: string;
-  matchId: number;
-  gameIndex: number;
-  durationSeconds?: number;
-  startedAt?: string;
-  winner?: DotaSide;
-  winnerTeamName?: string;
-  radiantTeam?: DotaTeam;
-  direTeam?: DotaTeam;
-  radiantScore?: number;
-  direScore?: number;
-  heroes?: DotaHeroPick[];
-  bans?: DotaHeroBan[];
-  players?: DotaPlayer[];
-  stratzMatchId?: number;
-  mappingConfidence?: "exact" | "inferred" | "unknown";
-  detailAvailable: boolean;
-  detailError?: string;
-}
-
-export interface DotaMatchDetail {
-  match: DotaMatch;
-  games: DotaGame[];
-  live: boolean;
-}
-
-export interface DotaProvidersStatus {
-  provider: "opendota" | "pandascore";
-  ready: boolean;
-  pandaScoreConfigured: boolean;
-  stratzConfigured: boolean;
-}
-
 export interface BackendEvent<T = unknown> {
   event: BackendEventName;
   payload: T;
@@ -612,27 +482,6 @@ export interface ReaderBackend {
     f1RaceWatch(sessionKey: number): Promise<F1RaceDetail>;
     f1RaceUnwatch(sessionKey: number): Promise<{ ok: true }>;
     f1Standings(params: { year?: number }): Promise<F1Standings>;
-    dotaStatus(): Promise<DotaProvidersStatus>;
-    dotaYears(): Promise<DotaSeason[]>;
-    dotaEvents(params: { year?: number }): Promise<DotaEvent[]>;
-    dotaEventMatches(eventId: string): Promise<DotaMatch[]>;
-    dotaMatchGet(matchId: number): Promise<DotaMatchDetail>;
-    dotaMatchWatch(matchId: number): Promise<DotaMatchDetail>;
-    dotaMatchUnwatch(matchId: number): Promise<{ ok: true }>;
-    dotaGameGet(params: {
-      matchId: number;
-      gameIndex: number;
-      stratzMatchId?: number;
-    }): Promise<DotaGame>;
-    dotaTeamGet(teamId: number): Promise<DotaTeam>;
-    dotaTeamSearch(query: string): Promise<DotaTeam[]>;
-    dotaTeamMatches(params: { teamId: number; year?: number }): Promise<DotaMatch[]>;
-    dotaFollowedGet(): Promise<number[]>;
-    dotaFollowedSet(teamIds: number[]): Promise<number[]>;
-    dotaFollowedToggle(teamId: number): Promise<number[]>;
-    dotaPinnedGet(): Promise<DotaPinnedEvent[]>;
-    dotaPinnedSet(pins: DotaPinnedEvent[]): Promise<DotaPinnedEvent[]>;
-    dotaPinnedToggle(eventId: string, eventType?: DotaEventType): Promise<DotaPinnedEvent[]>;
   };
   stories: {
     list(): Promise<Story[]>;
@@ -710,23 +559,6 @@ export const RPC_METHODS = [
   "sports.f1.race.watch",
   "sports.f1.race.unwatch",
   "sports.f1.standings.get",
-  "sports.dota.status",
-  "sports.dota.years.list",
-  "sports.dota.events.list",
-  "sports.dota.event.matches",
-  "sports.dota.match.get",
-  "sports.dota.match.watch",
-  "sports.dota.match.unwatch",
-  "sports.dota.game.get",
-  "sports.dota.team.get",
-  "sports.dota.team.search",
-  "sports.dota.team.matches",
-  "sports.dota.followed.get",
-  "sports.dota.followed.set",
-  "sports.dota.followed.toggle",
-  "sports.dota.pinned.get",
-  "sports.dota.pinned.set",
-  "sports.dota.pinned.toggle",
   "stories.list",
   "stories.get",
   "stories.markRead",

@@ -8,10 +8,7 @@ import (
 
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
-	"github.com/jeeth/rss-reader/backend/internal/opendota"
 	"github.com/jeeth/rss-reader/backend/internal/openf1"
-	"github.com/jeeth/rss-reader/backend/internal/pandascore"
-	"github.com/jeeth/rss-reader/backend/internal/stratz"
 )
 
 type SportsService struct {
@@ -19,15 +16,11 @@ type SportsService struct {
 	Cache    domain.SportsCacheRepository
 	Client   *mlb.Client
 	F1Client *openf1.Client
-	Panda    *pandascore.Client
-	Stratz   *stratz.Client
-	OpenDota *opendota.Client
 	Emit     EventEmitter
 
-	mu          sync.Mutex
-	watching    map[int]context.CancelFunc
-	f1Watching  map[int]context.CancelFunc
-	dotaWatching map[int]context.CancelFunc
+	mu         sync.Mutex
+	watching   map[int]context.CancelFunc
+	f1Watching map[int]context.CancelFunc
 
 	refreshMu  sync.Mutex
 	refreshing map[string]bool
@@ -38,22 +31,15 @@ func NewSportsService(
 	cache domain.SportsCacheRepository,
 	mlbClient *mlb.Client,
 	f1Client *openf1.Client,
-	panda *pandascore.Client,
-	stratzClient *stratz.Client,
-	openDota *opendota.Client,
 ) *SportsService {
 	return &SportsService{
-		Repo:         repo,
-		Cache:        cache,
-		Client:       mlbClient,
-		F1Client:     f1Client,
-		Panda:        panda,
-		Stratz:       stratzClient,
-		OpenDota:     openDota,
-		watching:     map[int]context.CancelFunc{},
-		f1Watching:   map[int]context.CancelFunc{},
-		dotaWatching: map[int]context.CancelFunc{},
-		refreshing:   map[string]bool{},
+		Repo:       repo,
+		Cache:      cache,
+		Client:     mlbClient,
+		F1Client:   f1Client,
+		watching:   map[int]context.CancelFunc{},
+		f1Watching: map[int]context.CancelFunc{},
+		refreshing: map[string]bool{},
 	}
 }
 

@@ -100,9 +100,6 @@ type Settings struct {
 	AIBaseURL                  string `json:"aiBaseUrl"`
 	AIModel                    string `json:"aiModel"`
 	ReadLaterChrome            string `json:"readLaterChrome"` // tabs | brandControl
-	PandaScoreAPIToken         string `json:"pandaScoreApiToken"`
-	StratzAPIToken             string `json:"stratzApiToken"`
-	DotaProvider               string `json:"dotaProvider"` // opendota | pandascore
 }
 
 type ArticleQuery struct {

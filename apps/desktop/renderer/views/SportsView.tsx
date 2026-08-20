@@ -21,7 +21,6 @@ import type {
 } from "@rss-reader/shared";
 import { SportsLoadingPane, SportsSpinner } from "../components/SportsSpinner";
 import { SPORTS_REGISTRY, type SportId } from "../lib/sportsRegistry";
-import { DotaSportsPanel } from "./DotaSportsPanel";
 
 type Props = {
   backend: ReaderBackend;
@@ -803,16 +802,6 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   };
-
-  if (activeSport === "dota") {
-    return (
-      <DotaSportsPanel
-        backend={backend}
-        activeSport={activeSport}
-        onSelectSport={setActiveSport}
-      />
-    );
-  }
 
   return (
     <div className="layout">

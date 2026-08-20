@@ -312,8 +312,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           break;
         case "sports.f1.race.updated":
           break;
-        case "sports.dota.match.updated":
-          break;
         case "sports.refresh":
           break;
         case "sports.cache.updated":

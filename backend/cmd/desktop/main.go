@@ -15,13 +15,10 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/crawl"
 	"github.com/jeeth/rss-reader/backend/internal/ipc"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
-	"github.com/jeeth/rss-reader/backend/internal/opendota"
 	"github.com/jeeth/rss-reader/backend/internal/openf1"
-	"github.com/jeeth/rss-reader/backend/internal/pandascore"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
 	"github.com/jeeth/rss-reader/backend/internal/scheduler"
 	"github.com/jeeth/rss-reader/backend/internal/storage/sqlite"
-	"github.com/jeeth/rss-reader/backend/internal/stratz"
 )
 
 const version = "0.1.0"
@@ -71,9 +68,6 @@ func main() {
 		sportsCache,
 		mlb.NewClient(),
 		openf1.NewClient(),
-		pandascore.NewClientFromEnv(),
-		stratz.NewClientFromEnv(),
-		opendota.NewClient(),
 	)
 
 	svc := &application.Service{
