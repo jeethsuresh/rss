@@ -522,13 +522,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             pageUrl={article.url}
             title={decodeHtmlEntities(article.title || "Article page")}
           />
-          {contentTab === "secondary" && (
-            <div className="reader-actions" style={{ marginTop: 8 }}>
-              <button className="btn" disabled={contentBusy} onClick={() => void recrawlActive()}>
-                {contentBusy ? "Re-crawling…" : "Re-crawl page"}
-              </button>
-            </div>
-          )}
         </div>
       );
     }
@@ -1018,50 +1011,60 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
               <p>Select an article to read. Shortcuts: j/k, o, r, u, s, f, /</p>
             </div>
           ) : (
-            <article className="reader">
-              <div className="reader-kicker">
-                {active.feedTitle}
-                {active.author ? ` · ${active.author}` : ""}
-                {active.publishedAt ? ` · ${new Date(active.publishedAt).toLocaleString()}` : ""}
-              </div>
-              {renderContentTabs(active)}
-              <h1>
-                <PriorityBadge priority={active.priority} />
-                {decodeHtmlEntities(active.title || "(untitled)")}
-              </h1>
-              <div className="reader-actions">
-                <button
-                  className="btn"
-                  onClick={() =>
-                    void backend.articles[active.isRead ? "markUnread" : "markRead"](active.id).then((updated) => {
-                      patchArticle(updated);
-                      void loadFeeds();
-                    })
-                  }
-                >
-                  {active.isRead ? "Mark unread" : "Mark read"}
-                </button>
-                <button
-                  className="btn"
-                  onClick={() =>
-                    void backend.articles.toggleStar(active.id).then((updated) => {
-                      patchArticle(updated);
-                    })
-                  }
-                >
-                  {active.isStarred ? "Unstar" : "Star"}
-                </button>
-                {!active.isReadLater && active.url ? (
-                  <button className="btn" disabled={busy} onClick={() => void addReadLaterFromActive()}>
-                    Send to Read Later
+            <article
+              className={`reader ${
+                contentTab === "secondary" || active.isReadLater ? "reader-fullbleed" : ""
+              }`}
+            >
+              <div className="reader-toolbar">
+                {renderContentTabs(active)}
+                <div className="reader-actions">
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      void backend.articles[active.isRead ? "markUnread" : "markRead"](active.id).then(
+                        (updated) => {
+                          patchArticle(updated);
+                          void loadFeeds();
+                        },
+                      )
+                    }
+                  >
+                    {active.isRead ? "Mark unread" : "Mark read"}
                   </button>
-                ) : null}
-                {active.url && (
-                  <button className="btn primary" onClick={() => void window.desktop.openExternal(active.url)}>
-                    Open original
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      void backend.articles.toggleStar(active.id).then((updated) => {
+                        patchArticle(updated);
+                      })
+                    }
+                  >
+                    {active.isStarred ? "Unstar" : "Star"}
                   </button>
-                )}
+                  {!active.isReadLater && active.url ? (
+                    <button className="btn" disabled={busy} onClick={() => void addReadLaterFromActive()}>
+                      Send to Read Later
+                    </button>
+                  ) : null}
+                  {active.url && (
+                    <button className="btn primary" onClick={() => void window.desktop.openExternal(active.url)}>
+                      Open original
+                    </button>
+                  )}
+                  {contentTab === "secondary" && (
+                    <button className="btn" disabled={contentBusy} onClick={() => void recrawlActive()}>
+                      {contentBusy ? "Re-crawling…" : "Re-crawl page"}
+                    </button>
+                  )}
+                </div>
               </div>
+              {contentTab === "primary" && !active.isReadLater ? (
+                <h1>
+                  <PriorityBadge priority={active.priority} />
+                  {decodeHtmlEntities(active.title || "(untitled)")}
+                </h1>
+              ) : null}
               {renderContentBody(active)}
             </article>
           )}

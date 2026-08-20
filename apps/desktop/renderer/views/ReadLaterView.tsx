@@ -138,13 +138,6 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
             pageUrl={article.url}
             title={decodeHtmlEntities(article.title || "Article page")}
           />
-          {contentTab === "secondary" && (
-            <div className="reader-actions" style={{ marginTop: 8 }}>
-              <button className="btn" disabled={contentBusy} onClick={() => void recrawl()}>
-                {contentBusy ? "Re-crawling…" : "Re-crawl page"}
-              </button>
-            </div>
-          )}
         </div>
       );
     }
@@ -210,73 +203,74 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
             <p>Select a saved link to read.</p>
           </div>
         ) : (
-          <article className="reader">
-            <div className="reader-kicker">
-              {hostOf(active.url)}
-              {active.publishedAt ? ` · ${new Date(active.publishedAt).toLocaleString()}` : ""}
-              {active.crawlStatus === "pending" ? " · crawling…" : ""}
-            </div>
-            <div className="content-tabs">
-              <button
-                type="button"
-                className={`content-tab ${contentTab === "primary" ? "active" : ""}`}
-                onClick={() => setContentTab("primary")}
-              >
-                Live
-              </button>
-              <button
-                type="button"
-                className={`content-tab ${contentTab === "secondary" ? "active" : ""}`}
-                onClick={() => setContentTab("secondary")}
-              >
-                Saved crawl
-              </button>
-            </div>
-            <h1>{decodeHtmlEntities(active.title || "(untitled)")}</h1>
-            <div className="reader-actions">
-              <button
-                className="btn"
-                onClick={() =>
-                  void backend.articles[active.isRead ? "markUnread" : "markRead"](active.id).then(patchLocal)
-                }
-              >
-                {active.isRead ? "Mark unread" : "Mark read"}
-              </button>
-              <button
-                className="btn"
-                onClick={() => void backend.articles.toggleStar(active.id).then(patchLocal)}
-              >
-                {active.isStarred ? "Unstar" : "Star"}
-              </button>
-              {active.archivedAt ? (
+          <article className="reader reader-fullbleed">
+            <div className="reader-toolbar">
+              <div className="content-tabs">
+                <button
+                  type="button"
+                  className={`content-tab ${contentTab === "primary" ? "active" : ""}`}
+                  onClick={() => setContentTab("primary")}
+                >
+                  Live
+                </button>
+                <button
+                  type="button"
+                  className={`content-tab ${contentTab === "secondary" ? "active" : ""}`}
+                  onClick={() => setContentTab("secondary")}
+                >
+                  Saved crawl
+                </button>
+              </div>
+              <div className="reader-actions">
                 <button
                   className="btn"
                   onClick={() =>
-                    void backend.readLater.unarchive(active.id).then((updated) => {
-                      patchLocal(updated);
-                      void load();
-                    })
+                    void backend.articles[active.isRead ? "markUnread" : "markRead"](active.id).then(patchLocal)
                   }
                 >
-                  Unarchive
+                  {active.isRead ? "Mark unread" : "Mark read"}
                 </button>
-              ) : (
                 <button
                   className="btn"
-                  onClick={() =>
-                    void backend.readLater.archive(active.id).then(() => {
-                      void load();
-                    })
-                  }
+                  onClick={() => void backend.articles.toggleStar(active.id).then(patchLocal)}
                 >
-                  Archive
+                  {active.isStarred ? "Unstar" : "Star"}
                 </button>
-              )}
-              {active.url && (
-                <button className="btn primary" onClick={() => void window.desktop.openExternal(active.url)}>
-                  Open original
-                </button>
-              )}
+                {active.archivedAt ? (
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      void backend.readLater.unarchive(active.id).then((updated) => {
+                        patchLocal(updated);
+                        void load();
+                      })
+                    }
+                  >
+                    Unarchive
+                  </button>
+                ) : (
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      void backend.readLater.archive(active.id).then(() => {
+                        void load();
+                      })
+                    }
+                  >
+                    Archive
+                  </button>
+                )}
+                {active.url && (
+                  <button className="btn primary" onClick={() => void window.desktop.openExternal(active.url)}>
+                    Open original
+                  </button>
+                )}
+                {contentTab === "secondary" && (
+                  <button className="btn" disabled={contentBusy} onClick={() => void recrawl()}>
+                    {contentBusy ? "Re-crawling…" : "Re-crawl page"}
+                  </button>
+                )}
+              </div>
             </div>
             {renderBody(active)}
           </article>

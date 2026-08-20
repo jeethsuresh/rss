@@ -386,6 +386,7 @@ button {
   display: grid;
   grid-template-columns: 240px minmax(280px, 380px) 1fr;
   min-height: 0;
+  flex: 1;
 }
 
 .pane {
@@ -393,6 +394,18 @@ button {
   overflow: auto;
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg1) 88%, transparent);
+}
+
+.pane.reader-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane.reader-pane > .reader,
+.pane.reader-pane > .empty {
+  flex: 1;
+  min-height: 0;
 }
 
 .pane:last-child {
@@ -502,6 +515,43 @@ button {
 .reader {
   padding: 28px 36px 64px;
   animation: reader-in 280ms ease both;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.reader.reader-fullbleed {
+  padding: 0;
+  max-width: none;
+  overflow: hidden;
+}
+
+.reader-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.reader-fullbleed .reader-toolbar {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--bg1) 92%, transparent);
+}
+
+.reader-toolbar .content-tabs {
+  margin: 0;
+}
+
+.reader-toolbar .reader-actions {
+  margin: 0;
+  margin-left: auto;
 }
 
 @keyframes reader-in {
@@ -529,6 +579,10 @@ button {
   margin: 0 0 12px;
 }
 
+.reader-fullbleed h1 {
+  padding: 0 16px;
+}
+
 .reader-actions {
   display: flex;
   flex-wrap: wrap;
@@ -540,6 +594,11 @@ button {
   font-size: 1.05rem;
   line-height: 1.7;
   max-width: 46rem;
+}
+
+.reader-fullbleed .reader-body {
+  padding: 16px 20px 32px;
+  max-width: none;
 }
 
 .reader-body a {
@@ -828,6 +887,22 @@ button {
 .reader-page-wrap {
   margin-top: 8px;
   max-width: none;
+}
+
+.reader-fullbleed .reader-page-wrap {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.reader-fullbleed .page-frame {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
 }
 
 .ai-log-panel {
