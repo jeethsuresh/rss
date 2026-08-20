@@ -396,6 +396,14 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.UnarchiveReadLater(ctx, p.ID)
+	case "readLater.remove":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return nil, s.svc.RemoveReadLater(ctx, p.ID)
 	case "sports.teams.list":
 		return s.svc.SportsTeams(ctx)
 	case "sports.seasons.list":

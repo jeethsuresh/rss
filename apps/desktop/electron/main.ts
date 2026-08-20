@@ -18,6 +18,7 @@ const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 let backend: BackendBridge | null = null;
 let backendProc: ChildProcessWithoutNullStreams | null = null;
+const pendingDroppedTexts: string[] = [];
 
 function backendBinaryPath(): string {
   const resources = isDev
@@ -50,6 +51,60 @@ async function startBackend(): Promise<BackendBridge> {
   const bridge = new BackendBridge(backendProc.stdin, backendProc.stdout);
   await bridge.request("system.handshake", {});
   return bridge;
+}
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (process.platform === "darwin") {
+    app.dock?.show();
+    app.focus({ steal: true });
+  }
+}
+
+function deliverDroppedText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingDroppedTexts.push(trimmed);
+    return;
+  }
+  focusMainWindow();
+  const send = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      pendingDroppedTexts.push(trimmed);
+      return;
+    }
+    mainWindow.webContents.send("desktop:dropped-text", trimmed);
+  };
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once("did-finish-load", send);
+  } else {
+    send();
+  }
+}
+
+function flushPendingDrops() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  while (pendingDroppedTexts.length > 0) {
+    const text = pendingDroppedTexts.shift();
+    if (text) deliverDroppedText(text);
+  }
+}
+
+function readWeblocURL(filePath: string): string | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const xmlMatch = raw.match(/<string>(https?:\/\/[^<]+)<\/string>/i);
+    if (xmlMatch?.[1]) return xmlMatch[1].trim();
+    const plistMatch = raw.match(/URL\s*=\s*"([^"]+)"/);
+    if (plistMatch?.[1]) return plistMatch[1].trim();
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 async function createWindow() {
@@ -85,12 +140,17 @@ async function createWindow() {
     }
   });
 
+  mainWindow.webContents.on("did-finish-load", () => {
+    flushPendingDrops();
+  });
+
   if (isDev) {
     await mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     await mainWindow.loadFile(path.join(__dirname, "..", "dist-renderer", "index.html"));
   }
+  flushPendingDrops();
 }
 
 function setupIpc() {
@@ -113,7 +173,29 @@ function setupIpc() {
     new Notification({ title, body }).show();
     return true;
   });
+
+  ipcMain.handle("app:focusMainWindow", async () => {
+    focusMainWindow();
+  });
 }
+
+app.on("will-finish-launching", () => {
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    deliverDroppedText(url);
+  });
+  app.on("open-file", (event, filePath) => {
+    event.preventDefault();
+    const lower = filePath.toLowerCase();
+    if (lower.endsWith(".webloc") || lower.endsWith(".url")) {
+      const url = readWeblocURL(filePath);
+      if (url) deliverDroppedText(url);
+      else deliverDroppedText(filePath);
+      return;
+    }
+    deliverDroppedText(filePath);
+  });
+});
 
 app.whenReady().then(async () => {
   setupIpc();

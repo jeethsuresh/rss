@@ -38,6 +38,7 @@ type ArticleRepository interface {
 	SetCrawlResult(ctx context.Context, id string, status CrawlStatus, crawled string, errMsg string, unreliable bool) error
 	SetLiveContent(ctx context.Context, id string, live string) error
 	SetArchived(ctx context.Context, id string, archived bool) error
+	Delete(ctx context.Context, id string) error
 	FindByExternalKey(ctx context.Context, feedID, externalID, url, fingerprint string) (*Article, error)
 	SearchCompact(ctx context.Context, query string, limit int) ([]Article, error)
 	ListNeedingCrawl(ctx context.Context, limit int) ([]Article, error)

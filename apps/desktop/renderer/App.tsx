@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Article,
   BackendEventName,
@@ -10,6 +10,11 @@ import type {
 } from "@rss-reader/shared";
 import { getBackend } from "./lib/backend";
 import { formatRelativeTime, sanitizeArticleHtml, stripHtml, decodeHtmlEntities } from "./lib/html";
+import {
+  extractDropText,
+  isEditableDropTarget,
+  normalizeDroppedUrl,
+} from "./lib/droppedUrl";
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
@@ -96,6 +101,11 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addUrl, setAddUrl] = useState("");
+  const [dropModal, setDropModal] = useState<{ attempted: string; draft: string; error: string | null } | null>(
+    null,
+  );
+  const [toast, setToast] = useState<{ message: string; undoId: string } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [view, setView] = useState<View>("reader");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [appMode, setAppMode] = useState<AppMode>("rss");
@@ -276,6 +286,14 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           }
           break;
         }
+        case "article.removed": {
+          const payload = event.payload as { articleId?: string };
+          if (payload.articleId) {
+            setArticles((prev) => prev.filter((a) => a.id !== payload.articleId));
+            setActiveId((id) => (id === payload.articleId ? null : id));
+          }
+          break;
+        }
         case "story.updated": {
           void loadStories();
           const payload = event.payload as { storyId?: string };
@@ -419,6 +437,121 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       setBusy(false);
     }
   };
+
+  const clearToastTimer = useCallback(() => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+  }, []);
+
+  const showSavedToast = useCallback(
+    (articleId: string) => {
+      clearToastTimer();
+      setToast({ message: "Saved to Read Later", undoId: articleId });
+      toastTimerRef.current = setTimeout(() => {
+        setToast(null);
+        toastTimerRef.current = null;
+      }, 7000);
+    },
+    [clearToastTimer],
+  );
+
+  const saveDroppedUrl = useCallback(
+    async (url: string) => {
+      const saved = await backend.readLater.add(url);
+      showSavedToast(saved.id);
+      return saved;
+    },
+    [backend, showSavedToast],
+  );
+
+  const openInvalidDropModal = useCallback(async (attempted: string) => {
+    try {
+      await window.desktop.focusMainWindow();
+    } catch {
+      // browser / missing bridge
+    }
+    setDropModal({ attempted, draft: attempted, error: null });
+  }, []);
+
+  const handleDroppedText = useCallback(
+    (raw: string) => {
+      const result = normalizeDroppedUrl(raw);
+      if (result.ok) {
+        void saveDroppedUrl(result.url).catch((e) => {
+          setError(e instanceof Error ? e.message : "Could not save link");
+        });
+        return;
+      }
+      void openInvalidDropModal(result.attempted || raw.trim());
+    },
+    [openInvalidDropModal, saveDroppedUrl],
+  );
+
+  const undoDroppedSave = useCallback(async () => {
+    if (!toast) return;
+    const id = toast.undoId;
+    clearToastTimer();
+    setToast(null);
+    try {
+      await backend.readLater.remove(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not undo");
+    }
+  }, [backend, clearToastTimer, toast]);
+
+  const submitDropModal = useCallback(async () => {
+    if (!dropModal) return;
+    const result = normalizeDroppedUrl(dropModal.draft);
+    if (!result.ok) {
+      setDropModal((prev) =>
+        prev ? { ...prev, error: "Enter a valid http(s) URL" } : prev,
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      await saveDroppedUrl(result.url);
+      setDropModal(null);
+    } catch (e) {
+      setDropModal((prev) =>
+        prev
+          ? { ...prev, error: e instanceof Error ? e.message : "Could not save link" }
+          : prev,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [dropModal, saveDroppedUrl]);
+
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer) return;
+      if (isEditableDropTarget(e.target)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    };
+    const onDrop = (e: DragEvent) => {
+      if (isEditableDropTarget(e.target)) return;
+      const text = extractDropText(e.dataTransfer);
+      if (!text.trim()) return;
+      e.preventDefault();
+      handleDroppedText(text);
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    const unsub =
+      typeof window.desktop?.onDroppedText === "function"
+        ? window.desktop.onDroppedText(handleDroppedText)
+        : () => undefined;
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+      unsub();
+      clearToastTimer();
+    };
+  }, [clearToastTimer, handleDroppedText]);
 
   const handleContentTab = useCallback(
     async (tab: ContentTab) => {
@@ -666,25 +799,83 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     }
   };
 
-  if (view === "settings" && settings) {
-    return (
-      <SettingsPage
-        backend={backend}
-        settings={settings}
-        onSettings={setSettings}
-        onClose={() => {
-          setView("reader");
-          setSettingsSection("general");
-        }}
-        applyTheme={applyTheme}
-        initialSection={settingsSection}
-      />
-    );
-  }
-
   const totalUnread = visibleFeeds.reduce((n, f) => n + f.unreadCount, 0);
   const densityClass = settings?.articleDensity === "compact" ? "density-compact" : "";
 
+  const dropFixModal = dropModal ? (
+    <div className="modal-backdrop" onClick={() => setDropModal(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Fix link for Read Later</h2>
+        <p className="modal-hint">That drop wasn’t a valid URL. Edit it and try again.</p>
+        <label className="modal-label" htmlFor="drop-attempted">
+          Attempted
+        </label>
+        <pre id="drop-attempted" className="modal-attempted">
+          {dropModal.attempted || "(empty)"}
+        </pre>
+        <label className="modal-label" htmlFor="drop-url">
+          URL
+        </label>
+        <input
+          id="drop-url"
+          autoFocus
+          placeholder="https://example.com/article"
+          value={dropModal.draft}
+          onChange={(e) =>
+            setDropModal((prev) =>
+              prev ? { ...prev, draft: e.target.value, error: null } : prev,
+            )
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submitDropModal();
+          }}
+        />
+        {dropModal.error ? <p className="error">{dropModal.error}</p> : null}
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={() => setDropModal(null)}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={busy || !dropModal.draft.trim()}
+            onClick={() => void submitDropModal()}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const saveToast = toast ? (
+    <div className="toast" role="status">
+      <span>{toast.message}</span>
+      <button type="button" className="toast-undo" onClick={() => void undoDroppedSave()}>
+        Undo
+      </button>
+    </div>
+  ) : null;
+
+  if (view === "settings" && settings) {
+    return (
+      <>
+        <SettingsPage
+          backend={backend}
+          settings={settings}
+          onSettings={setSettings}
+          onClose={() => {
+            setView("reader");
+            setSettingsSection("general");
+          }}
+          applyTheme={applyTheme}
+          initialSection={settingsSection}
+        />
+        {dropFixModal}
+        {saveToast}
+      </>
+    );
+  }
   return (
     <div className={`app ${densityClass}`}>
       <header className="toolbar">
@@ -1103,6 +1294,9 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           </div>
         </div>
       )}
+
+      {dropFixModal}
+      {saveToast}
     </div>
   );
 }

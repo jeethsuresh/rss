@@ -160,6 +160,7 @@ export type BackendEventName =
   | "feed.error"
   | "articles.added"
   | "article.updated"
+  | "article.removed"
   | "story.updated"
   | "ai.status"
   | "ai.log"
@@ -461,6 +462,7 @@ export interface ReaderBackend {
     list(filter?: ReadLaterFilter, search?: string): Promise<Article[]>;
     archive(id: string): Promise<Article>;
     unarchive(id: string): Promise<Article>;
+    remove(id: string): Promise<void>;
   };
   sports: {
     teams(): Promise<MlbTeam[]>;
@@ -539,6 +541,7 @@ export const RPC_METHODS = [
   "readLater.list",
   "readLater.archive",
   "readLater.unarchive",
+  "readLater.remove",
   "sports.teams.list",
   "sports.seasons.list",
   "sports.followed.get",

@@ -147,6 +147,21 @@ func (s *Service) UnarchiveReadLater(ctx context.Context, id string) (*domain.Ar
 	return a, nil
 }
 
+func (s *Service) RemoveReadLater(ctx context.Context, id string) error {
+	a, err := s.Articles.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !a.IsReadLater {
+		return domain.ErrInvalidParams
+	}
+	if err := s.Articles.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.emit("article.removed", map[string]any{"articleId": id})
+	return nil
+}
+
 func (s *Service) RecrawlArticle(ctx context.Context, id string) (*domain.Article, error) {
 	if s.Crawler == nil {
 		return nil, domain.ErrInvalidParams

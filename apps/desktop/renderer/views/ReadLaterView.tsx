@@ -63,7 +63,11 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
 
   useEffect(() => {
     return backend.onEvent((ev) => {
-      if (ev.event === "article.updated" || ev.event === "articles.added") {
+      if (
+        ev.event === "article.updated" ||
+        ev.event === "articles.added" ||
+        ev.event === "article.removed"
+      ) {
         void load();
       }
     });

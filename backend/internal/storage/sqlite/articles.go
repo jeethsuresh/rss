@@ -320,6 +320,18 @@ func (r *ArticleRepo) SetArchived(ctx context.Context, id string, archived bool)
 	return nil
 }
 
+func (r *ArticleRepo) Delete(ctx context.Context, id string) error {
+	res, err := r.db.SQL.ExecContext(ctx, `DELETE FROM articles WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ArticleRepo) ListNeedingCrawl(ctx context.Context, limit int) ([]domain.Article, error) {
 	if limit <= 0 {
 		limit = 50

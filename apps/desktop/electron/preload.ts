@@ -38,6 +38,7 @@ const api: ReaderBackend = {
       }),
     archive: (id) => request("readLater.archive", { id }),
     unarchive: (id) => request("readLater.unarchive", { id }),
+    remove: (id) => request("readLater.remove", { id }),
   },
   sports: {
     teams: () => request("sports.teams.list"),
@@ -97,4 +98,12 @@ contextBridge.exposeInMainWorld("rss", api);
 contextBridge.exposeInMainWorld("desktop", {
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
   notify: (title: string, body: string) => ipcRenderer.invoke("app:notify", title, body),
+  focusMainWindow: () => ipcRenderer.invoke("app:focusMainWindow"),
+  onDroppedText: (handler: (text: string) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, text: string) => {
+      if (typeof text === "string") handler(text);
+    };
+    ipcRenderer.on("desktop:dropped-text", listener);
+    return () => ipcRenderer.removeListener("desktop:dropped-text", listener);
+  },
 });

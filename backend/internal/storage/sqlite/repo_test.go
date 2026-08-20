@@ -74,3 +74,39 @@ func TestMigrationsAndFeedCRUD(t *testing.T) {
 		t.Fatalf("expected 1 article after dedupe, got %d", len(list.Articles))
 	}
 }
+
+func TestReadLaterRemoveDeletesArticle(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	feeds := sqlite.NewFeedRepo(db)
+	feed, err := feeds.EnsureReadLater(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	articles := sqlite.NewArticleRepo(db)
+	now := time.Now().UTC()
+	id := uuid.NewString()
+	a := domain.Article{
+		ID:           id,
+		FeedID:       feed.ID,
+		Title:        "https://example.com/rl",
+		URL:          "https://example.com/rl",
+		DiscoveredAt: now,
+		IsReadLater:  true,
+	}
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a}); err != nil {
+		t.Fatal(err)
+	}
+	if err := articles.Delete(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := articles.Get(ctx, id); err != domain.ErrNotFound {
+		t.Fatalf("expected not found after delete, got %v", err)
+	}
+}
