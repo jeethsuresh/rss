@@ -131,14 +131,25 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
 
   useEffect(() => {
     return backend.onEvent((event) => {
-      if (
-        event.event === "articles.added" ||
-        event.event === "feed.updated" ||
-        event.event === "article.updated" ||
-        event.event === "feed.error"
-      ) {
-        void loadFeeds();
-        void loadArticles(false);
+      // Do not reload the article list on article.updated — that removes the
+      // just-opened item from Unread and breaks j/k navigation.
+      switch (event.event) {
+        case "articles.added":
+        case "feed.updated":
+        case "feed.error":
+          void loadFeeds();
+          void loadArticles(false);
+          break;
+        case "article.updated":
+          void loadFeeds();
+          break;
+        case "sync.status":
+          break;
+        default: {
+          const _exhaustive: never = event.event;
+          void _exhaustive;
+          break;
+        }
       }
       if (event.event === "articles.added" && settings?.notificationsEnabled) {
         const payload = event.payload as { count?: number; feedId?: string };
@@ -150,21 +161,39 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     });
   }, [backend, loadFeeds, loadArticles, settings]);
 
-  const selectArticle = async (article: Article) => {
-    setActiveId(article.id);
-    if (settings?.markReadOnOpen && !article.isRead) {
-      const updated = await backend.articles.markRead(article.id);
-      setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      void loadFeeds();
-    }
-  };
+  const patchArticle = useCallback((updated: Article) => {
+    setArticles((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
+  }, []);
 
-  const moveSelection = (delta: number) => {
-    if (articles.length === 0) return;
-    const idx = Math.max(0, articles.findIndex((a) => a.id === activeId));
-    const next = articles[Math.min(articles.length - 1, Math.max(0, idx + delta))];
-    if (next) void selectArticle(next);
-  };
+  const selectArticle = useCallback(
+    async (article: Article) => {
+      setActiveId(article.id);
+      if (settings?.markReadOnOpen && !article.isRead) {
+        try {
+          const updated = await backend.articles.markRead(article.id);
+          patchArticle(updated);
+          void loadFeeds();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Failed to mark read");
+        }
+      }
+    },
+    [backend, settings?.markReadOnOpen, patchArticle, loadFeeds],
+  );
+
+  const moveSelection = useCallback(
+    (delta: number) => {
+      if (articles.length === 0) return;
+      const idx = articles.findIndex((a) => a.id === activeId);
+      const from = idx < 0 ? (delta > 0 ? -1 : 0) : idx;
+      const to = Math.min(articles.length - 1, Math.max(0, from + delta));
+      const next = articles[to];
+      if (next && next.id !== activeId) {
+        void selectArticle(next);
+      }
+    },
+    [articles, activeId, selectArticle],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -186,7 +215,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         case "r":
           if (active) {
             void backend.articles.markRead(active.id).then((updated) => {
-              setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+              patchArticle(updated);
               void loadFeeds();
             });
           }
@@ -194,7 +223,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         case "u":
           if (active) {
             void backend.articles.markUnread(active.id).then((updated) => {
-              setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+              patchArticle(updated);
               void loadFeeds();
             });
           }
@@ -202,7 +231,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         case "s":
           if (active) {
             void backend.articles.toggleStar(active.id).then((updated) => {
-              setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+              patchArticle(updated);
             });
           }
           break;
@@ -219,7 +248,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, articles, backend, refreshAll, loadFeeds, activeId]);
+  }, [active, articles, backend, refreshAll, loadFeeds, activeId, patchArticle, selectArticle, moveSelection]);
 
   const addFeed = async () => {
     setBusy(true);
@@ -381,7 +410,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                   className="btn"
                   onClick={() =>
                     void backend.articles[active.isRead ? "markUnread" : "markRead"](active.id).then((updated) => {
-                      setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+                      patchArticle(updated);
                       void loadFeeds();
                     })
                   }
@@ -392,7 +421,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                   className="btn"
                   onClick={() =>
                     void backend.articles.toggleStar(active.id).then((updated) => {
-                      setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+                      patchArticle(updated);
                     })
                   }
                 >
