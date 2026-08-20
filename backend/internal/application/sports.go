@@ -8,22 +8,27 @@ import (
 
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
+	"github.com/jeeth/rss-reader/backend/internal/openf1"
 )
 
 type SportsService struct {
-	Repo   domain.SportsRepository
-	Client *mlb.Client
-	Emit   EventEmitter
+	Repo      domain.SportsRepository
+	Client    *mlb.Client
+	F1Client  *openf1.Client
+	Emit      EventEmitter
 
-	mu       sync.Mutex
-	watching map[int]context.CancelFunc
+	mu         sync.Mutex
+	watching   map[int]context.CancelFunc
+	f1Watching map[int]context.CancelFunc
 }
 
-func NewSportsService(repo domain.SportsRepository, client *mlb.Client) *SportsService {
+func NewSportsService(repo domain.SportsRepository, mlbClient *mlb.Client, f1Client *openf1.Client) *SportsService {
 	return &SportsService{
-		Repo:     repo,
-		Client:   client,
-		watching: map[int]context.CancelFunc{},
+		Repo:       repo,
+		Client:     mlbClient,
+		F1Client:   f1Client,
+		watching:   map[int]context.CancelFunc{},
+		f1Watching: map[int]context.CancelFunc{},
 	}
 }
 
@@ -198,6 +203,98 @@ func (ss *SportsService) pollLoop(ctx context.Context, gamePk int) {
 			if detail.Game.Status == domain.MlbFinal ||
 				detail.Game.Status == domain.MlbCancelled ||
 				detail.Game.Status == domain.MlbPostponed {
+				return
+			}
+		}
+	}
+}
+
+func (s *Service) SportsF1Years(ctx context.Context) ([]domain.F1Season, error) {
+	if s.Sports == nil || s.Sports.F1Client == nil {
+		return []domain.F1Season{}, nil
+	}
+	return s.Sports.F1Client.ListYears(ctx)
+}
+
+func (s *Service) SportsF1Races(ctx context.Context, year int) ([]domain.F1Race, error) {
+	if s.Sports == nil || s.Sports.F1Client == nil {
+		return []domain.F1Race{}, nil
+	}
+	return s.Sports.F1Client.ListRaces(ctx, year)
+}
+
+func (s *Service) SportsF1RaceGet(ctx context.Context, sessionKey int) (*domain.F1RaceDetail, error) {
+	if s.Sports == nil || s.Sports.F1Client == nil || sessionKey <= 0 {
+		return nil, domain.ErrInvalidParams
+	}
+	return s.Sports.F1Client.RaceDetail(ctx, sessionKey)
+}
+
+func (s *Service) SportsF1RaceWatch(ctx context.Context, sessionKey int) (*domain.F1RaceDetail, error) {
+	detail, err := s.SportsF1RaceGet(ctx, sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	if s.Sports == nil {
+		return detail, nil
+	}
+	s.Sports.startF1Watch(sessionKey)
+	return detail, nil
+}
+
+func (s *Service) SportsF1RaceUnwatch(_ context.Context, sessionKey int) error {
+	if s.Sports == nil {
+		return nil
+	}
+	s.Sports.stopF1Watch(sessionKey)
+	return nil
+}
+
+func (ss *SportsService) startF1Watch(sessionKey int) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if _, ok := ss.f1Watching[sessionKey]; ok {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ss.f1Watching[sessionKey] = cancel
+	go ss.f1PollLoop(ctx, sessionKey)
+}
+
+func (ss *SportsService) stopF1Watch(sessionKey int) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if cancel, ok := ss.f1Watching[sessionKey]; ok {
+		cancel()
+		delete(ss.f1Watching, sessionKey)
+	}
+}
+
+func (ss *SportsService) f1PollLoop(ctx context.Context, sessionKey int) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	defer func() {
+		ss.mu.Lock()
+		delete(ss.f1Watching, sessionKey)
+		ss.mu.Unlock()
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if ss.F1Client == nil {
+				return
+			}
+			detail, err := ss.F1Client.RaceDetail(ctx, sessionKey)
+			if err != nil {
+				continue
+			}
+			if ss.Emit != nil {
+				ss.Emit("sports.f1.race.updated", detail)
+			}
+			if detail.Race.Status == domain.F1Completed || detail.Race.Status == domain.F1Cancelled {
 				return
 			}
 		}

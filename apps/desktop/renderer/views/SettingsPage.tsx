@@ -87,6 +87,8 @@ export function SettingsPage({
         case "sync.status":
         case "sports.game.updated":
           break;
+        case "sports.f1.race.updated":
+          break;
         default: {
           const _exhaustive: never = name;
           void _exhaustive;

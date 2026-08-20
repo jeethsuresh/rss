@@ -49,6 +49,11 @@ const api: ReaderBackend = {
     gameGet: (gamePk) => request("sports.game.get", { gamePk }),
     gameWatch: (gamePk) => request("sports.game.watch", { gamePk }),
     gameUnwatch: (gamePk) => request("sports.game.unwatch", { gamePk }),
+    f1Years: () => request("sports.f1.years.list"),
+    f1Races: (params) => request("sports.f1.races.list", params),
+    f1RaceGet: (sessionKey) => request("sports.f1.race.get", { sessionKey }),
+    f1RaceWatch: (sessionKey) => request("sports.f1.race.watch", { sessionKey }),
+    f1RaceUnwatch: (sessionKey) => request("sports.f1.race.unwatch", { sessionKey }),
   },
   stories: {
     list: () => request("stories.list"),

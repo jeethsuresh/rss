@@ -164,7 +164,8 @@ export type BackendEventName =
   | "ai.status"
   | "ai.log"
   | "sync.status"
-  | "sports.game.updated";
+  | "sports.game.updated"
+  | "sports.f1.race.updated";
 
 export type MlbGameStatus =
   | "scheduled"
@@ -236,6 +237,61 @@ export interface MlbGameDetail {
   homeErrors?: number;
 }
 
+export type F1RaceStatus = "scheduled" | "in_progress" | "completed" | "cancelled";
+
+export interface F1Season {
+  year: number;
+}
+
+export interface F1Race {
+  meetingKey: number;
+  sessionKey: number;
+  year: number;
+  name: string;
+  officialName?: string;
+  location: string;
+  countryName: string;
+  countryCode?: string;
+  circuitShortName: string;
+  dateStart: string;
+  dateEnd: string;
+  status: F1RaceStatus;
+}
+
+export interface F1DriverResult {
+  position: number;
+  driverNumber: number;
+  name: string;
+  nameAcronym?: string;
+  teamName?: string;
+  points: number;
+  laps: number;
+  dnf: boolean;
+  dns: boolean;
+  dsq: boolean;
+  gapToLeader?: string;
+  durationSec?: number | null;
+}
+
+export interface F1Event {
+  id: string;
+  date: string;
+  category: string;
+  flag?: string;
+  scope?: string;
+  lapNumber?: number | null;
+  driverNumber?: number | null;
+  driverName?: string;
+  message: string;
+  significant: boolean;
+}
+
+export interface F1RaceDetail {
+  race: F1Race;
+  results: F1DriverResult[];
+  events: F1Event[];
+}
+
 export interface BackendEvent<T = unknown> {
   event: BackendEventName;
   payload: T;
@@ -281,6 +337,11 @@ export interface ReaderBackend {
     gameGet(gamePk: number): Promise<MlbGameDetail>;
     gameWatch(gamePk: number): Promise<MlbGameDetail>;
     gameUnwatch(gamePk: number): Promise<{ ok: true }>;
+    f1Years(): Promise<F1Season[]>;
+    f1Races(params: { year?: number }): Promise<F1Race[]>;
+    f1RaceGet(sessionKey: number): Promise<F1RaceDetail>;
+    f1RaceWatch(sessionKey: number): Promise<F1RaceDetail>;
+    f1RaceUnwatch(sessionKey: number): Promise<{ ok: true }>;
   };
   stories: {
     list(): Promise<Story[]>;
@@ -350,6 +411,11 @@ export const RPC_METHODS = [
   "sports.game.get",
   "sports.game.watch",
   "sports.game.unwatch",
+  "sports.f1.years.list",
+  "sports.f1.races.list",
+  "sports.f1.race.get",
+  "sports.f1.race.watch",
+  "sports.f1.race.unwatch",
   "stories.list",
   "stories.get",
   "stories.markRead",

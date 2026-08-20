@@ -452,6 +452,41 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"ok": true}, nil
+	case "sports.f1.years.list":
+		return s.svc.SportsF1Years(ctx)
+	case "sports.f1.races.list":
+		var p struct {
+			Year int `json:"year"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return s.svc.SportsF1Races(ctx, p.Year)
+	case "sports.f1.race.get":
+		var p struct {
+			SessionKey int `json:"sessionKey"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.SessionKey <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsF1RaceGet(ctx, p.SessionKey)
+	case "sports.f1.race.watch":
+		var p struct {
+			SessionKey int `json:"sessionKey"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.SessionKey <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsF1RaceWatch(ctx, p.SessionKey)
+	case "sports.f1.race.unwatch":
+		var p struct {
+			SessionKey int `json:"sessionKey"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.SessionKey <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		if err := s.svc.SportsF1RaceUnwatch(ctx, p.SessionKey); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
 	case "articles.recrawl":
 		var p struct {
 			ID string `json:"id"`

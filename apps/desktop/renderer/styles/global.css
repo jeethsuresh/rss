@@ -273,6 +273,13 @@ button {
   text-align: left;
 }
 
+.sports-f1-results th:nth-child(2),
+.sports-f1-results td:nth-child(2),
+.sports-f1-results th:nth-child(3),
+.sports-f1-results td:nth-child(3) {
+  text-align: left;
+}
+
 .sports-plays-header {
   display: flex;
   align-items: center;

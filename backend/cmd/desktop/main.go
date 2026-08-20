@@ -15,6 +15,7 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/crawl"
 	"github.com/jeeth/rss-reader/backend/internal/ipc"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
+	"github.com/jeeth/rss-reader/backend/internal/openf1"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
 	"github.com/jeeth/rss-reader/backend/internal/scheduler"
 	"github.com/jeeth/rss-reader/backend/internal/storage/sqlite"
@@ -61,7 +62,7 @@ func main() {
 	aiSvc := ai.New(articles, stories, settings, feeds, queue, aiLogs, log)
 
 	sportsRepo := sqlite.NewSportsRepo(db)
-	sportsSvc := application.NewSportsService(sportsRepo, mlb.NewClient())
+	sportsSvc := application.NewSportsService(sportsRepo, mlb.NewClient(), openf1.NewClient())
 
 	svc := &application.Service{
 		Feeds:    feeds,

@@ -292,6 +292,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           break;
         case "sports.game.updated":
           break;
+        case "sports.f1.race.updated":
+          break;
         default: {
           const _exhaustive: never = name;
           void _exhaustive;

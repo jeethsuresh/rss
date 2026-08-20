@@ -95,4 +95,5 @@ Track phase completion and follow-ups. Check items as they land.
 - [ ] Per-feed notification rules polish
 - [x] Top-level Read Later mode (2-pane, archive, send from RSS)
 - [x] Sports mode — MLB teams, schedules, live game detail (Stats API)
+- [x] Sports mode — F1 races, classification, race control (OpenF1)
 - [ ] Archive / recently-read smart views (RSS)

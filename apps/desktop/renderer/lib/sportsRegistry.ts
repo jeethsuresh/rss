@@ -36,16 +36,14 @@ export const SPORTS_REGISTRY: readonly SportDefinition[] = [
     id: "f1",
     label: "F1",
     shortLabel: "F1",
-    available: false,
-    comingSoonNote: "Formula 1 support coming later",
+    available: true,
   },
 ] as const;
 
 export function sportById(id: SportId): SportDefinition {
   const found = SPORTS_REGISTRY.find((s) => s.id === id);
   if (!found) {
-    const _exhaustive: never = id;
-    return _exhaustive;
+    throw new Error(`Unknown sport: ${id}`);
   }
   return found;
 }
