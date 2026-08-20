@@ -576,6 +576,35 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     return [...map.entries()];
   }, [visibleGames]);
 
+  const racesByDate = useMemo(() => {
+    const map = new Map<string, F1Race[]>();
+    for (const r of visibleRaces) {
+      const key = r.dateStart ? r.dateStart.slice(0, 10) : "Unknown date";
+      const list = map.get(key) ?? [];
+      list.push(r);
+      map.set(key, list);
+    }
+    return [...map.entries()];
+  }, [visibleRaces]);
+
+  const formatRaceDay = (isoDate: string) => {
+    if (isoDate === "Unknown date") return isoDate;
+    const d = new Date(`${isoDate}T12:00:00Z`);
+    if (Number.isNaN(d.getTime())) return isoDate;
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const formatRaceTime = (dateStart: string) => {
+    const d = new Date(dateStart);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  };
+
   return (
     <div className="layout">
       <aside className="pane sidebar">
@@ -1175,24 +1204,30 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                 </p>
               </div>
             ) : (
-              visibleRaces.map((r) => (
-                <button
-                  key={r.sessionKey}
-                  type="button"
-                  className={`article-row ${r.sessionKey === activeSessionKey ? "active" : ""}`}
-                  onClick={() => setActiveSessionKey(r.sessionKey)}
-                >
-                  <div className="article-meta">
-                    <span>{f1StatusLabel(r.status)}</span>
-                    <span>{r.countryCode || r.countryName}</span>
+              racesByDate.map(([date, dayRaces]) => (
+                <div key={date}>
+                  <div className="section-label" style={{ padding: "8px 12px" }}>
+                    {formatRaceDay(date)}
                   </div>
-                  <h3 className="article-title">{r.name}</h3>
-                  <p className="article-summary">
-                    {r.circuitShortName || r.location}
-                    {" · "}
-                    {r.dateStart ? new Date(r.dateStart).toLocaleString() : ""}
-                  </p>
-                </button>
+                  {dayRaces.map((r) => (
+                    <button
+                      key={r.sessionKey}
+                      type="button"
+                      className={`article-row ${r.sessionKey === activeSessionKey ? "active" : ""}`}
+                      onClick={() => setActiveSessionKey(r.sessionKey)}
+                    >
+                      <div className="article-meta">
+                        <span>{f1StatusLabel(r.status)}</span>
+                        <span>{r.dateStart ? formatRaceTime(r.dateStart) : r.countryCode || r.countryName}</span>
+                      </div>
+                      <h3 className="article-title">{r.name}</h3>
+                      <p className="article-summary">
+                        {r.circuitShortName || r.location}
+                        {r.countryName ? ` · ${r.countryName}` : ""}
+                      </p>
+                    </button>
+                  ))}
+                </div>
               ))
             )}
           </section>
