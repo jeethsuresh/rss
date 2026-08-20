@@ -163,7 +163,78 @@ export type BackendEventName =
   | "story.updated"
   | "ai.status"
   | "ai.log"
-  | "sync.status";
+  | "sync.status"
+  | "sports.game.updated";
+
+export type MlbGameStatus =
+  | "scheduled"
+  | "pre_game"
+  | "live"
+  | "final"
+  | "postponed"
+  | "cancelled"
+  | "unknown";
+
+export interface MlbTeam {
+  id: number;
+  name: string;
+  abbreviation: string;
+  shortName?: string;
+  logoUrl?: string;
+}
+
+export interface MlbSeason {
+  seasonId: number;
+  regularSeasonStartDate?: string;
+  regularSeasonEndDate?: string;
+}
+
+export interface MlbGame {
+  id: number;
+  season: number;
+  gameDate: string;
+  officialDate?: string;
+  status: MlbGameStatus;
+  statusDetail?: string;
+  awayTeam: MlbTeam;
+  homeTeam: MlbTeam;
+  awayScore?: number;
+  homeScore?: number;
+  currentInning?: number;
+  currentInningHalf?: "top" | "bottom" | string;
+}
+
+export interface MlbInning {
+  number: number;
+  awayRuns: number;
+  homeRuns: number;
+  awayHits?: number;
+  homeHits?: number;
+  awayErrors?: number;
+  homeErrors?: number;
+}
+
+export interface MlbPlay {
+  id: string;
+  inning: number;
+  half: "top" | "bottom" | string;
+  event: string;
+  description: string;
+  isScoringPlay: boolean;
+  awayScore?: number;
+  homeScore?: number;
+  atBatIndex?: number;
+}
+
+export interface MlbGameDetail {
+  game: MlbGame;
+  innings: MlbInning[];
+  plays: MlbPlay[];
+  awayHits?: number;
+  homeHits?: number;
+  awayErrors?: number;
+  homeErrors?: number;
+}
 
 export interface BackendEvent<T = unknown> {
   event: BackendEventName;
@@ -199,6 +270,17 @@ export interface ReaderBackend {
     list(filter?: ReadLaterFilter, search?: string): Promise<Article[]>;
     archive(id: string): Promise<Article>;
     unarchive(id: string): Promise<Article>;
+  };
+  sports: {
+    teams(): Promise<MlbTeam[]>;
+    seasons(): Promise<MlbSeason[]>;
+    followedGet(): Promise<number[]>;
+    followedSet(teamIds: number[]): Promise<number[]>;
+    followedToggle(teamId: number): Promise<number[]>;
+    schedule(params: { teamId?: number; season?: number }): Promise<MlbGame[]>;
+    gameGet(gamePk: number): Promise<MlbGameDetail>;
+    gameWatch(gamePk: number): Promise<MlbGameDetail>;
+    gameUnwatch(gamePk: number): Promise<{ ok: true }>;
   };
   stories: {
     list(): Promise<Story[]>;
@@ -259,6 +341,15 @@ export const RPC_METHODS = [
   "readLater.list",
   "readLater.archive",
   "readLater.unarchive",
+  "sports.teams.list",
+  "sports.seasons.list",
+  "sports.followed.get",
+  "sports.followed.set",
+  "sports.followed.toggle",
+  "sports.schedule.list",
+  "sports.game.get",
+  "sports.game.watch",
+  "sports.game.unwatch",
   "stories.list",
   "stories.get",
   "stories.markRead",

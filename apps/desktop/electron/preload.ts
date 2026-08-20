@@ -39,6 +39,17 @@ const api: ReaderBackend = {
     archive: (id) => request("readLater.archive", { id }),
     unarchive: (id) => request("readLater.unarchive", { id }),
   },
+  sports: {
+    teams: () => request("sports.teams.list"),
+    seasons: () => request("sports.seasons.list"),
+    followedGet: () => request("sports.followed.get"),
+    followedSet: (teamIds) => request("sports.followed.set", { teamIds }),
+    followedToggle: (teamId) => request("sports.followed.toggle", { teamId }),
+    schedule: (params) => request("sports.schedule.list", params),
+    gameGet: (gamePk) => request("sports.game.get", { gamePk }),
+    gameWatch: (gamePk) => request("sports.game.watch", { gamePk }),
+    gameUnwatch: (gamePk) => request("sports.game.unwatch", { gamePk }),
+  },
   stories: {
     list: () => request("stories.list"),
     get: (id) => request("stories.get", { id }),

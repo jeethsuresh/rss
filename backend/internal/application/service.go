@@ -21,6 +21,7 @@ type Service struct {
 	Folders  domain.FolderRepository
 	Settings domain.SettingsRepository
 	Stories  domain.StoryRepository
+	Sports   *SportsService
 	RSS      *rss.Fetcher
 	AI       AIService
 	Crawler  CrawlerService

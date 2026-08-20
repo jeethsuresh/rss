@@ -12,6 +12,7 @@ import { getBackend } from "./lib/backend";
 import { formatRelativeTime, sanitizeArticleHtml, stripHtml } from "./lib/html";
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
+import { SportsView } from "./views/SportsView";
 import { PageFrame } from "./components/PageFrame";
 
 type Selection =
@@ -22,9 +23,10 @@ type Selection =
   | { type: "feed"; id: string }
   | { type: "folder"; id: string };
 
-type AppMode = "rss" | "readLater";
+type AppMode = "rss" | "readLater" | "sports";
 type ContentTab = "primary" | "secondary";
 type View = "reader" | "settings";
+type SettingsSection = "general" | "feeds" | "ai" | "sports";
 
 function priorityBadgeLabel(priority: Priority): string | null {
   switch (priority) {
@@ -95,6 +97,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [showAdd, setShowAdd] = useState(false);
   const [addUrl, setAddUrl] = useState("");
   const [view, setView] = useState<View>("reader");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [appMode, setAppMode] = useState<AppMode>("rss");
   const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
   const [expandedMemberIds, setExpandedMemberIds] = useState<Record<string, boolean>>({});
@@ -286,6 +289,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         case "ai.log":
           break;
         case "sync.status":
+          break;
+        case "sports.game.updated":
           break;
         default: {
           const _exhaustive: never = name;
@@ -568,6 +573,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         }
         return;
       }
+      if (appMode === "sports") return;
 
       switch (e.key) {
         case "j":
@@ -663,8 +669,12 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         backend={backend}
         settings={settings}
         onSettings={setSettings}
-        onClose={() => setView("reader")}
+        onClose={() => {
+          setView("reader");
+          setSettingsSection("general");
+        }}
         applyTheme={applyTheme}
+        initialSection={settingsSection}
       />
     );
   }
@@ -694,6 +704,15 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           >
             Read Later
           </button>
+          <button
+            type="button"
+            role="tab"
+            className={`mode-tab ${appMode === "sports" ? "active" : ""}`}
+            aria-selected={appMode === "sports"}
+            onClick={() => setAppMode("sports")}
+          >
+            Sports
+          </button>
         </div>
         <span className={`status-dot ${error ? "error" : ""}`} title={error ?? "Connected"} />
         <div className="toolbar-spacer" />
@@ -706,7 +725,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             onChange={(e) => setSearch(e.target.value)}
             disabled={isStoriesMode}
           />
-        ) : (
+        ) : appMode === "readLater" ? (
           <input
             id="rl-search-input"
             className="search"
@@ -714,12 +733,12 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             value={rlSearch}
             onChange={(e) => setRlSearch(e.target.value)}
           />
-        )}
+        ) : null}
         {appMode === "rss" ? (
           <button className="btn" onClick={() => void refreshAll()} disabled={busy}>
             {busy ? "Refreshing…" : "Refresh"}
           </button>
-        ) : (
+        ) : appMode === "readLater" ? (
           <form
             className="rl-add-toolbar"
             onSubmit={(e) => {
@@ -738,8 +757,14 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
               {busy ? "Adding…" : "Add"}
             </button>
           </form>
-        )}
-        <button className="btn" onClick={() => setView("settings")}>
+        ) : null}
+        <button
+          className="btn"
+          onClick={() => {
+            setSettingsSection("general");
+            setView("settings");
+          }}
+        >
           Settings
         </button>
         {appMode === "rss" && (
@@ -757,6 +782,14 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           search={rlSearch}
           focusArticleId={readLaterFocusId}
           onFocusConsumed={() => setReadLaterFocusId(null)}
+        />
+      ) : appMode === "sports" ? (
+        <SportsView
+          backend={backend}
+          onOpenSettingsSports={() => {
+            setSettingsSection("sports");
+            setView("settings");
+          }}
         />
       ) : (
       <div className="layout">

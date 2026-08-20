@@ -6,6 +6,7 @@ import type {
   BackendEventName,
   Feed,
   FeedImportResult,
+  MlbTeam,
   ReaderBackend,
   Settings,
 } from "@rss-reader/shared";
@@ -16,9 +17,17 @@ type Props = {
   onSettings: (s: Settings) => void;
   onClose: () => void;
   applyTheme: (theme: Settings["theme"]) => void;
+  initialSection?: "general" | "feeds" | "ai" | "sports";
 };
 
-export function SettingsPage({ backend, settings, onSettings, onClose, applyTheme }: Props) {
+export function SettingsPage({
+  backend,
+  settings,
+  onSettings,
+  onClose,
+  applyTheme,
+  initialSection = "general",
+}: Props) {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [feedFilter, setFeedFilter] = useState("");
   const [importText, setImportText] = useState("");
@@ -29,7 +38,10 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
   const logPanelRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<"general" | "feeds" | "ai">("general");
+  const [section, setSection] = useState<"general" | "feeds" | "ai" | "sports">(initialSection);
+  const [mlbTeams, setMlbTeams] = useState<MlbTeam[]>([]);
+  const [followedIds, setFollowedIds] = useState<number[]>([]);
+  const [teamFilter, setTeamFilter] = useState("");
 
   const reloadFeeds = useCallback(async () => {
     setFeeds(await backend.feeds.list());
@@ -40,6 +52,20 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
     void backend.ai.status().then(setAiStatus).catch(() => undefined);
     void backend.ai.logs(200).then(setAiLogs).catch(() => undefined);
   }, [backend, reloadFeeds]);
+
+  useEffect(() => {
+    if (section !== "sports") return;
+    void Promise.all([backend.sports.teams(), backend.sports.followedGet()])
+      .then(([t, f]) => {
+        setMlbTeams(t ?? []);
+        setFollowedIds(f ?? []);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load MLB teams"));
+  }, [backend, section]);
+
+  useEffect(() => {
+    setSection(initialSection);
+  }, [initialSection]);
 
   useEffect(() => {
     return backend.onEvent((ev) => {
@@ -59,6 +85,7 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
         case "article.updated":
         case "story.updated":
         case "sync.status":
+        case "sports.game.updated":
           break;
         default: {
           const _exhaustive: never = name;
@@ -103,6 +130,7 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
             [
               ["general", "General"],
               ["feeds", "Feeds"],
+              ["sports", "Sports"],
               ["ai", "AI"],
             ] as const
           ).map(([id, label]) => (
@@ -272,6 +300,50 @@ export function SettingsPage({ backend, settings, onSettings, onClose, applyThem
                   ))}
                 </ul>
               ) : null}
+            </section>
+          )}
+
+          {section === "sports" && (
+            <section className="settings-section">
+              <h2>MLB teams</h2>
+              <p className="muted">Follow one or more teams. Schedules and live games appear in the Sports tab.</p>
+              <input
+                className="search"
+                placeholder="Filter teams…"
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+              />
+              <div className="feed-table sports-team-table">
+                {mlbTeams
+                  .filter((t) => {
+                    const q = teamFilter.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      t.name.toLowerCase().includes(q) ||
+                      t.abbreviation.toLowerCase().includes(q) ||
+                      (t.shortName ?? "").toLowerCase().includes(q)
+                    );
+                  })
+                  .map((t) => {
+                    const on = followedIds.includes(t.id);
+                    return (
+                      <label key={t.id} className="feed-table-row sports-team-check">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => {
+                            void backend.sports.followedToggle(t.id).then((ids) => setFollowedIds(ids ?? []));
+                          }}
+                        />
+                        {t.logoUrl ? <img src={t.logoUrl} alt="" className="sports-logo" /> : null}
+                        <div>
+                          <strong>{t.name}</strong>
+                          <div className="muted">{t.abbreviation}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+              </div>
             </section>
           )}
 

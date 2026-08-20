@@ -14,6 +14,7 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/application"
 	"github.com/jeeth/rss-reader/backend/internal/crawl"
 	"github.com/jeeth/rss-reader/backend/internal/ipc"
+	"github.com/jeeth/rss-reader/backend/internal/mlb"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
 	"github.com/jeeth/rss-reader/backend/internal/scheduler"
 	"github.com/jeeth/rss-reader/backend/internal/storage/sqlite"
@@ -59,12 +60,16 @@ func main() {
 	crawlSvc := crawl.New(articles, feeds, log)
 	aiSvc := ai.New(articles, stories, settings, feeds, queue, aiLogs, log)
 
+	sportsRepo := sqlite.NewSportsRepo(db)
+	sportsSvc := application.NewSportsService(sportsRepo, mlb.NewClient())
+
 	svc := &application.Service{
 		Feeds:    feeds,
 		Articles: articles,
 		Folders:  folders,
 		Settings: settings,
 		Stories:  stories,
+		Sports:   sportsSvc,
 		RSS:      rss.NewFetcher(),
 		AI:       aiSvc,
 		Crawler:  crawlSvc,
@@ -92,6 +97,7 @@ func main() {
 	server := ipc.NewServer(svc, log, os.Stdout)
 	aiSvc.Emit = server.Emit
 	crawlSvc.Emit = server.Emit
+	sportsSvc.Emit = server.Emit
 	aiSvc.Resume(ctx)
 	crawlSvc.EnqueueAndKick(ctx)
 

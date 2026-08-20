@@ -151,6 +151,120 @@ button {
   width: min(280px, 28vw);
 }
 
+.sports-season-select {
+  margin: 0 12px 8px;
+  width: calc(100% - 24px);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--ink);
+  font: inherit;
+}
+
+.sports-team-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sports-logo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.sports-unfollow {
+  color: var(--muted);
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.sports-team-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.sports-team-table {
+  margin-top: 12px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.sports-scoreline {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sports-linescore-wrap {
+  overflow-x: auto;
+  margin: 12px 0 20px;
+}
+
+.sports-linescore {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  min-width: 100%;
+}
+
+.sports-linescore th,
+.sports-linescore td {
+  padding: 4px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.sports-linescore th:first-child,
+.sports-linescore td:first-child {
+  text-align: left;
+}
+
+.sports-plays-heading {
+  font-size: 1.05rem;
+  margin: 8px 0;
+}
+
+.sports-plays {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(55vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.sports-play {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--bg2) 55%, transparent);
+}
+
+.sports-play.scoring {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+
+.sports-play-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.sports-play p {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
 .toolbar-spacer {
   flex: 1;
 }

@@ -396,6 +396,62 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.UnarchiveReadLater(ctx, p.ID)
+	case "sports.teams.list":
+		return s.svc.SportsTeams(ctx)
+	case "sports.seasons.list":
+		return s.svc.SportsSeasons(ctx)
+	case "sports.followed.get":
+		return s.svc.SportsFollowedGet(ctx)
+	case "sports.followed.set":
+		var p struct {
+			TeamIDs []int `json:"teamIds"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsFollowedSet(ctx, p.TeamIDs)
+	case "sports.followed.toggle":
+		var p struct {
+			TeamID int `json:"teamId"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.TeamID <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsFollowedToggle(ctx, p.TeamID)
+	case "sports.schedule.list":
+		var p struct {
+			TeamID int `json:"teamId"`
+			Season int `json:"season"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return s.svc.SportsSchedule(ctx, p.TeamID, p.Season)
+	case "sports.game.get":
+		var p struct {
+			GamePk int `json:"gamePk"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.GamePk <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsGameGet(ctx, p.GamePk)
+	case "sports.game.watch":
+		var p struct {
+			GamePk int `json:"gamePk"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.GamePk <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsGameWatch(ctx, p.GamePk)
+	case "sports.game.unwatch":
+		var p struct {
+			GamePk int `json:"gamePk"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.GamePk <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		if err := s.svc.SportsGameUnwatch(ctx, p.GamePk); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
 	case "articles.recrawl":
 		var p struct {
 			ID string `json:"id"`
