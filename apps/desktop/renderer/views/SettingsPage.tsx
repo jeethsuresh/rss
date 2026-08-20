@@ -20,6 +20,8 @@ type Props = {
   initialSection?: "general" | "feeds" | "ai" | "sports";
 };
 
+type SettingsSection = "general" | "feeds" | "ai" | "sports";
+
 export function SettingsPage({
   backend,
   settings,
@@ -37,11 +39,32 @@ export function SettingsPage({
   const [aiLogs, setAiLogs] = useState<AILogEntry[]>([]);
   const logPanelRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [generalSaving, setGeneralSaving] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [tokensSaving, setTokensSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<"general" | "feeds" | "ai" | "sports">(initialSection);
+  const [section, setSection] = useState<SettingsSection>(initialSection);
   const [mlbTeams, setMlbTeams] = useState<MlbTeam[]>([]);
   const [followedIds, setFollowedIds] = useState<number[]>([]);
   const [teamFilter, setTeamFilter] = useState("");
+
+  const [pollDraft, setPollDraft] = useState(String(settings.defaultPollIntervalSeconds));
+  const [aiBaseUrlDraft, setAiBaseUrlDraft] = useState(settings.aiBaseUrl);
+  const [aiModelDraft, setAiModelDraft] = useState(settings.aiModel);
+  const [pandaTokenDraft, setPandaTokenDraft] = useState(settings.pandaScoreApiToken ?? "");
+  const [stratzTokenDraft, setStratzTokenDraft] = useState(settings.stratzApiToken ?? "");
+
+  const pollParsed = Number(pollDraft);
+  const pollValid = Number.isFinite(pollParsed) && pollParsed >= 60;
+  const generalDirty =
+    pollValid && pollParsed !== settings.defaultPollIntervalSeconds;
+  const aiDirty =
+    aiBaseUrlDraft.trim() !== (settings.aiBaseUrl ?? "").trim() ||
+    aiModelDraft.trim() !== (settings.aiModel ?? "").trim();
+  const sportsTokensDirty =
+    pandaTokenDraft !== (settings.pandaScoreApiToken ?? "") ||
+    stratzTokenDraft !== (settings.stratzApiToken ?? "");
 
   const reloadFeeds = useCallback(async () => {
     setFeeds(await backend.feeds.list());
@@ -67,6 +90,25 @@ export function SettingsPage({
     setSection(initialSection);
   }, [initialSection]);
 
+  // Keep drafts in sync when settings change externally, but never clobber unsaved edits.
+  useEffect(() => {
+    if (!generalDirty) setPollDraft(String(settings.defaultPollIntervalSeconds));
+  }, [settings.defaultPollIntervalSeconds, generalDirty]);
+
+  useEffect(() => {
+    if (!aiDirty) {
+      setAiBaseUrlDraft(settings.aiBaseUrl);
+      setAiModelDraft(settings.aiModel);
+    }
+  }, [settings.aiBaseUrl, settings.aiModel, aiDirty]);
+
+  useEffect(() => {
+    if (!sportsTokensDirty) {
+      setPandaTokenDraft(settings.pandaScoreApiToken ?? "");
+      setStratzTokenDraft(settings.stratzApiToken ?? "");
+    }
+  }, [settings.pandaScoreApiToken, settings.stratzApiToken, sportsTokensDirty]);
+
   useEffect(() => {
     return backend.onEvent((ev) => {
       const name: BackendEventName = ev.event;
@@ -83,14 +125,13 @@ export function SettingsPage({
           break;
         case "articles.added":
         case "article.updated":
+        case "article.removed":
         case "story.updated":
         case "sync.status":
         case "sports.game.updated":
-          break;
         case "sports.f1.race.updated":
-          break;
+        case "sports.dota.match.updated":
         case "sports.refresh":
-          break;
         case "sports.cache.updated":
           break;
         default: {
@@ -111,6 +152,76 @@ export function SettingsPage({
     const next = await backend.settings.update(partial);
     onSettings(next);
     if (partial.theme) applyTheme(next.theme);
+    return next;
+  };
+
+  const saveGeneral = async () => {
+    if (!pollValid) {
+      setError("Poll interval must be at least 60 seconds");
+      return;
+    }
+    setError(null);
+    setGeneralSaving(true);
+    try {
+      await patch({ defaultPollIntervalSeconds: pollParsed });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save settings");
+    } finally {
+      setGeneralSaving(false);
+    }
+  };
+
+  const saveAiConnection = async () => {
+    setError(null);
+    setAiSaving(true);
+    try {
+      await patch({
+        aiBaseUrl: aiBaseUrlDraft.trim(),
+        aiModel: aiModelDraft.trim(),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save AI settings");
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const testAiConnection = async () => {
+    setError(null);
+    setAiTest(null);
+    setAiTesting(true);
+    try {
+      if (aiDirty) {
+        await patch({
+          aiBaseUrl: aiBaseUrlDraft.trim(),
+          aiModel: aiModelDraft.trim(),
+        });
+      }
+      const result = await backend.ai.test();
+      setAiTest(result);
+    } catch (e) {
+      setAiTest({
+        ok: false,
+        message: e instanceof Error ? e.message : "Test failed",
+      });
+    } finally {
+      setAiTesting(false);
+    }
+  };
+
+  const saveSportsTokens = async () => {
+    setError(null);
+    setTokensSaving(true);
+    try {
+      await patch({
+        pandaScoreApiToken: pandaTokenDraft.trim(),
+        stratzApiToken: stratzTokenDraft.trim(),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save API tokens");
+    } finally {
+      setTokensSaving(false);
+    }
   };
 
   const filtered = feeds.filter((f) => {
@@ -123,7 +234,7 @@ export function SettingsPage({
   return (
     <div className="settings-page">
       <header className="toolbar">
-        <button className="btn" onClick={onClose}>
+        <button type="button" className="btn" onClick={onClose}>
           ← Back
         </button>
         <div className="brand">Settings</div>
@@ -142,6 +253,7 @@ export function SettingsPage({
           ).map(([id, label]) => (
             <button
               key={id}
+              type="button"
               className={`nav-item ${section === id ? "active" : ""}`}
               onClick={() => setSection(id)}
             >
@@ -156,6 +268,10 @@ export function SettingsPage({
           {section === "general" && (
             <section className="settings-section">
               <h2>General</h2>
+              <p className="muted">
+                Dropdowns and toggles save immediately. Number fields use local drafts — save when
+                you are done editing.
+              </p>
               <label className="field">
                 Theme
                 <select
@@ -184,10 +300,35 @@ export function SettingsPage({
                 <input
                   type="number"
                   min={60}
-                  value={settings.defaultPollIntervalSeconds}
-                  onChange={(e) => void patch({ defaultPollIntervalSeconds: Number(e.target.value) })}
+                  step={60}
+                  value={pollDraft}
+                  onChange={(e) => setPollDraft(e.target.value)}
+                  onBlur={() => {
+                    if (generalDirty) void saveGeneral();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveGeneral();
+                    }
+                  }}
                 />
               </label>
+              {!pollValid ? (
+                <p className="error">Enter a number ≥ 60.</p>
+              ) : (
+                <div className="settings-row">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={generalSaving || !generalDirty}
+                    onClick={() => void saveGeneral()}
+                  >
+                    {generalSaving ? "Saving…" : "Save poll interval"}
+                  </button>
+                  {generalDirty ? <span className="muted">Unsaved changes</span> : null}
+                </div>
+              )}
               <label className="check">
                 <input
                   type="checkbox"
@@ -218,6 +359,7 @@ export function SettingsPage({
                   onChange={(e) => setFeedFilter(e.target.value)}
                 />
                 <button
+                  type="button"
                   className="btn"
                   onClick={() =>
                     void backend.feeds.exportUrls().then((r) => {
@@ -241,6 +383,7 @@ export function SettingsPage({
                     <div className="feed-table-actions">
                       <span className="muted">{f.unreadCount} unread</span>
                       <button
+                        type="button"
                         className="btn"
                         onClick={() =>
                           void backend.feeds.setEnabled(f.id, !f.enabled).then(() => reloadFeeds())
@@ -248,10 +391,15 @@ export function SettingsPage({
                       >
                         {f.enabled ? "Disable" : "Enable"}
                       </button>
-                      <button className="btn" onClick={() => void backend.feeds.refresh(f.id).then(() => reloadFeeds())}>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => void backend.feeds.refresh(f.id).then(() => reloadFeeds())}
+                      >
                         Refresh
                       </button>
                       <button
+                        type="button"
                         className="btn"
                         onClick={() => {
                           if (!window.confirm(`Remove ${f.title || f.url}?`)) return;
@@ -276,6 +424,7 @@ export function SettingsPage({
               />
               <div className="settings-row">
                 <button
+                  type="button"
                   className="btn primary"
                   disabled={busy || !importText.trim()}
                   onClick={() => {
@@ -291,7 +440,7 @@ export function SettingsPage({
                       .finally(() => setBusy(false));
                   }}
                 >
-                  Import
+                  {busy ? "Importing…" : "Import"}
                 </button>
                 {importResult && (
                   <span className="muted">
@@ -313,34 +462,60 @@ export function SettingsPage({
             <section className="settings-section">
               <h2>Dota 2 APIs</h2>
               <p className="muted">
-                Tokens are stored locally in the app database and sent only to PandaScore / STRATZ from
-                the desktop backend. Env vars still work as a fallback if these fields are empty.
+                Edit tokens freely, then save. Values stay local in the app database (env vars remain a
+                fallback if empty).
               </p>
-              <label className="field">
+              <label className="field field-wide">
                 PandaScore API token
                 <input
                   type="password"
                   autoComplete="off"
-                  value={settings.pandaScoreApiToken ?? ""}
-                  onChange={(e) => void patch({ pandaScoreApiToken: e.target.value })}
-                  placeholder="Required for Dota events &amp; matches"
+                  spellCheck={false}
+                  value={pandaTokenDraft}
+                  onChange={(e) => setPandaTokenDraft(e.target.value)}
+                  onBlur={() => {
+                    if (sportsTokensDirty) void saveSportsTokens();
+                  }}
+                  placeholder="Required for Dota events & matches"
                 />
               </label>
-              <label className="field">
+              <label className="field field-wide">
                 STRATZ API token
                 <input
                   type="password"
                   autoComplete="off"
-                  value={settings.stratzApiToken ?? ""}
-                  onChange={(e) => void patch({ stratzApiToken: e.target.value })}
+                  spellCheck={false}
+                  value={stratzTokenDraft}
+                  onChange={(e) => setStratzTokenDraft(e.target.value)}
+                  onBlur={() => {
+                    if (sportsTokensDirty) void saveSportsTokens();
+                  }}
                   placeholder="Optional — game heroes, bans, player stats"
                 />
               </label>
+              <div className="settings-row">
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={tokensSaving || !sportsTokensDirty}
+                  onClick={() => void saveSportsTokens()}
+                >
+                  {tokensSaving ? "Saving…" : "Save tokens"}
+                </button>
+                {sportsTokensDirty ? <span className="muted">Unsaved changes</span> : null}
+                {!sportsTokensDirty && !tokensSaving ? (
+                  <span className="muted">
+                    {pandaTokenDraft ? "PandaScore set" : "PandaScore empty"}
+                    {" · "}
+                    {stratzTokenDraft ? "STRATZ set" : "STRATZ empty"}
+                  </span>
+                ) : null}
+              </div>
 
               <h2>Baseball (MLB)</h2>
               <p className="muted">
                 Follow one or more MLB teams. Schedules and live games appear under Baseball in the Sports
-                tab. Other sports will show up here as they are added.
+                tab.
               </p>
               <input
                 className="search"
@@ -385,6 +560,10 @@ export function SettingsPage({
           {section === "ai" && (
             <section className="settings-section">
               <h2>Local AI (LM Studio)</h2>
+              <p className="muted">
+                Point the reader at a local OpenAI-compatible server. Edit freely — nothing is written
+                until you save or leave the field.
+              </p>
               <label className="check">
                 <input
                   type="checkbox"
@@ -393,40 +572,108 @@ export function SettingsPage({
                 />
                 Enable AI triage
               </label>
-              <label className="field">
+              <label className="field field-wide">
                 Base URL
                 <input
-                  value={settings.aiBaseUrl}
-                  onChange={(e) => void patch({ aiBaseUrl: e.target.value })}
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={aiBaseUrlDraft}
+                  onChange={(e) => {
+                    setAiBaseUrlDraft(e.target.value);
+                    setAiTest(null);
+                  }}
+                  onBlur={() => {
+                    if (aiDirty) void saveAiConnection();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveAiConnection();
+                    }
+                  }}
                   placeholder="http://127.0.0.1:1234/v1"
                 />
               </label>
-              <label className="field">
+              <label className="field field-wide">
                 Model id (optional)
                 <input
-                  value={settings.aiModel}
-                  onChange={(e) => void patch({ aiModel: e.target.value })}
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={aiModelDraft}
+                  onChange={(e) => {
+                    setAiModelDraft(e.target.value);
+                    setAiTest(null);
+                  }}
+                  onBlur={() => {
+                    if (aiDirty) void saveAiConnection();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveAiConnection();
+                    }
+                  }}
                   placeholder="Leave blank for LM Studio default"
                 />
               </label>
-              <div className="settings-row">
+              <div className="settings-row ai-connection-actions">
                 <button
+                  type="button"
                   className="btn"
-                  disabled={busy}
-                  onClick={() => {
-                    setBusy(true);
-                    void backend.ai
-                      .test()
-                      .then(setAiTest)
-                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Test failed"))
-                      .finally(() => setBusy(false));
-                  }}
+                  disabled={aiSaving || !aiDirty}
+                  onClick={() => void saveAiConnection()}
                 >
-                  Test connection
+                  {aiSaving ? "Saving…" : "Save connection"}
                 </button>
                 <button
+                  type="button"
                   className="btn primary"
-                  disabled={busy || !settings.aiEnabled}
+                  disabled={aiTesting || aiSaving}
+                  onClick={() => void testAiConnection()}
+                >
+                  {aiTesting ? "Testing…" : "Test connection"}
+                </button>
+                {aiDirty ? <span className="muted">Unsaved changes</span> : null}
+              </div>
+              <div
+                className={`ai-test-status ${
+                  aiTesting
+                    ? "ai-test-status-pending"
+                    : aiTest
+                      ? aiTest.ok
+                        ? "ai-test-status-ok"
+                        : "ai-test-status-error"
+                      : ""
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                {aiTesting ? (
+                  <>
+                    <span className="sports-spinner-dot" aria-hidden />
+                    <span>Testing connection to {aiBaseUrlDraft.trim() || "AI server"}…</span>
+                  </>
+                ) : aiTest ? (
+                  <span>
+                    {aiTest.ok ? "Connected — " : "Failed — "}
+                    {aiTest.message}
+                    {aiTest.models?.length
+                      ? ` · models: ${aiTest.models.slice(0, 5).join(", ")}`
+                      : ""}
+                  </span>
+                ) : (
+                  <span className="muted">
+                    Save your URL, then test to verify the server is reachable.
+                  </span>
+                )}
+              </div>
+              <div className="settings-row">
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={busy || aiTesting || !settings.aiEnabled}
                   onClick={() => {
                     setBusy(true);
                     void backend.ai
@@ -439,8 +686,9 @@ export function SettingsPage({
                   Scan last 24 hours
                 </button>
                 <button
+                  type="button"
                   className="btn primary"
-                  disabled={busy || !settings.aiEnabled}
+                  disabled={busy || aiTesting || !settings.aiEnabled}
                   onClick={() => {
                     setBusy(true);
                     void backend.ai
@@ -453,8 +701,9 @@ export function SettingsPage({
                   Scan last 7 days
                 </button>
                 <button
+                  type="button"
                   className="btn primary"
-                  disabled={busy || !settings.aiEnabled}
+                  disabled={busy || aiTesting || !settings.aiEnabled}
                   onClick={() => {
                     setBusy(true);
                     void backend.ai
@@ -467,12 +716,6 @@ export function SettingsPage({
                   Scan missed / skipped
                 </button>
               </div>
-              {aiTest && (
-                <p className={aiTest.ok ? "muted" : "error"}>
-                  {aiTest.ok ? `OK — ${aiTest.message}` : aiTest.message}
-                  {aiTest.models?.length ? ` · models: ${aiTest.models.slice(0, 5).join(", ")}` : ""}
-                </p>
-              )}
               {aiStatus && (
                 <p className="muted">
                   AI queue: {aiStatus.processed}/{aiStatus.total}
@@ -485,8 +728,9 @@ export function SettingsPage({
               {aiStatus && aiStatus.failed > 0 && (
                 <div className="settings-row">
                   <button
+                    type="button"
                     className="btn"
-                    disabled={busy}
+                    disabled={busy || aiTesting}
                     onClick={() => {
                       setBusy(true);
                       void backend.ai
@@ -513,8 +757,7 @@ export function SettingsPage({
                       <span className={`ai-log-level ai-log-level-${entry.level}`}>{entry.level}</span>
                       <span className="ai-log-message">
                         {entry.message}
-                        {entry.detail &&
-                        !entry.message.includes(entry.detail) ? (
+                        {entry.detail && !entry.message.includes(entry.detail) ? (
                           <span className="ai-log-detail"> — {entry.detail}</span>
                         ) : null}
                         {entry.articleId ? (
@@ -527,7 +770,7 @@ export function SettingsPage({
               </div>
               <p className="muted">
                 When enabled, newly fetched articles are queued for priority scoring and story grouping via
-                LM Studio tool calls.
+                your local model. No cloud calls.
               </p>
             </section>
           )}
