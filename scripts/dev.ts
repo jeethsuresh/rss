@@ -35,12 +35,12 @@ async function buildBackend() {
 
 async function buildElectron() {
   console.log("→ bundling Electron main/preload…");
-  const proc = run(
+  // Main can be ESM; sandboxed preload must be CJS (Electron rejects ESM import syntax).
+  const main = run(
     [
       "bun",
       "build",
       "./electron/main.ts",
-      "./electron/preload.ts",
       "--outdir",
       "./dist-electron",
       "--target",
@@ -52,8 +52,24 @@ async function buildElectron() {
     ],
     desktop,
   );
-  const code = await proc.exited;
-  if (code !== 0) throw new Error(`electron bundle failed: ${code}`);
+  if ((await main.exited) !== 0) throw new Error("electron main bundle failed");
+  const preload = run(
+    [
+      "bun",
+      "build",
+      "./electron/preload.ts",
+      "--outdir",
+      "./dist-electron",
+      "--target",
+      "node",
+      "--format",
+      "cjs",
+      "--external",
+      "electron",
+    ],
+    desktop,
+  );
+  if ((await preload.exited) !== 0) throw new Error("electron preload bundle failed");
 }
 
 const children: Subprocess[] = [];

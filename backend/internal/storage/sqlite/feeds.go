@@ -33,6 +33,9 @@ func (r *FeedRepo) List(ctx context.Context) ([]domain.Feed, error) {
 		}
 		out = append(out, f)
 	}
+	if out == nil {
+		out = []domain.Feed{}
+	}
 	return out, rows.Err()
 }
 

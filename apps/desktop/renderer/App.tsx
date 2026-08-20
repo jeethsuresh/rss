@@ -11,7 +11,31 @@ type Selection =
   | { type: "folder"; id: string };
 
 export function App() {
-  const backend = useMemo(() => getBackend(), []);
+  const backend = useMemo(() => {
+    try {
+      return getBackend();
+    } catch {
+      return null;
+    }
+  }, []);
+
+  if (!backend) {
+    return (
+      <div className="app">
+        <div className="empty">
+          <h2>RSS Reader</h2>
+          <p className="error">
+            Desktop bridge failed to load. Rebuild with bun dev (preload must be CommonJS).
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <AppMain backend={backend} />;
+}
+
+function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBackend>> }) {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
@@ -44,8 +68,8 @@ export function App() {
       backend.folders.list(),
       backend.settings.get(),
     ]);
-    setFeeds(f);
-    setFolders(foldersList);
+    setFeeds(f ?? []);
+    setFolders(foldersList ?? []);
     setSettings(s);
     applyTheme(s.theme);
   }, [backend, applyTheme]);
@@ -62,12 +86,13 @@ export function App() {
         cursor: append ? nextCursor ?? undefined : undefined,
       };
       const res = await backend.articles.list(query);
-      setArticles((prev) => (append ? [...prev, ...res.articles] : res.articles));
+      const list = res.articles ?? [];
+      setArticles((prev) => (append ? [...prev, ...list] : list));
       setNextCursor(res.nextCursor);
       if (!append) {
         setActiveId((id) => {
-          if (id && res.articles.some((a) => a.id === id)) return id;
-          return res.articles[0]?.id ?? null;
+          if (id && list.some((a) => a.id === id)) return id;
+          return list[0]?.id ?? null;
         });
       }
     },

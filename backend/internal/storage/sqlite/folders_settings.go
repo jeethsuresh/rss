@@ -19,7 +19,7 @@ func (r *FolderRepo) List(ctx context.Context) ([]domain.Folder, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []domain.Folder
+	out := []domain.Folder{}
 	for rows.Next() {
 		var f domain.Folder
 		var created string

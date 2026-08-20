@@ -92,7 +92,14 @@ func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.A
 		}
 		next = encodeCursor(ts, last.ID)
 	}
-	return domain.ArticleListResult{Articles: articles, NextCursor: next}, nil
+	return domain.ArticleListResult{Articles: ensureArticles(articles), NextCursor: next}, nil
+}
+
+func ensureArticles(articles []domain.Article) []domain.Article {
+	if articles == nil {
+		return []domain.Article{}
+	}
+	return articles
 }
 
 func (r *ArticleRepo) Get(ctx context.Context, id string) (*domain.Article, error) {
