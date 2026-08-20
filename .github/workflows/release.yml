@@ -40,16 +40,6 @@ jobs:
               apps/desktop/release/*.zip
               apps/desktop/release/latest-mac.yml
 
-          - name: mac-x64
-            runs-on: macos-13
-            goos: darwin
-            goarch: amd64
-            electron_args: --mac --x64
-            artifact_glob: |
-              apps/desktop/release/*.dmg
-              apps/desktop/release/*.zip
-              apps/desktop/release/latest-mac.yml
-
           - name: windows-x64
             runs-on: windows-latest
             goos: windows
@@ -182,7 +172,6 @@ jobs:
             | Platform | Artifact |
             |----------|----------|
             | macOS Apple Silicon | `*-mac-arm64.dmg` |
-            | macOS Intel | `*-mac-x64.dmg` |
             | Windows | `*-win-x64.exe` (NSIS) |
             | Ubuntu / Debian | `*.deb` |
             | Fedora / RHEL | `*.rpm` |

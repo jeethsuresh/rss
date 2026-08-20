@@ -1,5 +1,6 @@
 appId: com.jeeth.rssreader
 productName: RSS Reader
+executableName: rss-reader
 directories:
   output: release
 files:
@@ -12,6 +13,11 @@ extraResources:
     filter:
       - rss-backend
       - rss-backend.exe
+# Needed so update-metadata generation does not crash with --publish never.
+publish:
+  provider: github
+  owner: jeethsuresh
+  repo: rss
 mac:
   target:
     - dmg
@@ -24,6 +30,7 @@ linux:
   synopsis: Local-first RSS reader
   description: Desktop RSS reader with a local Go backend and SQLite storage.
   maintainer: Jeeth <jeeth@users.noreply.github.com>
+  desktopName: rss-reader.desktop
   target:
     # Ubuntu / Debian
     - deb

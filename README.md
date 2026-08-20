@@ -72,7 +72,7 @@ Stage the backend binary electron-builder expects for the current (or given) pla
 
 ### GitHub Releases (CI)
 
-Push a version tag to build and publish installers for macOS (arm64 + x64), Windows (x64), and Linux (`.deb` Ubuntu/Debian, `.rpm` Fedora/RHEL, `.pacman` Arch, plus AppImage):
+Push a version tag to build and publish installers for macOS (Apple Silicon), Windows (x64), and Linux (`.deb` Ubuntu/Debian, `.rpm` Fedora/RHEL, `.pacman` Arch, plus AppImage):
 
 ```bash
 git tag v0.1.0
@@ -81,7 +81,7 @@ git push origin v0.1.0
 
 Workflow: `.github/workflows/release.yml` (also runnable via **Actions → Release → Run workflow**).
 
-Targets: macOS arm64/x64, Windows x64, Linux x64. Electron packaging uses `electron-builder`; see `apps/desktop/electron-builder.yml`.
+Targets: macOS arm64, Windows x64, Linux x64. Electron packaging uses `electron-builder`; see `apps/desktop/electron-builder.yml`.
 
 ## Where is the database?
 
