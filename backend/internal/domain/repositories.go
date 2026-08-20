@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var (
@@ -26,9 +27,23 @@ type FeedRepository interface {
 type ArticleRepository interface {
 	List(ctx context.Context, q ArticleQuery) (ArticleListResult, error)
 	Get(ctx context.Context, id string) (*Article, error)
+	ListIDsSince(ctx context.Context, since time.Time) ([]string, error)
 	UpsertMany(ctx context.Context, articles []Article) (inserted int, err error)
 	Update(ctx context.Context, article *Article) error
+	SetPriority(ctx context.Context, id string, priority Priority) error
 	FindByExternalKey(ctx context.Context, feedID, externalID, url, fingerprint string) (*Article, error)
+	SearchCompact(ctx context.Context, query string, limit int) ([]Article, error)
+}
+
+type StoryRepository interface {
+	List(ctx context.Context) ([]Story, error)
+	Get(ctx context.Context, id string) (*Story, error)
+	Create(ctx context.Context, story *Story) error
+	Update(ctx context.Context, story *Story) error
+	SetMembers(ctx context.Context, storyID string, articleIDs []string) error
+	AddMember(ctx context.Context, storyID, articleID string) error
+	FindStoryForArticle(ctx context.Context, articleID string) (*Story, error)
+	CascadeFlags(ctx context.Context, storyID string, isRead *bool, isStarred *bool) error
 }
 
 type FolderRepository interface {

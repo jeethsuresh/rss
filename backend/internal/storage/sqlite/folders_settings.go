@@ -90,35 +90,3 @@ func (r *FolderRepo) FeedIDsInFolder(ctx context.Context, folderID string) ([]st
 	}
 	return ids, rows.Err()
 }
-
-type SettingsRepo struct{ db *DB }
-
-func NewSettingsRepo(db *DB) *SettingsRepo { return &SettingsRepo{db: db} }
-
-func (r *SettingsRepo) Get(ctx context.Context) (*domain.Settings, error) {
-	var s domain.Settings
-	var markRead, notif int
-	err := r.db.SQL.QueryRowContext(ctx, `
-		SELECT default_poll_interval_seconds, theme, article_density, default_sort, mark_read_on_open, notifications_enabled
-		FROM settings WHERE id = 1`).Scan(
-		&s.DefaultPollIntervalSeconds, &s.Theme, &s.ArticleDensity, &s.DefaultSort, &markRead, &notif,
-	)
-	if err != nil {
-		return nil, err
-	}
-	s.MarkReadOnOpen = markRead == 1
-	s.NotificationsEnabled = notif == 1
-	return &s, nil
-}
-
-func (r *SettingsRepo) Update(ctx context.Context, settings *domain.Settings) error {
-	_, err := r.db.SQL.ExecContext(ctx, `
-		UPDATE settings SET
-			default_poll_interval_seconds=?, theme=?, article_density=?, default_sort=?,
-			mark_read_on_open=?, notifications_enabled=?
-		WHERE id = 1`,
-		settings.DefaultPollIntervalSeconds, settings.Theme, settings.ArticleDensity, settings.DefaultSort,
-		boolToInt(settings.MarkReadOnOpen), boolToInt(settings.NotificationsEnabled),
-	)
-	return err
-}

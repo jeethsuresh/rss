@@ -267,6 +267,78 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.UpdateSettings(ctx, raw)
+	case "feeds.exportUrls":
+		text, err := s.svc.ExportFeedURLs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"text": text}, nil
+	case "feeds.importUrls":
+		var p struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.ImportFeedURLs(ctx, p.Text)
+	case "stories.list":
+		return s.svc.ListStories(ctx)
+	case "stories.get":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.GetStory(ctx, p.ID)
+	case "stories.markRead":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.MarkStoryRead(ctx, p.ID, true)
+	case "stories.markUnread":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.MarkStoryRead(ctx, p.ID, false)
+	case "stories.toggleStar":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.ToggleStoryStar(ctx, p.ID)
+	case "ai.test":
+		if s.svc.AI == nil {
+			return nil, fmt.Errorf("ai unavailable")
+		}
+		return s.svc.AI.Test(ctx)
+	case "ai.scan":
+		var p struct {
+			Window string `json:"window"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.Window == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		if s.svc.AI == nil {
+			return nil, fmt.Errorf("ai unavailable")
+		}
+		if err := s.svc.AI.ScanWindow(ctx, p.Window); err != nil {
+			return nil, err
+		}
+		return map[string]any{"queued": true, "status": s.svc.AI.Status()}, nil
+	case "ai.status":
+		if s.svc.AI == nil {
+			return domain.AIStatus{}, nil
+		}
+		return s.svc.AI.Status(), nil
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupported, req.Method)
 	}

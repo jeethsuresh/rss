@@ -20,11 +20,21 @@ type Service struct {
 	Articles domain.ArticleRepository
 	Folders  domain.FolderRepository
 	Settings domain.SettingsRepository
+	Stories  domain.StoryRepository
 	RSS      *rss.Fetcher
+	AI       AIService
 	Log      *slog.Logger
 	Emit     EventEmitter
 	Version  string
 	DBPath   string
+}
+
+// AIService is implemented by *ai.Service
+type AIService interface {
+	Enqueue(ids ...string)
+	ScanWindow(ctx context.Context, window string) error
+	Test(ctx context.Context) (*domain.AITestResult, error)
+	Status() domain.AIStatus
 }
 
 func (s *Service) emit(name string, payload any) {
@@ -107,6 +117,7 @@ func (s *Service) AddFeed(ctx context.Context, rawURL string) (*domain.Feed, err
 	s.emit("feed.updated", map[string]any{"feedId": feed.ID})
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
+		s.enqueueUnscannedForFeed(ctx, feed.ID)
 	}
 	return s.Feeds.Get(ctx, feed.ID)
 }
@@ -191,8 +202,28 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	s.emit("feed.updated", map[string]any{"feedId": feed.ID})
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
+		s.enqueueUnscannedForFeed(ctx, feed.ID)
 	}
 	return s.Feeds.Get(ctx, feed.ID)
+}
+
+func (s *Service) enqueueUnscannedForFeed(ctx context.Context, feedID string) {
+	if s.AI == nil {
+		return
+	}
+	res, err := s.Articles.List(ctx, domain.ArticleQuery{FeedID: feedID, Limit: 50})
+	if err != nil {
+		return
+	}
+	ids := make([]string, 0, len(res.Articles))
+	for _, a := range res.Articles {
+		if a.Priority == domain.PriorityNone || a.Priority == "" {
+			ids = append(ids, a.ID)
+		}
+	}
+	if len(ids) > 0 {
+		s.AI.Enqueue(ids...)
+	}
 }
 
 func (s *Service) RefreshAll(ctx context.Context) error {

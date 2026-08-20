@@ -128,32 +128,3 @@ func (s *Service) UnassignFeed(ctx context.Context, folderID, feedID string) err
 func (s *Service) GetSettings(ctx context.Context) (*domain.Settings, error) {
 	return s.Settings.Get(ctx)
 }
-
-func (s *Service) UpdateSettings(ctx context.Context, patch map[string]any) (*domain.Settings, error) {
-	sset, err := s.Settings.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if v, ok := patch["defaultPollIntervalSeconds"].(float64); ok {
-		sset.DefaultPollIntervalSeconds = int(v)
-	}
-	if v, ok := patch["theme"].(string); ok {
-		sset.Theme = v
-	}
-	if v, ok := patch["articleDensity"].(string); ok {
-		sset.ArticleDensity = v
-	}
-	if v, ok := patch["defaultSort"].(string); ok {
-		sset.DefaultSort = v
-	}
-	if v, ok := patch["markReadOnOpen"].(bool); ok {
-		sset.MarkReadOnOpen = v
-	}
-	if v, ok := patch["notificationsEnabled"].(bool); ok {
-		sset.NotificationsEnabled = v
-	}
-	if err := s.Settings.Update(ctx, sset); err != nil {
-		return nil, err
-	}
-	return s.Settings.Get(ctx)
-}

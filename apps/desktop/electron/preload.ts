@@ -16,6 +16,8 @@ const api: ReaderBackend = {
     refreshAll: () => request("feeds.refreshAll"),
     setEnabled: (id, enabled) => request("feeds.setEnabled", { id, enabled }),
     setPollInterval: (id, seconds) => request("feeds.setPollInterval", { id, seconds }),
+    exportUrls: () => request("feeds.exportUrls"),
+    importUrls: (text) => request("feeds.importUrls", { text }),
   },
   articles: {
     list: (query) => request("articles.list", query),
@@ -23,6 +25,13 @@ const api: ReaderBackend = {
     markRead: (id) => request("articles.markRead", { id }),
     markUnread: (id) => request("articles.markUnread", { id }),
     toggleStar: (id) => request("articles.toggleStar", { id }),
+  },
+  stories: {
+    list: () => request("stories.list"),
+    get: (id) => request("stories.get", { id }),
+    markRead: (id) => request("stories.markRead", { id }),
+    markUnread: (id) => request("stories.markUnread", { id }),
+    toggleStar: (id) => request("stories.toggleStar", { id }),
   },
   folders: {
     list: () => request("folders.list"),
@@ -34,6 +43,11 @@ const api: ReaderBackend = {
   settings: {
     get: () => request("settings.get"),
     update: (patch) => request("settings.update", patch),
+  },
+  ai: {
+    test: () => request("ai.test"),
+    scan: (window) => request("ai.scan", { window }),
+    status: () => request("ai.status"),
   },
   system: {
     ping: () => request("system.ping"),

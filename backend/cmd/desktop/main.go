@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/jeeth/rss-reader/backend/internal/ai"
 	"github.com/jeeth/rss-reader/backend/internal/application"
 	"github.com/jeeth/rss-reader/backend/internal/ipc"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
@@ -50,13 +51,17 @@ func main() {
 	articles := sqlite.NewArticleRepo(db)
 	folders := sqlite.NewFolderRepo(db)
 	settings := sqlite.NewSettingsRepo(db)
+	stories := sqlite.NewStoryRepo(db)
+	aiSvc := ai.New(articles, stories, settings, log)
 
 	svc := &application.Service{
 		Feeds:    feeds,
 		Articles: articles,
 		Folders:  folders,
 		Settings: settings,
+		Stories:  stories,
 		RSS:      rss.NewFetcher(),
+		AI:       aiSvc,
 		Log:      log,
 		Version:  version,
 		DBPath:   *dbPath,
@@ -75,6 +80,7 @@ func main() {
 	go sched.Run(ctx)
 
 	server := ipc.NewServer(svc, log, os.Stdout)
+	aiSvc.Emit = server.Emit
 	log.Info("backend started", "version", version, "db", *dbPath)
 
 	errCh := make(chan error, 1)

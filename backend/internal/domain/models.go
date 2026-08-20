@@ -2,6 +2,15 @@ package domain
 
 import "time"
 
+type Priority string
+
+const (
+	PriorityNone   Priority = "none"
+	PriorityLow    Priority = "low"
+	PriorityMedium Priority = "medium"
+	PriorityHigh   Priority = "high"
+)
+
 type Feed struct {
 	ID                  string     `json:"id"`
 	URL                 string     `json:"url"`
@@ -34,8 +43,23 @@ type Article struct {
 	ExternalID   string     `json:"externalId"`
 	IsRead       bool       `json:"isRead"`
 	IsStarred    bool       `json:"isStarred"`
+	Priority     Priority   `json:"priority"`
+	StoryID      string     `json:"storyId,omitempty"`
 	DiscoveredAt time.Time  `json:"discoveredAt"`
 	FeedTitle    string     `json:"feedTitle,omitempty"`
+}
+
+type Story struct {
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	Summary      string    `json:"summary"`
+	IsRead       bool      `json:"isRead"`
+	IsStarred    bool      `json:"isStarred"`
+	MemberCount  int       `json:"memberCount"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	ArticleIDs   []string  `json:"articleIds,omitempty"`
+	Articles     []Article `json:"articles,omitempty"`
 }
 
 type Folder struct {
@@ -51,6 +75,9 @@ type Settings struct {
 	DefaultSort                string `json:"defaultSort"`
 	MarkReadOnOpen             bool   `json:"markReadOnOpen"`
 	NotificationsEnabled       bool   `json:"notificationsEnabled"`
+	AIEnabled                  bool   `json:"aiEnabled"`
+	AIBaseURL                  string `json:"aiBaseUrl"`
+	AIModel                    string `json:"aiModel"`
 }
 
 type ArticleQuery struct {
@@ -62,6 +89,7 @@ type ArticleQuery struct {
 	Limit       int
 	Cursor      string
 	DefaultSort string
+	Since       *time.Time
 }
 
 type ArticleListResult struct {
@@ -75,4 +103,23 @@ type FeedPreview struct {
 	Description  string `json:"description"`
 	SiteURL      string `json:"siteUrl"`
 	ArticleCount int    `json:"articleCount"`
+}
+
+type FeedImportResult struct {
+	Added  int      `json:"added"`
+	Failed int      `json:"failed"`
+	Errors []string `json:"errors"`
+}
+
+type AIStatus struct {
+	Running   bool   `json:"running"`
+	Processed int    `json:"processed"`
+	Total     int    `json:"total"`
+	LastError string `json:"lastError"`
+}
+
+type AITestResult struct {
+	OK      bool     `json:"ok"`
+	Message string   `json:"message"`
+	Models  []string `json:"models,omitempty"`
 }

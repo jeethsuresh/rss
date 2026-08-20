@@ -10,5 +10,8 @@ describe("shared contract", () => {
     expect(RPC_METHODS).toContain("system.ping");
     expect(RPC_METHODS).toContain("feeds.add");
     expect(RPC_METHODS).toContain("articles.list");
+    expect(RPC_METHODS).toContain("feeds.importUrls");
+    expect(RPC_METHODS).toContain("stories.list");
+    expect(RPC_METHODS).toContain("ai.scan");
   });
 });

@@ -15,10 +15,7 @@ export type ErrorCode =
   | "INTERNAL"
   | "UNSUPPORTED_METHOD";
 
-export interface RpcError {
-  code: ErrorCode;
-  message: string;
-}
+export type Priority = "none" | "low" | "medium" | "high";
 
 export interface Feed {
   id: string;
@@ -52,8 +49,23 @@ export interface Article {
   externalId: string;
   isRead: boolean;
   isStarred: boolean;
+  priority: Priority;
+  storyId?: string;
   discoveredAt: string;
   feedTitle?: string;
+}
+
+export interface Story {
+  id: string;
+  title: string;
+  summary: string;
+  isRead: boolean;
+  isStarred: boolean;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+  articleIds?: string[];
+  articles?: Article[];
 }
 
 export interface Folder {
@@ -85,6 +97,12 @@ export interface FeedPreview {
   articleCount: number;
 }
 
+export interface FeedImportResult {
+  added: number;
+  failed: number;
+  errors: string[];
+}
+
 export interface Settings {
   defaultPollIntervalSeconds: number;
   theme: "system" | "light" | "dark";
@@ -92,11 +110,22 @@ export interface Settings {
   defaultSort: "newest" | "oldest";
   markReadOnOpen: boolean;
   notificationsEnabled: boolean;
+  aiEnabled: boolean;
+  aiBaseUrl: string;
+  aiModel: string;
 }
 
-export interface FeedAddParams {
-  url: string;
-  confirm?: boolean;
+export interface AIStatus {
+  running: boolean;
+  processed: number;
+  total: number;
+  lastError: string;
+}
+
+export interface AITestResult {
+  ok: boolean;
+  message: string;
+  models?: string[];
 }
 
 export type BackendEventName =
@@ -104,6 +133,8 @@ export type BackendEventName =
   | "feed.error"
   | "articles.added"
   | "article.updated"
+  | "story.updated"
+  | "ai.status"
   | "sync.status";
 
 export interface BackendEvent<T = unknown> {
@@ -122,6 +153,8 @@ export interface ReaderBackend {
     refreshAll(): Promise<void>;
     setEnabled(id: string, enabled: boolean): Promise<Feed>;
     setPollInterval(id: string, seconds: number): Promise<Feed>;
+    exportUrls(): Promise<{ text: string }>;
+    importUrls(text: string): Promise<FeedImportResult>;
   };
   articles: {
     list(query: ArticleQuery): Promise<ArticleListResult>;
@@ -129,6 +162,13 @@ export interface ReaderBackend {
     markRead(id: string): Promise<Article>;
     markUnread(id: string): Promise<Article>;
     toggleStar(id: string): Promise<Article>;
+  };
+  stories: {
+    list(): Promise<Story[]>;
+    get(id: string): Promise<Story>;
+    markRead(id: string): Promise<Story>;
+    markUnread(id: string): Promise<Story>;
+    toggleStar(id: string): Promise<Story>;
   };
   folders: {
     list(): Promise<Folder[]>;
@@ -140,6 +180,11 @@ export interface ReaderBackend {
   settings: {
     get(): Promise<Settings>;
     update(patch: Partial<Settings>): Promise<Settings>;
+  };
+  ai: {
+    test(): Promise<AITestResult>;
+    scan(window: "24h" | "7d"): Promise<{ queued: boolean; status: AIStatus }>;
+    status(): Promise<AIStatus>;
   };
   system: {
     ping(): Promise<{ ok: true; version: string }>;
@@ -161,11 +206,18 @@ export const RPC_METHODS = [
   "feeds.refreshAll",
   "feeds.setEnabled",
   "feeds.setPollInterval",
+  "feeds.exportUrls",
+  "feeds.importUrls",
   "articles.list",
   "articles.get",
   "articles.markRead",
   "articles.markUnread",
   "articles.toggleStar",
+  "stories.list",
+  "stories.get",
+  "stories.markRead",
+  "stories.markUnread",
+  "stories.toggleStar",
   "folders.list",
   "folders.create",
   "folders.remove",
@@ -173,6 +225,9 @@ export const RPC_METHODS = [
   "folders.unassignFeed",
   "settings.get",
   "settings.update",
+  "ai.test",
+  "ai.scan",
+  "ai.status",
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];

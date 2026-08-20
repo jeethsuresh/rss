@@ -16,6 +16,13 @@ type ArticleRepo struct{ db *DB }
 
 func NewArticleRepo(db *DB) *ArticleRepo { return &ArticleRepo{db: db} }
 
+const articleSelect = `
+		SELECT a.id, a.feed_id, a.title, a.url, a.author, a.content, a.summary,
+		       a.published_at, a.updated_at, a.external_id, a.is_read, a.is_starred,
+		       a.priority, COALESCE(a.story_id, ''), a.discovered_at, f.title
+		FROM articles a
+		JOIN feeds f ON f.id = a.feed_id`
+
 func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.ArticleListResult, error) {
 	limit := q.Limit
 	if limit <= 0 || limit > 200 {
@@ -41,6 +48,10 @@ func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.A
 		where = append(where, `a.rowid IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH ?)`)
 		args = append(args, sanitizeFTS(q.Search))
 	}
+	if q.Since != nil {
+		where = append(where, `COALESCE(a.published_at, a.discovered_at) >= ?`)
+		args = append(args, q.Since.UTC().Format(time.RFC3339Nano))
+	}
 	order := "COALESCE(a.published_at, a.discovered_at) DESC"
 	if q.DefaultSort == "oldest" {
 		order = "COALESCE(a.published_at, a.discovered_at) ASC"
@@ -56,15 +67,7 @@ func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.A
 			args = append(args, ts, ts, id)
 		}
 	}
-	query := fmt.Sprintf(`
-		SELECT a.id, a.feed_id, a.title, a.url, a.author, a.content, a.summary,
-		       a.published_at, a.updated_at, a.external_id, a.is_read, a.is_starred, a.discovered_at,
-		       f.title
-		FROM articles a
-		JOIN feeds f ON f.id = a.feed_id
-		WHERE %s
-		ORDER BY %s, a.id DESC
-		LIMIT ?`, strings.Join(where, " AND "), order)
+	query := fmt.Sprintf(`%s WHERE %s ORDER BY %s, a.id DESC LIMIT ?`, articleSelect, strings.Join(where, " AND "), order)
 	args = append(args, limit+1)
 	rows, err := r.db.SQL.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -103,11 +106,7 @@ func ensureArticles(articles []domain.Article) []domain.Article {
 }
 
 func (r *ArticleRepo) Get(ctx context.Context, id string) (*domain.Article, error) {
-	row := r.db.SQL.QueryRowContext(ctx, `
-		SELECT a.id, a.feed_id, a.title, a.url, a.author, a.content, a.summary,
-		       a.published_at, a.updated_at, a.external_id, a.is_read, a.is_starred, a.discovered_at,
-		       f.title
-		FROM articles a JOIN feeds f ON f.id = a.feed_id WHERE a.id = ?`, id)
+	row := r.db.SQL.QueryRowContext(ctx, articleSelect+` WHERE a.id = ?`, id)
 	a, err := scanArticle(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -116,6 +115,26 @@ func (r *ArticleRepo) Get(ctx context.Context, id string) (*domain.Article, erro
 		return nil, err
 	}
 	return &a, nil
+}
+
+func (r *ArticleRepo) ListIDsSince(ctx context.Context, since time.Time) ([]string, error) {
+	rows, err := r.db.SQL.QueryContext(ctx, `
+		SELECT id FROM articles
+		WHERE COALESCE(published_at, discovered_at) >= ?
+		ORDER BY COALESCE(published_at, discovered_at) DESC`, since.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article) (int, error) {
@@ -128,8 +147,8 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO articles (
 			id, feed_id, title, url, author, content, summary,
-			published_at, updated_at, external_id, fingerprint, is_read, is_starred, discovered_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			published_at, updated_at, external_id, fingerprint, is_read, is_starred, discovered_at, priority
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(feed_id, fingerprint) DO UPDATE SET
 			title=excluded.title,
 			url=CASE WHEN excluded.url != '' THEN excluded.url ELSE articles.url END,
@@ -145,17 +164,19 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 	}
 	defer stmt.Close()
 	for _, a := range articles {
+		pri := a.Priority
+		if pri == "" {
+			pri = domain.PriorityNone
+		}
 		res, err := stmt.ExecContext(ctx,
 			a.ID, a.FeedID, a.Title, a.URL, a.Author, a.Content, a.Summary,
 			nullTime(a.PublishedAt), nullTime(a.UpdatedAt), a.ExternalID, aFingerprint(a),
-			boolToInt(a.IsRead), boolToInt(a.IsStarred), a.DiscoveredAt.UTC().Format(time.RFC3339Nano),
+			boolToInt(a.IsRead), boolToInt(a.IsStarred), a.DiscoveredAt.UTC().Format(time.RFC3339Nano), string(pri),
 		)
 		if err != nil {
 			return inserted, err
 		}
 		n, _ := res.RowsAffected()
-		// SQLite ON CONFLICT UPDATE reports 1 for update sometimes; track inserts via changes() is tricky.
-		// Count only brand-new rows by checking changes==1 and last insert - approximate: use SELECT before.
 		if n == 1 {
 			inserted++
 		}
@@ -184,9 +205,14 @@ func nullTimeString(t *time.Time) string {
 }
 
 func (r *ArticleRepo) Update(ctx context.Context, article *domain.Article) error {
+	pri := article.Priority
+	if pri == "" {
+		pri = domain.PriorityNone
+	}
 	res, err := r.db.SQL.ExecContext(ctx, `
-		UPDATE articles SET is_read=?, is_starred=?, title=?, content=?, summary=? WHERE id=?`,
-		boolToInt(article.IsRead), boolToInt(article.IsStarred), article.Title, article.Content, article.Summary, article.ID,
+		UPDATE articles SET is_read=?, is_starred=?, title=?, content=?, summary=?, priority=?, story_id=? WHERE id=?`,
+		boolToInt(article.IsRead), boolToInt(article.IsStarred), article.Title, article.Content, article.Summary,
+		string(pri), nullString(article.StoryID), article.ID,
 	)
 	if err != nil {
 		return err
@@ -198,12 +224,20 @@ func (r *ArticleRepo) Update(ctx context.Context, article *domain.Article) error
 	return nil
 }
 
+func (r *ArticleRepo) SetPriority(ctx context.Context, id string, priority domain.Priority) error {
+	res, err := r.db.SQL.ExecContext(ctx, `UPDATE articles SET priority=? WHERE id=?`, string(priority), id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ArticleRepo) FindByExternalKey(ctx context.Context, feedID, externalID, url, fingerprint string) (*domain.Article, error) {
-	row := r.db.SQL.QueryRowContext(ctx, `
-		SELECT a.id, a.feed_id, a.title, a.url, a.author, a.content, a.summary,
-		       a.published_at, a.updated_at, a.external_id, a.is_read, a.is_starred, a.discovered_at,
-		       f.title
-		FROM articles a JOIN feeds f ON f.id = a.feed_id
+	row := r.db.SQL.QueryRowContext(ctx, articleSelect+`
 		WHERE a.feed_id = ? AND (a.fingerprint = ? OR (? != '' AND a.external_id = ?) OR (? != '' AND a.url = ?))
 		LIMIT 1`, feedID, fingerprint, externalID, externalID, url, url)
 	a, err := scanArticle(row)
@@ -216,14 +250,27 @@ func (r *ArticleRepo) FindByExternalKey(ctx context.Context, feedID, externalID,
 	return &a, nil
 }
 
+func (r *ArticleRepo) SearchCompact(ctx context.Context, query string, limit int) ([]domain.Article, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+	q := domain.ArticleQuery{Search: query, Limit: limit}
+	res, err := r.List(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	return res.Articles, nil
+}
+
 func scanArticle(row rowScanner) (domain.Article, error) {
 	var a domain.Article
 	var published, updated sql.NullString
 	var isRead, isStarred int
-	var discovered string
+	var priority, storyID, discovered string
 	err := row.Scan(
 		&a.ID, &a.FeedID, &a.Title, &a.URL, &a.Author, &a.Content, &a.Summary,
-		&published, &updated, &a.ExternalID, &isRead, &isStarred, &discovered, &a.FeedTitle,
+		&published, &updated, &a.ExternalID, &isRead, &isStarred,
+		&priority, &storyID, &discovered, &a.FeedTitle,
 	)
 	if err != nil {
 		return a, err
@@ -232,8 +279,20 @@ func scanArticle(row rowScanner) (domain.Article, error) {
 	a.UpdatedAt = parseTimePtr(updated)
 	a.IsRead = isRead == 1
 	a.IsStarred = isStarred == 1
+	a.Priority = domain.Priority(priority)
+	if a.Priority == "" {
+		a.Priority = domain.PriorityNone
+	}
+	a.StoryID = storyID
 	a.DiscoveredAt = mustParseTime(discovered)
 	return a, nil
+}
+
+func nullString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func sanitizeFTS(q string) string {
