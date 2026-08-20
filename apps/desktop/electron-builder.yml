@@ -30,7 +30,6 @@ linux:
   synopsis: Local-first RSS reader
   description: Desktop RSS reader with a local Go backend and SQLite storage.
   maintainer: Jeeth <jeeth@users.noreply.github.com>
-  desktopName: rss-reader.desktop
   target:
     # Ubuntu / Debian
     - deb
