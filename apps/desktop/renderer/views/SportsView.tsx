@@ -89,6 +89,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [detail, setDetail] = useState<MlbGameDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scoringOnly, setScoringOnly] = useState(false);
 
   const followedTeams = useMemo(
     () => teams.filter((t) => followed.includes(t.id)).sort((a, b) => a.name.localeCompare(b.name)),
@@ -164,6 +165,10 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   }, [activePk, backend]);
 
   useEffect(() => {
+    setScoringOnly(false);
+  }, [activePk]);
+
+  useEffect(() => {
     return backend.onEvent((ev) => {
       if (ev.event !== "sports.game.updated") return;
       const payload = ev.payload as MlbGameDetail;
@@ -175,6 +180,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       }
     });
   }, [backend, activePk]);
+
+  const visiblePlays = useMemo(() => {
+    if (!detail) return [];
+    return scoringOnly ? detail.plays.filter((p) => p.isScoringPlay) : detail.plays;
+  }, [detail, scoringOnly]);
 
   const gamesByDate = useMemo(() => {
     const map = new Map<string, MlbGame[]>();
@@ -364,12 +374,32 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
               </div>
             )}
 
-            <h2 className="sports-plays-heading">Plays</h2>
+            <div className="sports-plays-header">
+              <h2 className="sports-plays-heading">Plays</h2>
+              <div className="content-tabs sports-plays-filter" role="group" aria-label="Play filter">
+                <button
+                  type="button"
+                  className={`content-tab ${!scoringOnly ? "active" : ""}`}
+                  onClick={() => setScoringOnly(false)}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className={`content-tab ${scoringOnly ? "active" : ""}`}
+                  onClick={() => setScoringOnly(true)}
+                >
+                  Scoring
+                </button>
+              </div>
+            </div>
             <div className="sports-plays">
               {detail.plays.length === 0 ? (
                 <p className="muted">No plays yet.</p>
+              ) : visiblePlays.length === 0 ? (
+                <p className="muted">No scoring plays yet.</p>
               ) : (
-                detail.plays.map((p) => (
+                visiblePlays.map((p) => (
                   <div
                     key={p.id}
                     className={`sports-play ${p.isScoringPlay ? "scoring" : ""}`}
