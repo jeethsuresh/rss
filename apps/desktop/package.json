@@ -1,0 +1,29 @@
+{
+  "name": "@rss-reader/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "build:electron": "bun build ./electron/main.ts ./electron/preload.ts --outdir ./dist-electron --target node --format esm --external electron",
+    "build": "bun run build:renderer && bun run build:electron",
+    "test": "bun test",
+    "lint": "echo 'desktop: ok'"
+  },
+  "dependencies": {
+    "@rss-reader/shared": "workspace:*",
+    "isomorphic-dompurify": "^3.22.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^37.2.6",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.2"
+  }
+}

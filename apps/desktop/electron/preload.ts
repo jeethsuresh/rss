@@ -1,0 +1,53 @@
+import { contextBridge, ipcRenderer } from "electron";
+import type { BackendEvent, ReaderBackend } from "@rss-reader/shared";
+
+function request<T>(method: string, params?: unknown): Promise<T> {
+  return ipcRenderer.invoke("backend:request", method, params ?? {}) as Promise<T>;
+}
+
+const api: ReaderBackend = {
+  feeds: {
+    list: () => request("feeds.list"),
+    get: (id) => request("feeds.get", { id }),
+    preview: (url) => request("feeds.preview", { url }),
+    add: (url) => request("feeds.add", { url }),
+    remove: (id) => request("feeds.remove", { id }),
+    refresh: (id) => request("feeds.refresh", { id }),
+    refreshAll: () => request("feeds.refreshAll"),
+    setEnabled: (id, enabled) => request("feeds.setEnabled", { id, enabled }),
+    setPollInterval: (id, seconds) => request("feeds.setPollInterval", { id, seconds }),
+  },
+  articles: {
+    list: (query) => request("articles.list", query),
+    get: (id) => request("articles.get", { id }),
+    markRead: (id) => request("articles.markRead", { id }),
+    markUnread: (id) => request("articles.markUnread", { id }),
+    toggleStar: (id) => request("articles.toggleStar", { id }),
+  },
+  folders: {
+    list: () => request("folders.list"),
+    create: (name) => request("folders.create", { name }),
+    remove: (id) => request("folders.remove", { id }),
+    assignFeed: (folderId, feedId) => request("folders.assignFeed", { folderId, feedId }),
+    unassignFeed: (folderId, feedId) => request("folders.unassignFeed", { folderId, feedId }),
+  },
+  settings: {
+    get: () => request("settings.get"),
+    update: (patch) => request("settings.update", patch),
+  },
+  system: {
+    ping: () => request("system.ping"),
+    info: () => request("system.info"),
+  },
+  onEvent: (handler) => {
+    const listener = (_: Electron.IpcRendererEvent, event: BackendEvent) => handler(event);
+    ipcRenderer.on("backend:event", listener);
+    return () => ipcRenderer.removeListener("backend:event", listener);
+  },
+};
+
+contextBridge.exposeInMainWorld("rss", api);
+contextBridge.exposeInMainWorld("desktop", {
+  openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
+  notify: (title: string, body: string) => ipcRenderer.invoke("app:notify", title, body),
+});

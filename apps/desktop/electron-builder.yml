@@ -1,0 +1,24 @@
+appId: com.jeeth.rssreader
+productName: RSS Reader
+directories:
+  output: release
+files:
+  - dist-electron/**/*
+  - dist-renderer/**/*
+  - package.json
+extraResources:
+  - from: resources/bin/
+    to: bin
+    filter:
+      - rss-backend
+      - rss-backend.exe
+mac:
+  target:
+    - dmg
+  category: public.app-category.news
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage

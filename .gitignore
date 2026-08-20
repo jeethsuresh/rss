@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-electron/
+dist-renderer/
+apps/desktop/resources/bin/
+apps/desktop/dist-electron/
+apps/desktop/dist-renderer/
+*.db
+*.db-*
+.DS_Store
+.env
+.env.*
+coverage/
+backend/rss-backend
+*.exe
+.turbo/
+.vite/
