@@ -110,3 +110,52 @@ func TestReadLaterRemoveDeletesArticle(t *testing.T) {
 		t.Fatalf("expected not found after delete, got %v", err)
 	}
 }
+
+func TestFolderListIncludesAssignedFeedIDs(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feed := &domain.Feed{
+		ID:                  uuid.NewString(),
+		URL:                 "https://example.com/folder-feed.xml",
+		Title:               "Folder Feed",
+		PollIntervalSeconds: 3600,
+		Enabled:             true,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if err := feeds.Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+
+	folders := sqlite.NewFolderRepo(db)
+	folder := &domain.Folder{
+		ID:        uuid.NewString(),
+		Name:      "News",
+		CreatedAt: now,
+	}
+	if err := folders.Create(ctx, folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := folders.AssignFeed(ctx, folder.ID, feed.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := folders.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 folder, got %d", len(list))
+	}
+	if got := list[0].FeedIDs; len(got) != 1 || got[0] != feed.ID {
+		t.Fatalf("expected feed %s in folder list, got %v", feed.ID, got)
+	}
+}

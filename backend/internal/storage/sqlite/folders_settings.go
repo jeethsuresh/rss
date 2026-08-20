@@ -27,9 +27,44 @@ func (r *FolderRepo) List(ctx context.Context) ([]domain.Folder, error) {
 			return nil, err
 		}
 		f.CreatedAt = mustParseTime(created)
+		f.FeedIDs = []string{}
 		out = append(out, f)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.attachFeedIDs(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *FolderRepo) attachFeedIDs(ctx context.Context, folders []domain.Folder) error {
+	if len(folders) == 0 {
+		return nil
+	}
+	rows, err := r.db.SQL.QueryContext(ctx, `SELECT folder_id, feed_id FROM feed_folders`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byFolder := make(map[string][]string, len(folders))
+	for rows.Next() {
+		var folderID, feedID string
+		if err := rows.Scan(&folderID, &feedID); err != nil {
+			return err
+		}
+		byFolder[folderID] = append(byFolder[folderID], feedID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range folders {
+		if ids, ok := byFolder[folders[i].ID]; ok {
+			folders[i].FeedIDs = ids
+		}
+	}
+	return nil
 }
 
 func (r *FolderRepo) Get(ctx context.Context, id string) (*domain.Folder, error) {

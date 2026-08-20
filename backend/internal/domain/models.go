@@ -87,6 +87,7 @@ type Folder struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"createdAt"`
+	FeedIDs   []string  `json:"feedIds"`
 }
 
 type Settings struct {

@@ -103,7 +103,7 @@ func (s *Service) CreateFolder(ctx context.Context, name string) (*domain.Folder
 	if name == "" {
 		return nil, domain.ErrInvalidParams
 	}
-	f := &domain.Folder{ID: uuid.NewString(), Name: name, CreatedAt: time.Now().UTC()}
+	f := &domain.Folder{ID: uuid.NewString(), Name: name, CreatedAt: time.Now().UTC(), FeedIDs: []string{}}
 	if err := s.Folders.Create(ctx, f); err != nil {
 		return nil, err
 	}

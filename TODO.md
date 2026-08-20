@@ -89,7 +89,7 @@ Track phase completion and follow-ups. Check items as they land.
 
 ## Follow-ups (post-MVP)
 
-- [ ] Folder create/assign UI polish
+- [x] Folder create/assign UI polish
 - [ ] Virtualized list for 10k+ articles
 - [ ] Installer smoke on Windows/Linux CI
 - [ ] OPML import/export
