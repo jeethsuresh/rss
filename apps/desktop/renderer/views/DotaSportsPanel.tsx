@@ -246,7 +246,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
   const openGame = useCallback(
     async (g: DotaGame) => {
       setGameDetail(null);
-      setBusy(true);
+      setDetailBusy(true);
       setError(null);
       try {
         const detail = await backend.sports.dotaGameGet({
@@ -258,7 +258,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load game");
       } finally {
-        setBusy(false);
+        setDetailBusy(false);
       }
     },
     [backend],
@@ -332,8 +332,8 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
           <div className="empty">
             <h2>Dota 2</h2>
             <p>
-              Set <code>PANDASCORE_API_TOKEN</code> in the environment and restart the app. Optional:{" "}
-              <code>STRATZ_API_TOKEN</code> for game details.
+              Add your PandaScore token in Settings → Sports. Optional STRATZ token unlocks game
+              details.
             </p>
           </div>
         </section>
@@ -445,7 +445,7 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
 
       <section className="pane article-list">
         {error && <p className="error">{error}</p>}
-        {busy ? (
+        {listBusy ? (
           <SportsLoadingPane label="Loading…" />
         ) : (
           <>
@@ -624,18 +624,16 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
       </section>
 
       <section className="pane reader">
-        {busy && !gameDetail && nav.type === "match" ? (
+        {detailBusy && !gameDetail ? (
           <SportsLoadingPane label="Loading…" />
         ) : !gameDetail && !matchDetail && nav.type === "browse" ? (
           <div className="empty">
             <h2>Dota 2</h2>
             <p>Pick a tournament or followed team. STRATZ details load only when you open a game.</p>
             {status && !status.stratzConfigured ? (
-              <p className="muted">STRATZ token not set — series scores still work from PandaScore.</p>
+              <p className="muted">Add a STRATZ token in Settings → Sports for game heroes and player stats.</p>
             ) : null}
           </div>
-        ) : busy && !gameDetail ? (
-          <SportsLoadingPane label="Loading…" />
         ) : gameDetail ? (
           <article className="reader-body" style={{ padding: 16 }}>
             <h1>Game {gameDetail.gameIndex}</h1>

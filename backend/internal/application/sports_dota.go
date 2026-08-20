@@ -3,7 +3,9 @@ package application
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jeeth/rss-reader/backend/internal/domain"
@@ -30,6 +32,39 @@ func dotaStratzGameKey(steamID int64) string {
 	return fmt.Sprintf("dota.stratz.game.%d", steamID)
 }
 
+func (s *Service) applyDotaProviderTokens(ctx context.Context) {
+	if s.Sports == nil {
+		return
+	}
+	pandaTok := ""
+	stratzTok := ""
+	if s.Settings != nil {
+		if st, err := s.Settings.Get(ctx); err == nil && st != nil {
+			pandaTok = strings.TrimSpace(st.PandaScoreAPIToken)
+			stratzTok = strings.TrimSpace(st.StratzAPIToken)
+		}
+	}
+	// Env fallback for local/dev if settings are empty.
+	if pandaTok == "" {
+		pandaTok = strings.TrimSpace(os.Getenv("PANDASCORE_API_TOKEN"))
+		if pandaTok == "" {
+			pandaTok = strings.TrimSpace(os.Getenv("PANDASCORE_TOKEN"))
+		}
+	}
+	if stratzTok == "" {
+		stratzTok = strings.TrimSpace(os.Getenv("STRATZ_API_TOKEN"))
+		if stratzTok == "" {
+			stratzTok = strings.TrimSpace(os.Getenv("STRATZ_TOKEN"))
+		}
+	}
+	if s.Sports.Panda != nil {
+		s.Sports.Panda.Token = pandaTok
+	}
+	if s.Sports.Stratz != nil {
+		s.Sports.Stratz.Token = stratzTok
+	}
+}
+
 func (ss *SportsService) dotaConfigured() domain.DotaProvidersStatus {
 	st := domain.DotaProvidersStatus{}
 	if ss.Panda != nil {
@@ -45,6 +80,7 @@ func (s *Service) SportsDotaStatus(ctx context.Context) (domain.DotaProvidersSta
 	if s.Sports == nil {
 		return domain.DotaProvidersStatus{}, nil
 	}
+	s.applyDotaProviderTokens(ctx)
 	return s.Sports.dotaConfigured(), nil
 }
 
@@ -58,6 +94,7 @@ func (s *Service) SportsDotaYears(ctx context.Context) ([]domain.DotaSeason, err
 }
 
 func (s *Service) SportsDotaEvents(ctx context.Context, year int) ([]domain.DotaEvent, error) {
+	s.applyDotaProviderTokens(ctx)
 	if s.Sports == nil || s.Sports.Panda == nil || !s.Sports.Panda.Configured() {
 		return []domain.DotaEvent{}, nil
 	}
@@ -77,6 +114,7 @@ func (s *Service) SportsDotaEvents(ctx context.Context, year int) ([]domain.Dota
 }
 
 func (s *Service) SportsDotaEventMatches(ctx context.Context, eventID string) ([]domain.DotaMatch, error) {
+	s.applyDotaProviderTokens(ctx)
 	if s.Sports == nil || s.Sports.Panda == nil || !s.Sports.Panda.Configured() {
 		return []domain.DotaMatch{}, nil
 	}
@@ -97,6 +135,7 @@ func (s *Service) SportsDotaEventMatches(ctx context.Context, eventID string) ([
 }
 
 func (s *Service) SportsDotaMatchGet(ctx context.Context, matchID int) (*domain.DotaMatchDetail, error) {
+	s.applyDotaProviderTokens(ctx)
 	if s.Sports == nil || s.Sports.Panda == nil || !s.Sports.Panda.Configured() {
 		return nil, domain.ErrInvalidParams
 	}
@@ -133,6 +172,7 @@ func (s *Service) SportsDotaMatchGet(ctx context.Context, matchID int) (*domain.
 }
 
 func (s *Service) SportsDotaGameGet(ctx context.Context, matchID int, gameIndex int, stratzMatchID int64) (*domain.DotaGame, error) {
+	s.applyDotaProviderTokens(ctx)
 	if s.Sports == nil {
 		return nil, domain.ErrInvalidParams
 	}
@@ -194,6 +234,7 @@ func (s *Service) fetchStratzGame(ctx context.Context, steamID int64, matchID, g
 }
 
 func (s *Service) SportsDotaTeamMatches(ctx context.Context, teamID, year int) ([]domain.DotaMatch, error) {
+	s.applyDotaProviderTokens(ctx)
 	if s.Sports == nil || s.Sports.Panda == nil || !s.Sports.Panda.Configured() {
 		return []domain.DotaMatch{}, nil
 	}
@@ -216,6 +257,7 @@ func (s *Service) SportsDotaTeamMatches(ctx context.Context, teamID, year int) (
 }
 
 func (s *Service) SportsDotaTeamSearch(ctx context.Context, query string) ([]domain.DotaTeam, error) {
+	s.applyDotaProviderTokens(ctx)
 	if s.Sports == nil || s.Sports.Panda == nil || !s.Sports.Panda.Configured() {
 		return []domain.DotaTeam{}, nil
 	}
@@ -226,6 +268,7 @@ func (s *Service) SportsDotaTeamSearch(ctx context.Context, query string) ([]dom
 }
 
 func (s *Service) SportsDotaTeamGet(ctx context.Context, teamID int) (*domain.DotaTeam, error) {
+	s.applyDotaProviderTokens(ctx)
 	if s.Sports == nil || s.Sports.Panda == nil || !s.Sports.Panda.Configured() {
 		return nil, domain.ErrInvalidParams
 	}
@@ -333,6 +376,7 @@ func (s *Service) SportsDotaPinnedToggle(ctx context.Context, eventID string, ev
 }
 
 func (s *Service) SportsDotaMatchWatch(ctx context.Context, matchID int) (*domain.DotaMatchDetail, error) {
+	s.applyDotaProviderTokens(ctx)
 	d, err := s.SportsDotaMatchGet(ctx, matchID)
 	if err != nil {
 		return nil, err

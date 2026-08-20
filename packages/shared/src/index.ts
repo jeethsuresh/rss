@@ -127,6 +127,9 @@ export interface Settings {
   aiEnabled: boolean;
   aiBaseUrl: string;
   aiModel: string;
+  readLaterChrome?: "tabs" | "brandControl";
+  pandaScoreApiToken?: string;
+  stratzApiToken?: string;
 }
 
 export type ReadLaterFilter = "all" | "unread" | "starred" | "archived";

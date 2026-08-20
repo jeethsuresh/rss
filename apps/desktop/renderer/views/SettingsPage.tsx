@@ -311,6 +311,32 @@ export function SettingsPage({
 
           {section === "sports" && (
             <section className="settings-section">
+              <h2>Dota 2 APIs</h2>
+              <p className="muted">
+                Tokens are stored locally in the app database and sent only to PandaScore / STRATZ from
+                the desktop backend. Env vars still work as a fallback if these fields are empty.
+              </p>
+              <label className="field">
+                PandaScore API token
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={settings.pandaScoreApiToken ?? ""}
+                  onChange={(e) => void patch({ pandaScoreApiToken: e.target.value })}
+                  placeholder="Required for Dota events &amp; matches"
+                />
+              </label>
+              <label className="field">
+                STRATZ API token
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={settings.stratzApiToken ?? ""}
+                  onChange={(e) => void patch({ stratzApiToken: e.target.value })}
+                  placeholder="Optional — game heroes, bans, player stats"
+                />
+              </label>
+
               <h2>Baseball (MLB)</h2>
               <p className="muted">
                 Follow one or more MLB teams. Schedules and live games appear under Baseball in the Sports

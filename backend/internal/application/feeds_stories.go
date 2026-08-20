@@ -109,9 +109,16 @@ func (s *Service) UpdateSettings(ctx context.Context, patch map[string]any) (*do
 			sset.ReadLaterChrome = "tabs"
 		}
 	}
+	if v, ok := patch["pandaScoreApiToken"].(string); ok {
+		sset.PandaScoreAPIToken = strings.TrimSpace(v)
+	}
+	if v, ok := patch["stratzApiToken"].(string); ok {
+		sset.StratzAPIToken = strings.TrimSpace(v)
+	}
 	if err := s.Settings.Update(ctx, sset); err != nil {
 		return nil, err
 	}
+	s.applyDotaProviderTokens(ctx)
 	return s.Settings.Get(ctx)
 }
 

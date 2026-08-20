@@ -16,10 +16,12 @@ func (r *SettingsRepo) Get(ctx context.Context) (*domain.Settings, error) {
 	err := r.db.SQL.QueryRowContext(ctx, `
 		SELECT default_poll_interval_seconds, theme, article_density, default_sort,
 		       mark_read_on_open, notifications_enabled,
-		       ai_enabled, ai_base_url, ai_model, read_later_chrome
+		       ai_enabled, ai_base_url, ai_model, read_later_chrome,
+		       COALESCE(pandascore_api_token, ''), COALESCE(stratz_api_token, '')
 		FROM settings WHERE id = 1`).Scan(
 		&s.DefaultPollIntervalSeconds, &s.Theme, &s.ArticleDensity, &s.DefaultSort,
 		&markRead, &notif, &aiEnabled, &s.AIBaseURL, &s.AIModel, &s.ReadLaterChrome,
+		&s.PandaScoreAPIToken, &s.StratzAPIToken,
 	)
 	if err != nil {
 		return nil, err
@@ -45,11 +47,13 @@ func (r *SettingsRepo) Update(ctx context.Context, settings *domain.Settings) er
 		UPDATE settings SET
 			default_poll_interval_seconds=?, theme=?, article_density=?, default_sort=?,
 			mark_read_on_open=?, notifications_enabled=?,
-			ai_enabled=?, ai_base_url=?, ai_model=?, read_later_chrome=?
+			ai_enabled=?, ai_base_url=?, ai_model=?, read_later_chrome=?,
+			pandascore_api_token=?, stratz_api_token=?
 		WHERE id = 1`,
 		settings.DefaultPollIntervalSeconds, settings.Theme, settings.ArticleDensity, settings.DefaultSort,
 		boolToInt(settings.MarkReadOnOpen), boolToInt(settings.NotificationsEnabled),
 		boolToInt(settings.AIEnabled), settings.AIBaseURL, settings.AIModel, chrome,
+		settings.PandaScoreAPIToken, settings.StratzAPIToken,
 	)
 	return err
 }
