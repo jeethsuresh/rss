@@ -70,14 +70,53 @@ type MlbPlay struct {
 	AtBatIndex    *int   `json:"atBatIndex,omitempty"`
 }
 
+type MlbBatterLine struct {
+	PlayerID   int    `json:"playerId"`
+	Name       string `json:"name"`
+	Position   string `json:"position,omitempty"`
+	BattingOrder int  `json:"battingOrder,omitempty"`
+	AtBats     int    `json:"atBats"`
+	Runs       int    `json:"runs"`
+	Hits       int    `json:"hits"`
+	RBI        int    `json:"rbi"`
+	Walks      int    `json:"walks"`
+	StrikeOuts int    `json:"strikeOuts"`
+	HomeRuns   int    `json:"homeRuns"`
+	Summary    string `json:"summary,omitempty"`
+}
+
+type MlbPitcherLine struct {
+	PlayerID       int    `json:"playerId"`
+	Name           string `json:"name"`
+	Note           string `json:"note,omitempty"`
+	InningsPitched string `json:"inningsPitched"`
+	Hits           int    `json:"hits"`
+	Runs           int    `json:"runs"`
+	EarnedRuns     int    `json:"earnedRuns"`
+	Walks          int    `json:"walks"`
+	StrikeOuts     int    `json:"strikeOuts"`
+	HomeRuns       int    `json:"homeRuns"`
+	PitchesThrown  int    `json:"pitchesThrown"`
+	Strikes        int    `json:"strikes,omitempty"`
+	Summary        string `json:"summary,omitempty"`
+}
+
+type MlbTeamBox struct {
+	Team     MlbTeam          `json:"team"`
+	Batters  []MlbBatterLine  `json:"batters"`
+	Pitchers []MlbPitcherLine `json:"pitchers"`
+}
+
 type MlbGameDetail struct {
-	Game     MlbGame     `json:"game"`
-	Innings  []MlbInning `json:"innings"`
-	Plays    []MlbPlay   `json:"plays"`
-	AwayHits int         `json:"awayHits,omitempty"`
-	HomeHits int         `json:"homeHits,omitempty"`
-	AwayErrors int       `json:"awayErrors,omitempty"`
-	HomeErrors int       `json:"homeErrors,omitempty"`
+	Game       MlbGame     `json:"game"`
+	Innings    []MlbInning `json:"innings"`
+	Plays      []MlbPlay   `json:"plays"`
+	AwayHits   int         `json:"awayHits,omitempty"`
+	HomeHits   int         `json:"homeHits,omitempty"`
+	AwayErrors int         `json:"awayErrors,omitempty"`
+	HomeErrors int         `json:"homeErrors,omitempty"`
+	AwayBox    *MlbTeamBox `json:"awayBox,omitempty"`
+	HomeBox    *MlbTeamBox `json:"homeBox,omitempty"`
 }
 
 type SportsRepository interface {

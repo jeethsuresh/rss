@@ -330,7 +330,59 @@ type liveFeed struct {
 				} `json:"about"`
 			} `json:"allPlays"`
 		} `json:"plays"`
+		Boxscore struct {
+			Teams struct {
+				Away boxTeam `json:"away"`
+				Home boxTeam `json:"home"`
+			} `json:"teams"`
+		} `json:"boxscore"`
 	} `json:"liveData"`
+}
+
+type boxTeam struct {
+	Team struct {
+		ID           int    `json:"id"`
+		Name         string `json:"name"`
+		Abbreviation string `json:"abbreviation"`
+		TeamName     string `json:"teamName"`
+	} `json:"team"`
+	Batters  []int `json:"batters"`
+	Pitchers []int `json:"pitchers"`
+	Players  map[string]struct {
+		Person struct {
+			ID       int    `json:"id"`
+			FullName string `json:"fullName"`
+		} `json:"person"`
+		Position struct {
+			Abbreviation string `json:"abbreviation"`
+		} `json:"position"`
+		BattingOrder string `json:"battingOrder"`
+		Stats        struct {
+			Batting struct {
+				Summary    string `json:"summary"`
+				AtBats     int    `json:"atBats"`
+				Runs       int    `json:"runs"`
+				Hits       int    `json:"hits"`
+				RBI        int    `json:"rbi"`
+				BaseOnBalls int   `json:"baseOnBalls"`
+				StrikeOuts int    `json:"strikeOuts"`
+				HomeRuns   int    `json:"homeRuns"`
+			} `json:"batting"`
+			Pitching struct {
+				Note           string `json:"note"`
+				Summary        string `json:"summary"`
+				InningsPitched string `json:"inningsPitched"`
+				Hits           int    `json:"hits"`
+				Runs           int    `json:"runs"`
+				EarnedRuns     int    `json:"earnedRuns"`
+				BaseOnBalls    int    `json:"baseOnBalls"`
+				StrikeOuts     int    `json:"strikeOuts"`
+				HomeRuns       int    `json:"homeRuns"`
+				PitchesThrown  int    `json:"pitchesThrown"`
+				Strikes        int    `json:"strikes"`
+			} `json:"pitching"`
+		} `json:"stats"`
+	} `json:"players"`
 }
 
 type liveTeam struct {
@@ -418,6 +470,9 @@ func normalizeLiveFeed(raw liveFeed) *domain.MlbGameDetail {
 		})
 	}
 
+	awayBox := normalizeBoxTeam(raw.LiveData.Boxscore.Teams.Away, game.AwayTeam)
+	homeBox := normalizeBoxTeam(raw.LiveData.Boxscore.Teams.Home, game.HomeTeam)
+
 	return &domain.MlbGameDetail{
 		Game:       game,
 		Innings:    innings,
@@ -426,7 +481,101 @@ func normalizeLiveFeed(raw liveFeed) *domain.MlbGameDetail {
 		HomeHits:   raw.LiveData.Linescore.Teams.Home.Hits,
 		AwayErrors: raw.LiveData.Linescore.Teams.Away.Errors,
 		HomeErrors: raw.LiveData.Linescore.Teams.Home.Errors,
+		AwayBox:    awayBox,
+		HomeBox:    homeBox,
 	}
+}
+
+func normalizeBoxTeam(raw boxTeam, fallback domain.MlbTeam) *domain.MlbTeamBox {
+	team := fallback
+	if raw.Team.ID > 0 {
+		team = domain.MlbTeam{
+			ID:           raw.Team.ID,
+			Name:         firstNonEmpty(raw.Team.Name, fallback.Name),
+			Abbreviation: firstNonEmpty(raw.Team.Abbreviation, fallback.Abbreviation),
+			ShortName:    firstNonEmpty(raw.Team.TeamName, fallback.ShortName),
+			LogoURL:      logoURL(raw.Team.ID),
+		}
+	}
+	playerKey := func(id int) string { return fmt.Sprintf("ID%d", id) }
+
+	batters := make([]domain.MlbBatterLine, 0, len(raw.Batters))
+	for _, id := range raw.Batters {
+		p, ok := raw.Players[playerKey(id)]
+		if !ok {
+			continue
+		}
+		b := p.Stats.Batting
+		// Skip pitchers with empty batting lines that never appeared (0 PA-ish and no summary)
+		if b.AtBats == 0 && b.Hits == 0 && b.Runs == 0 && b.RBI == 0 && b.BaseOnBalls == 0 &&
+			b.StrikeOuts == 0 && b.Summary == "" && p.BattingOrder == "" {
+			continue
+		}
+		order := 0
+		if p.BattingOrder != "" {
+			if n, err := strconv.Atoi(p.BattingOrder); err == nil {
+				order = n / 100 // MLB uses 100,200,... for slots
+				if order == 0 {
+					order = n
+				}
+			}
+		}
+		batters = append(batters, domain.MlbBatterLine{
+			PlayerID:     p.Person.ID,
+			Name:         p.Person.FullName,
+			Position:     p.Position.Abbreviation,
+			BattingOrder: order,
+			AtBats:       b.AtBats,
+			Runs:         b.Runs,
+			Hits:         b.Hits,
+			RBI:          b.RBI,
+			Walks:        b.BaseOnBalls,
+			StrikeOuts:   b.StrikeOuts,
+			HomeRuns:     b.HomeRuns,
+			Summary:      b.Summary,
+		})
+	}
+
+	pitchers := make([]domain.MlbPitcherLine, 0, len(raw.Pitchers))
+	for _, id := range raw.Pitchers {
+		p, ok := raw.Players[playerKey(id)]
+		if !ok {
+			continue
+		}
+		pit := p.Stats.Pitching
+		if pit.InningsPitched == "" && pit.PitchesThrown == 0 && pit.Summary == "" {
+			continue
+		}
+		pitchers = append(pitchers, domain.MlbPitcherLine{
+			PlayerID:       p.Person.ID,
+			Name:           p.Person.FullName,
+			Note:           pit.Note,
+			InningsPitched: pit.InningsPitched,
+			Hits:           pit.Hits,
+			Runs:           pit.Runs,
+			EarnedRuns:     pit.EarnedRuns,
+			Walks:          pit.BaseOnBalls,
+			StrikeOuts:     pit.StrikeOuts,
+			HomeRuns:       pit.HomeRuns,
+			PitchesThrown:  pit.PitchesThrown,
+			Strikes:        pit.Strikes,
+			Summary:        pit.Summary,
+		})
+	}
+
+	if len(batters) == 0 && len(pitchers) == 0 {
+		return nil
+	}
+	return &domain.MlbTeamBox{Team: team, Batters: batters, Pitchers: pitchers}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (c *Client) Standings(ctx context.Context, season int) (*domain.MlbStandings, error) {

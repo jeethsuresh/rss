@@ -252,6 +252,43 @@ export interface MlbPlay {
   atBatIndex?: number;
 }
 
+export interface MlbBatterLine {
+  playerId: number;
+  name: string;
+  position?: string;
+  battingOrder?: number;
+  atBats: number;
+  runs: number;
+  hits: number;
+  rbi: number;
+  walks: number;
+  strikeOuts: number;
+  homeRuns: number;
+  summary?: string;
+}
+
+export interface MlbPitcherLine {
+  playerId: number;
+  name: string;
+  note?: string;
+  inningsPitched: string;
+  hits: number;
+  runs: number;
+  earnedRuns: number;
+  walks: number;
+  strikeOuts: number;
+  homeRuns: number;
+  pitchesThrown: number;
+  strikes?: number;
+  summary?: string;
+}
+
+export interface MlbTeamBox {
+  team: MlbTeam;
+  batters: MlbBatterLine[];
+  pitchers: MlbPitcherLine[];
+}
+
 export interface MlbGameDetail {
   game: MlbGame;
   innings: MlbInning[];
@@ -260,6 +297,8 @@ export interface MlbGameDetail {
   homeHits?: number;
   awayErrors?: number;
   homeErrors?: number;
+  awayBox?: MlbTeamBox | null;
+  homeBox?: MlbTeamBox | null;
 }
 
 export type F1RaceStatus = "scheduled" | "in_progress" | "completed" | "cancelled";

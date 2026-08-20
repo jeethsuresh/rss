@@ -291,6 +291,25 @@ button {
   vertical-align: middle;
 }
 
+.sports-team-box {
+  margin-bottom: 20px;
+}
+
+.sports-box-subheading {
+  margin: 12px 0 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sports-box-table .sports-box-player {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sports-player-stats {
+  margin-top: 8px;
+}
+
 .sports-plays-header {
   display: flex;
   align-items: center;

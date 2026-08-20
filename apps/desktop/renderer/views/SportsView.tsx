@@ -12,6 +12,7 @@ import type {
   MlbStandingSection,
   MlbStandings,
   MlbTeam,
+  MlbTeamBox,
   ReaderBackend,
   SportsCacheUpdatedEvent,
   SportsRefreshEvent,
@@ -32,6 +33,7 @@ type MlbSelection =
   | { type: "standings"; sectionId: string };
 
 type F1Mode = "races" | "wdc" | "wcc";
+type MlbDetailTab = "plays" | "stats";
 
 const BUCKETS: { id: GameBucket; label: string }[] = [
   { id: "completed", label: "Completed" },
@@ -132,6 +134,96 @@ function resultStatus(r: F1RaceDetail["results"][number]): string {
   return r.gapToLeader || "";
 }
 
+function TeamBoxSection({ box }: { box: MlbTeamBox }) {
+  const label = box.team.abbreviation || box.team.shortName || box.team.name;
+  return (
+    <div className="sports-team-box">
+      <h2 className="sports-plays-heading">{label}</h2>
+      <h3 className="sports-box-subheading">Hitting</h3>
+      {box.batters.length === 0 ? (
+        <p className="muted">No hitting lines yet.</p>
+      ) : (
+        <div className="sports-linescore-wrap">
+          <table className="sports-linescore sports-standings-table sports-box-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Pos</th>
+                <th>AB</th>
+                <th>R</th>
+                <th>H</th>
+                <th>RBI</th>
+                <th>BB</th>
+                <th>SO</th>
+                <th>HR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {box.batters.map((b) => (
+                <tr key={b.playerId}>
+                  <td className="sports-box-player">{b.name}</td>
+                  <td>{b.position || "—"}</td>
+                  <td>{b.atBats}</td>
+                  <td>{b.runs}</td>
+                  <td>{b.hits}</td>
+                  <td>{b.rbi}</td>
+                  <td>{b.walks}</td>
+                  <td>{b.strikeOuts}</td>
+                  <td>{b.homeRuns}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <h3 className="sports-box-subheading">Pitching</h3>
+      {box.pitchers.length === 0 ? (
+        <p className="muted">No pitching lines yet.</p>
+      ) : (
+        <div className="sports-linescore-wrap">
+          <table className="sports-linescore sports-standings-table sports-box-table">
+            <thead>
+              <tr>
+                <th>Pitcher</th>
+                <th>IP</th>
+                <th>H</th>
+                <th>R</th>
+                <th>ER</th>
+                <th>BB</th>
+                <th>K</th>
+                <th>HR</th>
+                <th>P</th>
+              </tr>
+            </thead>
+            <tbody>
+              {box.pitchers.map((p) => (
+                <tr key={p.playerId}>
+                  <td className="sports-box-player">
+                    {p.name}
+                    {p.note ? (
+                      <span className="sports-scoring-badge" style={{ marginLeft: 6 }}>
+                        {p.note}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td>{p.inningsPitched || "—"}</td>
+                  <td>{p.hits}</td>
+                  <td>{p.runs}</td>
+                  <td>{p.earnedRuns}</td>
+                  <td>{p.walks}</td>
+                  <td>{p.strikeOuts}</td>
+                  <td>{p.homeRuns}</td>
+                  <td>{p.pitchesThrown || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [activeSport, setActiveSport] = useState<SportId>("mlb");
 
@@ -145,6 +237,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [activePk, setActivePk] = useState<number | null>(null);
   const [detail, setDetail] = useState<MlbGameDetail | null>(null);
   const [scoringOnly, setScoringOnly] = useState(false);
+  const [mlbDetailTab, setMlbDetailTab] = useState<MlbDetailTab>("plays");
   const [mlbStandings, setMlbStandings] = useState<MlbStandings | null>(null);
 
   // --- F1 ---
@@ -443,6 +536,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   useEffect(() => {
     setScoringOnly(false);
+    setMlbDetailTab("plays");
   }, [activePk]);
 
   useEffect(() => {
@@ -1028,52 +1122,85 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                 )}
 
                 <div className="sports-plays-header">
-                  <h2 className="sports-plays-heading">Plays</h2>
-                  <div className="content-tabs sports-plays-filter" role="group" aria-label="Play filter">
+                  <div className="content-tabs sports-plays-filter" role="group" aria-label="Game detail view">
                     <button
                       type="button"
-                      className={`content-tab ${!scoringOnly ? "active" : ""}`}
-                      onClick={() => setScoringOnly(false)}
+                      className={`content-tab ${mlbDetailTab === "plays" ? "active" : ""}`}
+                      onClick={() => setMlbDetailTab("plays")}
                     >
-                      All
+                      Plays
                     </button>
                     <button
                       type="button"
-                      className={`content-tab ${scoringOnly ? "active" : ""}`}
-                      onClick={() => setScoringOnly(true)}
+                      className={`content-tab ${mlbDetailTab === "stats" ? "active" : ""}`}
+                      onClick={() => setMlbDetailTab("stats")}
                     >
-                      Scoring
+                      Player Stats
                     </button>
                   </div>
-                </div>
-                <div className="sports-plays">
-                  {detail.plays.length === 0 ? (
-                    <p className="muted">No plays yet.</p>
-                  ) : visiblePlays.length === 0 ? (
-                    <p className="muted">No scoring plays yet.</p>
-                  ) : (
-                    visiblePlays.map((p) => (
-                      <div
-                        key={p.id}
-                        className={`sports-play ${p.isScoringPlay ? "scoring" : ""}`}
+                  {mlbDetailTab === "plays" ? (
+                    <div className="content-tabs sports-plays-filter" role="group" aria-label="Play filter">
+                      <button
+                        type="button"
+                        className={`content-tab ${!scoringOnly ? "active" : ""}`}
+                        onClick={() => setScoringOnly(false)}
                       >
-                        <div className="sports-play-meta">
-                          <span>
-                            {p.half === "top" ? "Top" : "Bot"} {p.inning}
-                          </span>
-                          <span>{p.event}</span>
-                          {p.isScoringPlay ? <span className="sports-scoring-badge">Scoring</span> : null}
-                          {p.awayScore != null && p.homeScore != null ? (
-                            <span>
-                              {p.awayScore}–{p.homeScore}
-                            </span>
-                          ) : null}
-                        </div>
-                        <p>{p.description}</p>
-                      </div>
-                    ))
-                  )}
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        className={`content-tab ${scoringOnly ? "active" : ""}`}
+                        onClick={() => setScoringOnly(true)}
+                      >
+                        Scoring
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
+
+                {mlbDetailTab === "plays" ? (
+                  <div className="sports-plays">
+                    {detail.plays.length === 0 ? (
+                      <p className="muted">No plays yet.</p>
+                    ) : visiblePlays.length === 0 ? (
+                      <p className="muted">No scoring plays yet.</p>
+                    ) : (
+                      visiblePlays.map((p) => (
+                        <div
+                          key={p.id}
+                          className={`sports-play ${p.isScoringPlay ? "scoring" : ""}`}
+                        >
+                          <div className="sports-play-meta">
+                            <span>
+                              {p.half === "top" ? "Top" : "Bot"} {p.inning}
+                            </span>
+                            <span>{p.event}</span>
+                            {p.isScoringPlay ? (
+                              <span className="sports-scoring-badge">Scoring</span>
+                            ) : null}
+                            {p.awayScore != null && p.homeScore != null ? (
+                              <span>
+                                {p.awayScore}–{p.homeScore}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p>{p.description}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div className="sports-player-stats">
+                    {!detail.awayBox && !detail.homeBox ? (
+                      <p className="muted">Player stats are not available yet for this game.</p>
+                    ) : (
+                      <>
+                        {detail.awayBox ? <TeamBoxSection box={detail.awayBox} /> : null}
+                        {detail.homeBox ? <TeamBoxSection box={detail.homeBox} /> : null}
+                      </>
+                    )}
+                  </div>
+                )}
               </article>
             )}
           </section>
