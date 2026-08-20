@@ -1027,7 +1027,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
               {renderContentTabs(active)}
               <h1>
                 <PriorityBadge priority={active.priority} />
-                {decodeHtmlEntities(active.title || "(untitled)")}              </h1>
+                {decodeHtmlEntities(active.title || "(untitled)")}
+              </h1>
               <div className="reader-actions">
                 <button
                   className="btn"

@@ -18,10 +18,28 @@ export function sanitizeArticleHtml(html: string): string {
   });
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: "\u00a0",
+};
+
+/** Decode common HTML entities in plain text (titles, summaries). Safe in browser and Bun. */
 export function decodeHtmlEntities(text: string): string {
-  if (!text || (!text.includes("&") && !text.includes("&#"))) return text;
-  const doc = new DOMParser().parseFromString(`<!doctype html><body>${text}`, "text/html");
-  return doc.body.textContent ?? text;
+  if (!text || !text.includes("&")) return text;
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+    })
+    .replace(/&#(\d+);/g, (_, dec: string) => {
+      const code = Number.parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+    })
+    .replace(/&([a-zA-Z]+);/g, (match, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? match);
 }
 
 export function formatRelativeTime(iso: string | null | undefined): string {

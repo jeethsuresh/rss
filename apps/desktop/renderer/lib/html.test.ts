@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeArticleHtml, stripHtml } from "./html";
+import { decodeHtmlEntities, sanitizeArticleHtml, stripHtml } from "./html";
 
 describe("html sanitization", () => {
   test("strips scripts", () => {
@@ -10,5 +10,10 @@ describe("html sanitization", () => {
 
   test("stripHtml returns text", () => {
     expect(stripHtml("<b>Hello</b> world")).toBe("Hello world");
+  });
+
+  test("decodeHtmlEntities decodes apostrophes and quotes", () => {
+    expect(decodeHtmlEntities("I like &#x27;em thick")).toBe("I like 'em thick");
+    expect(decodeHtmlEntities("Tom &amp; Jerry")).toBe("Tom & Jerry");
   });
 });
