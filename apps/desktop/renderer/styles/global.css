@@ -176,15 +176,10 @@ button {
 .sports-team-heading {
   cursor: default;
   font-weight: 600;
-  pointer-events: none;
-}
-
-.sports-team-heading .sports-unfollow {
-  pointer-events: auto;
 }
 
 .nav-item-nested {
-  padding-left: 28px;
+  padding-left: 40px;
   font-size: 0.92rem;
 }
 
@@ -193,16 +188,6 @@ button {
   height: 18px;
   object-fit: contain;
   flex-shrink: 0;
-}
-
-.sports-unfollow {
-  color: var(--muted);
-  padding: 0 4px;
-  cursor: pointer;
-  border: none;
-  background: transparent;
-  font: inherit;
-  line-height: 1;
 }
 
 .sports-team-check {

@@ -177,11 +177,6 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     });
   }, [backend, activePk]);
 
-  const toggleFollow = async (teamId: number) => {
-    const next = await backend.sports.followedToggle(teamId);
-    setFollowed(next ?? []);
-  };
-
   const gamesByDate = useMemo(() => {
     const map = new Map<string, MlbGame[]>();
     for (const g of visibleGames) {
@@ -224,14 +219,6 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                 {t.logoUrl ? <img src={t.logoUrl} alt="" className="sports-logo" /> : null}
                 {t.abbreviation || t.name}
               </span>
-              <button
-                type="button"
-                className="sports-unfollow"
-                title="Unfollow"
-                onClick={() => void toggleFollow(t.id)}
-              >
-                ×
-              </button>
             </div>
             {BUCKETS.map((b) => (
               <button
