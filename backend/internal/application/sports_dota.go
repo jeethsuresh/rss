@@ -239,7 +239,13 @@ func (s *Service) SportsDotaGameGet(ctx context.Context, matchID int, gameIndex 
 	base.DetailAvailable = false
 	base.MappingConfidence = "unknown"
 	if base.DurationSeconds == nil || *base.DurationSeconds <= 0 {
-		base.DetailError = "Game not finished yet — detailed stats unavailable"
+		if detail.Match.Status == domain.DotaMatchCanceled {
+			base.DetailError = "This match was canceled — no games were played"
+		} else if detail.Match.Status == domain.DotaMatchUpcoming {
+			base.DetailError = "Game has not started yet — detailed stats unavailable"
+		} else {
+			base.DetailError = "Game not finished yet — detailed stats unavailable"
+		}
 	} else {
 		base.DetailError = "Could not map this game to a Steam match — detailed stats unavailable"
 	}

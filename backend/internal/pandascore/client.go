@@ -186,8 +186,10 @@ func MapMatchStatus(raw string) domain.DotaMatchStatus {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "running", "live":
 		return domain.DotaMatchLive
-	case "finished", "completed", "canceled", "cancelled":
+	case "finished", "completed":
 		return domain.DotaMatchCompleted
+	case "canceled", "cancelled":
+		return domain.DotaMatchCanceled
 	default:
 		return domain.DotaMatchUpcoming
 	}
@@ -450,6 +452,11 @@ func matchFromPS(m psMatch, yearFallback int) domain.DotaMatch {
 func gamesFromPS(matchID int, games []psGame, teamA, teamB domain.DotaTeam) []domain.DotaGame {
 	out := make([]domain.DotaGame, 0, len(games))
 	for _, g := range games {
+		// Skip placeholder slots that never started (common on canceled series).
+		st := strings.ToLower(strings.TrimSpace(g.Status))
+		if (st == "not_started" || st == "") && (g.Length == nil || *g.Length <= 0) && !g.Finished && !g.Complete {
+			continue
+		}
 		idx := g.Position
 		if idx <= 0 {
 			idx = len(out) + 1
@@ -465,14 +472,14 @@ func gamesFromPS(matchID int, games []psGame, teamA, teamB domain.DotaTeam) []do
 		}
 		if g.Winner != nil && g.Winner.ID != nil {
 			wid := *g.Winner.ID
-			if wid == teamA.ID {
-				// Winner side unknown without radiant/dire — leave Winner empty; set teams for context.
-				dg.RadiantTeam = &teamA
-				dg.DireTeam = &teamB
-			} else if wid == teamB.ID {
-				dg.RadiantTeam = &teamA
-				dg.DireTeam = &teamB
+			switch wid {
+			case teamA.ID:
+				dg.WinnerTeamName = teamA.Name
+			case teamB.ID:
+				dg.WinnerTeamName = teamB.Name
 			}
+			dg.RadiantTeam = &teamA
+			dg.DireTeam = &teamB
 		}
 		out = append(out, dg)
 	}
@@ -532,7 +539,11 @@ func (c *Client) ListSerieMatches(ctx context.Context, serieID int) ([]domain.Do
 	}
 	out := make([]domain.DotaMatch, 0, len(raw))
 	for _, m := range raw {
-		out = append(out, matchFromPS(m, 0))
+		mm := matchFromPS(m, 0)
+		if mm.Status == domain.DotaMatchCanceled {
+			continue
+		}
+		out = append(out, mm)
 	}
 	return out, nil
 }
@@ -570,7 +581,11 @@ func (c *Client) ListTeamMatches(ctx context.Context, teamID int, year int) ([]d
 	}
 	out := make([]domain.DotaMatch, 0, len(raw))
 	for _, m := range raw {
-		out = append(out, matchFromPS(m, year))
+		mm := matchFromPS(m, year)
+		if mm.Status == domain.DotaMatchCanceled {
+			continue
+		}
+		out = append(out, mm)
 	}
 	return out, nil
 }

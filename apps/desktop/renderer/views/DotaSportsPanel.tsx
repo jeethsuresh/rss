@@ -359,6 +359,9 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
         case "upcoming":
           upcoming.push(m);
           break;
+        case "canceled":
+          // Filtered server-side; ignore if cached.
+          break;
         default: {
           const _exhaustive: never = m.status;
           void _exhaustive;
@@ -704,7 +707,13 @@ export function DotaSportsPanel({ backend, activeSport, onSelectSport }: Props) 
                   <span>{formatDuration(g.durationSeconds)}</span>
                 </div>
                 <h3 className="article-title">
-                  {g.winner ? `${g.winner} win` : "Result pending"}
+                  {g.winnerTeamName
+                    ? `${g.winnerTeamName} win`
+                    : g.winner
+                      ? `${g.winner} win`
+                      : g.durationSeconds
+                        ? "Finished"
+                        : "Not played"}
                 </h3>
               </button>
             ))}

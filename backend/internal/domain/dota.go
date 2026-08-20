@@ -26,6 +26,7 @@ const (
 	DotaMatchUpcoming  DotaMatchStatus = "upcoming"
 	DotaMatchLive      DotaMatchStatus = "live"
 	DotaMatchCompleted DotaMatchStatus = "completed"
+	DotaMatchCanceled  DotaMatchStatus = "canceled"
 )
 
 type DotaEventType string
@@ -129,6 +130,7 @@ type DotaGame struct {
 	StartedAt       *string        `json:"startedAt,omitempty"`
 	DurationSeconds *int           `json:"durationSeconds,omitempty"`
 	Winner          DotaSide       `json:"winner,omitempty"`
+	WinnerTeamName  string         `json:"winnerTeamName,omitempty"`
 	RadiantTeam     *DotaTeam      `json:"radiantTeam,omitempty"`
 	DireTeam        *DotaTeam      `json:"direTeam,omitempty"`
 	RadiantScore    *int           `json:"radiantScore,omitempty"`

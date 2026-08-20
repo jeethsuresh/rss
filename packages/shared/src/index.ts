@@ -440,7 +440,7 @@ export type DotaEventTier =
   | "unknown";
 
 export type DotaEventStatus = "upcoming" | "ongoing" | "completed";
-export type DotaMatchStatus = "upcoming" | "live" | "completed";
+export type DotaMatchStatus = "upcoming" | "live" | "completed" | "canceled";
 export type DotaEventType = "league" | "tournament";
 export type DotaSide = "radiant" | "dire";
 
@@ -531,6 +531,7 @@ export interface DotaGame {
   durationSeconds?: number;
   startedAt?: string;
   winner?: DotaSide;
+  winnerTeamName?: string;
   radiantTeam?: DotaTeam;
   direTeam?: DotaTeam;
   radiantScore?: number;

@@ -16,3 +16,14 @@ func TestFindInProMatchesTIGame(t *testing.T) {
 		t.Fatalf("got id=%d conf=%q ok=%v", id, conf, ok)
 	}
 }
+
+func TestFindInTeamMatchesSpiritXG(t *testing.T) {
+	list := []opendota.TeamMatch{
+		{MatchID: 8943143428, StartTime: 1786605530, Duration: 3054, OpposingTeamName: "Xtreme Gaming"},
+		{MatchID: 99, StartTime: 1786605530, Duration: 3054, OpposingTeamName: "Other"},
+	}
+	id, ok := opendota.FindInTeamMatches(list, 1786605611, 3054, "Xtreme Gaming", "XG")
+	if !ok || id != 8943143428 {
+		t.Fatalf("got id=%d ok=%v", id, ok)
+	}
+}
