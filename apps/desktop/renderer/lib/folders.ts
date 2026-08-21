@@ -89,3 +89,14 @@ export function withFolderExpanded(collapsedIds: ReadonlySet<string>, folderId: 
   next.delete(folderId);
   return next;
 }
+
+export function folderUnreadCount(feeds: Feed[], folder: Folder): number {
+  return feedsForFolder(feeds, folder).reduce((n, feed) => n + (feed.unreadCount || 0), 0);
+}
+
+export function folderNameWithUnread(name: string, unread: number): string {
+  if (unread <= 0) {
+    return name;
+  }
+  return `${name} (${unread})`;
+}

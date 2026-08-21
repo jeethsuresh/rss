@@ -15,6 +15,8 @@ import {
   withFeedAssigned,
   withFeedUnassigned,
   withFolderExpanded,
+  folderUnreadCount,
+  folderNameWithUnread,
 } from "./folders";
 
 function feed(partial: Partial<Feed> & Pick<Feed, "id">): Feed {
@@ -135,5 +137,21 @@ describe("folder collapse", () => {
   test("selecting a folder expands it", () => {
     const collapsed = toggleCollapsedFolder(new Set(), "news");
     expect(isFolderCollapsed(withFolderExpanded(collapsed, "news"), "news")).toBe(false);
+  });
+});
+
+describe("folder unread total", () => {
+  test("sums unread across assigned feeds and ignores read later", () => {
+    const nyt = feed({ id: "nyt", unreadCount: 3 });
+    const bbc = feed({ id: "bbc", unreadCount: 5 });
+    const hn = feed({ id: "hn", unreadCount: 9 });
+    const later = feed({ id: "rl", unreadCount: 4, isReadLater: true });
+    const news = folder({ id: "news", name: "News", feedIds: ["nyt", "bbc", "rl"] });
+    expect(folderUnreadCount([nyt, bbc, hn, later], news)).toBe(8);
+  });
+
+  test("hides the parenthetical when there are no unread items", () => {
+    expect(folderNameWithUnread("News", 0)).toBe("News");
+    expect(folderNameWithUnread("News", 8)).toBe("News (8)");
   });
 });

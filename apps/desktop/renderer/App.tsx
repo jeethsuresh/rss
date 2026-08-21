@@ -20,6 +20,8 @@ import {
   feedIdFromDropData,
   feedsForFolder,
   feedsNotInFolder,
+  folderNameWithUnread,
+  folderUnreadCount,
   isFeedDragTypes,
   isFolderCollapsed,
   mergeFolderMemberships,
@@ -1266,7 +1268,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     }}
                     title="Drop a feed here to add it to this folder"
                   >
-                    {folder.name}
+                    {folderNameWithUnread(folder.name, folderUnreadCount(feeds, folder))}
                   </button>
                   <button
                     type="button"
