@@ -21,11 +21,14 @@ import {
   feedsForFolder,
   feedsNotInFolder,
   isFeedDragTypes,
+  isFolderCollapsed,
   mergeFolderMemberships,
   normalizeFolderName,
+  toggleCollapsedFolder,
   unassignedFeeds,
   withFeedAssigned,
   withFeedUnassigned,
+  withFolderExpanded,
 } from "./lib/folders";
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
@@ -130,6 +133,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
   const [contentBusy, setContentBusy] = useState(false);
   const foldersRef = useRef<Folder[]>([]);
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
 
   const active = articles.find((a) => a.id === activeId) ?? null;
   const isStoriesMode = selected.type === "stories";
@@ -851,6 +855,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       setFolderName("");
       await loadFeeds();
       setSelected({ type: "folder", id: created.id });
+      setCollapsedFolderIds((prev) => withFolderExpanded(prev, created.id));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create folder");
     } finally {
@@ -865,6 +870,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     try {
       await backend.folders.assignFeed(folderId, feedId);
       await loadFeeds({ type: "assign", folderId, feedId });
+      setCollapsedFolderIds((prev) => withFolderExpanded(prev, folderId));
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add feed to folder");
@@ -894,6 +900,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     setError(null);
     setAssignFolderId(folderId);
     setAssignFeedId(options[0]?.id ?? "");
+    setCollapsedFolderIds((prev) => withFolderExpanded(prev, folderId));
   };
 
   const onFeedDragStart = (event: ReactDragEvent, feedId: string) => {
@@ -1132,65 +1139,88 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             <span>Stories</span>
           </button>
 
-          <div className="section-label">Folders</div>
-          <button
-            type="button"
-            className="nav-item"
-            onClick={() => {
-              setError(null);
-              setFolderName("");
-              setShowFolderCreate(true);
-            }}
-          >
-            + New folder
-          </button>
+          <div className="section-label-row">
+            <div className="section-label">Folders</div>
+            <button
+              type="button"
+              className="section-add"
+              aria-label="New folder"
+              title="New folder"
+              onClick={() => {
+                setError(null);
+                setFolderName("");
+                setShowFolderCreate(true);
+              }}
+            >
+              +
+            </button>
+          </div>
           {folders.map((folder) => {
             const nestedFeeds = feedsForFolder(feeds, folder);
             const canAdd = feedsNotInFolder(feeds, folder).length > 0;
+            const collapsed = isFolderCollapsed(collapsedFolderIds, folder.id);
             return (
               <div key={folder.id} onDragOver={onFolderDragOver} onDrop={(e) => onFolderDrop(e, folder.id)}>
-                <button
-                  type="button"
-                  className={`nav-item ${selected.type === "folder" && selected.id === folder.id ? "active" : ""}`}
-                  onClick={() => setSelected({ type: "folder", id: folder.id })}
-                  title="Drop a feed here to add it to this folder"
+                <div
+                  className={`folder-item ${selected.type === "folder" && selected.id === folder.id ? "active" : ""}`}
                 >
-                  {folder.name}
-                </button>
-                {nestedFeeds.map((feed) => (
-                  <div
-                    key={`${folder.id}-${feed.id}`}
-                    className="feed-drag"
-                    draggable
-                    onDragStart={(e) => onFeedDragStart(e, feed.id)}
-                  >
-                    <button
-                      type="button"
-                      className={`nav-item nav-item-nested ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
-                      onClick={() => setSelected({ type: "feed", id: feed.id })}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        void unassignFeedFromFolder(folder.id, feed.id);
-                      }}
-                      title={feed.lastError || feed.url}
-                    >
-                      <span>
-                        {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
-                        {feed.title || feed.url}
-                      </span>
-                      <span className="count">{feed.unreadCount || ""}</span>
-                    </button>
-                  </div>
-                ))}
-                {canAdd && (
                   <button
                     type="button"
-                    className="nav-item nav-item-nested"
+                    className="folder-item-chevron"
+                    aria-expanded={!collapsed}
+                    aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+                    onClick={() => setCollapsedFolderIds((prev) => toggleCollapsedFolder(prev, folder.id))}
+                  >
+                    {collapsed ? "▸" : "▾"}
+                  </button>
+                  <button
+                    type="button"
+                    className="folder-item-name"
+                    onClick={() => {
+                      setSelected({ type: "folder", id: folder.id });
+                      setCollapsedFolderIds((prev) => withFolderExpanded(prev, folder.id));
+                    }}
+                    title="Drop a feed here to add it to this folder"
+                  >
+                    {folder.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="section-add"
+                    aria-label={`Add feed to ${folder.name}`}
+                    title="Add feed to folder"
+                    disabled={!canAdd || busy}
                     onClick={() => openAssignModal(folder.id)}
                   >
-                    + Add feed
+                    +
                   </button>
-                )}
+                </div>
+                {!collapsed &&
+                  nestedFeeds.map((feed) => (
+                    <div
+                      key={`${folder.id}-${feed.id}`}
+                      className="feed-drag"
+                      draggable
+                      onDragStart={(e) => onFeedDragStart(e, feed.id)}
+                    >
+                      <button
+                        type="button"
+                        className={`nav-item nav-item-nested ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
+                        onClick={() => setSelected({ type: "feed", id: feed.id })}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          void unassignFeedFromFolder(folder.id, feed.id);
+                        }}
+                        title={feed.lastError || feed.url}
+                      >
+                        <span>
+                          {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
+                          {feed.title || feed.url}
+                        </span>
+                        <span className="count">{feed.unreadCount || ""}</span>
+                      </button>
+                    </div>
+                  ))}
               </div>
             );
           })}
@@ -1225,19 +1255,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         </aside>
 
         <section className="pane article-list">
-          {selectedFolder && (
-            <div className="folder-toolbar">
-              <span className="folder-toolbar-label">{selectedFolder.name}</span>
-              <button
-                type="button"
-                className="btn"
-                disabled={busy || feedsNotInFolder(feeds, selectedFolder).length === 0}
-                onClick={() => openAssignModal(selectedFolder.id)}
-              >
-                Add feed
-              </button>
-            </div>
-          )}
           {isStoriesMode ? (
             stories.length === 0 ? (
               <div className="empty">
@@ -1266,19 +1283,9 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
               <h2>{selectedFolder ? "No feeds in this folder" : "Nothing here"}</h2>
               <p>
                 {selectedFolder
-                  ? "Add a feed to this folder to see its articles."
+                  ? "Use + next to the folder name to add a feed."
                   : "Add a feed or widen your filters."}
               </p>
-              {selectedFolder && feedsNotInFolder(feeds, selectedFolder).length > 0 ? (
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={busy}
-                  onClick={() => openAssignModal(selectedFolder.id)}
-                >
-                  Add feed
-                </button>
-              ) : null}
             </div>
           ) : (
             articles.map((article) => (

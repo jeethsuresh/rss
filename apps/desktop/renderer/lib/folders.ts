@@ -69,3 +69,23 @@ export function isFeedDragTypes(types: ArrayLike<string>): boolean {
 export function feedIdFromDropData(getData: (type: string) => string): string {
   return getData(FEED_DRAG_MIME).trim();
 }
+
+export function isFolderCollapsed(collapsedIds: ReadonlySet<string>, folderId: string): boolean {
+  return collapsedIds.has(folderId);
+}
+
+export function toggleCollapsedFolder(
+  collapsedIds: ReadonlySet<string>,
+  folderId: string,
+): Set<string> {
+  const next = new Set(collapsedIds);
+  if (next.has(folderId)) next.delete(folderId);
+  else next.add(folderId);
+  return next;
+}
+
+export function withFolderExpanded(collapsedIds: ReadonlySet<string>, folderId: string): Set<string> {
+  const next = new Set(collapsedIds);
+  next.delete(folderId);
+  return next;
+}

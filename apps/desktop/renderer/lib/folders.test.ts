@@ -7,11 +7,14 @@ import {
   feedsNotInFolder,
   folderFeedIds,
   isFeedDragTypes,
+  isFolderCollapsed,
+  mergeFolderMemberships,
   normalizeFolderName,
+  toggleCollapsedFolder,
   unassignedFeeds,
   withFeedAssigned,
   withFeedUnassigned,
-  mergeFolderMemberships,
+  withFolderExpanded,
 } from "./folders";
 
 function feed(partial: Partial<Feed> & Pick<Feed, "id">): Feed {
@@ -115,5 +118,22 @@ describe("feed drag payload", () => {
   test("reads the feed id from the internal mime type, not text/plain", () => {
     const id = feedIdFromDropData((type) => (type === FEED_DRAG_MIME ? "feed-1" : "https://example.com"));
     expect(id).toBe("feed-1");
+  });
+});
+
+describe("folder collapse", () => {
+  test("folders start expanded", () => {
+    expect(isFolderCollapsed(new Set(), "news")).toBe(false);
+  });
+
+  test("toggle collapse then expand", () => {
+    const collapsed = toggleCollapsedFolder(new Set(), "news");
+    expect(isFolderCollapsed(collapsed, "news")).toBe(true);
+    expect(isFolderCollapsed(toggleCollapsedFolder(collapsed, "news"), "news")).toBe(false);
+  });
+
+  test("selecting a folder expands it", () => {
+    const collapsed = toggleCollapsedFolder(new Set(), "news");
+    expect(isFolderCollapsed(withFolderExpanded(collapsed, "news"), "news")).toBe(false);
   });
 });
