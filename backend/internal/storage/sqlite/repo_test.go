@@ -159,3 +159,68 @@ func TestFolderListIncludesAssignedFeedIDs(t *testing.T) {
 		t.Fatalf("expected feed %s in folder list, got %v", feed.ID, got)
 	}
 }
+
+func TestFolderListIncludesMultipleAssignedFeedIDs(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feedA := &domain.Feed{
+		ID:                  uuid.NewString(),
+		URL:                 "https://example.com/a.xml",
+		Title:               "A",
+		PollIntervalSeconds: 3600,
+		Enabled:             true,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	feedB := &domain.Feed{
+		ID:                  uuid.NewString(),
+		URL:                 "https://example.com/b.xml",
+		Title:               "B",
+		PollIntervalSeconds: 3600,
+		Enabled:             true,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if err := feeds.Create(ctx, feedA); err != nil {
+		t.Fatal(err)
+	}
+	if err := feeds.Create(ctx, feedB); err != nil {
+		t.Fatal(err)
+	}
+
+	folders := sqlite.NewFolderRepo(db)
+	folder := &domain.Folder{ID: uuid.NewString(), Name: "News", CreatedAt: now}
+	if err := folders.Create(ctx, folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := folders.AssignFeed(ctx, folder.ID, feedA.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := folders.AssignFeed(ctx, folder.ID, feedB.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := folders.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 folder, got %d", len(list))
+	}
+	got := list[0].FeedIDs
+	if len(got) != 2 {
+		t.Fatalf("expected 2 feed ids, got %v", got)
+	}
+	seen := map[string]bool{got[0]: true, got[1]: true}
+	if !seen[feedA.ID] || !seen[feedB.ID] {
+		t.Fatalf("expected feeds %s and %s, got %v", feedA.ID, feedB.ID, got)
+	}
+}

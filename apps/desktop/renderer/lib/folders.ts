@@ -7,7 +7,7 @@ export function normalizeFolderName(name: string): string {
 }
 
 export function folderFeedIds(folder: Folder): string[] {
-  return folder.feedIds ?? [];
+  return coerceFeedIds(folder.feedIds);
 }
 
 export function feedsForFolder(feeds: Feed[], folder: Folder): Feed[] {
@@ -38,6 +38,27 @@ export function withFeedUnassigned(folders: Folder[], folderId: string, feedId: 
   return folders.map((folder) => {
     if (folder.id !== folderId) return folder;
     return { ...folder, feedIds: folderFeedIds(folder).filter((id) => id !== feedId) };
+  });
+}
+
+export function coerceFeedIds(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((id) => String(id).trim()).filter(Boolean))];
+  }
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+export function mergeFolderMemberships(listed: Folder[], previous: Folder[]): Folder[] {
+  const prevById = new Map(previous.map((folder) => [folder.id, folder]));
+  return listed.map((folder) => {
+    const ids = new Set([
+      ...coerceFeedIds(folder.feedIds),
+      ...folderFeedIds(prevById.get(folder.id) ?? { ...folder, feedIds: [] }),
+    ]);
+    return { ...folder, feedIds: [...ids] };
   });
 }
 

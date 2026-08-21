@@ -21,6 +21,7 @@ import {
   feedsForFolder,
   feedsNotInFolder,
   isFeedDragTypes,
+  mergeFolderMemberships,
   normalizeFolderName,
   unassignedFeeds,
   withFeedAssigned,
@@ -128,6 +129,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [expandedMemberIds, setExpandedMemberIds] = useState<Record<string, boolean>>({});
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
   const [contentBusy, setContentBusy] = useState(false);
+  const foldersRef = useRef<Folder[]>([]);
 
   const active = articles.find((a) => a.id === activeId) ?? null;
   const isStoriesMode = selected.type === "stories";
@@ -142,15 +144,30 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     }
   }, []);
 
-  const loadFeeds = useCallback(async () => {
+  const loadFeeds = useCallback(async (change?: { type: "assign" | "unassign"; folderId: string; feedId: string }) => {
     const [f, foldersList, s] = await Promise.all([
       backend.feeds.list(),
       backend.folders.list(),
       backend.settings.get(),
     ]);
-    const nextFolders = foldersList ?? [];
+    let nextFolders = mergeFolderMemberships(foldersList ?? [], foldersRef.current);
+    if (change) {
+      switch (change.type) {
+        case "assign":
+          nextFolders = withFeedAssigned(nextFolders, change.folderId, change.feedId);
+          break;
+        case "unassign":
+          nextFolders = withFeedUnassigned(nextFolders, change.folderId, change.feedId);
+          break;
+        default: {
+          const _exhaustive: never = change.type;
+          return _exhaustive;
+        }
+      }
+    }
     setFeeds(f ?? []);
     setFolders(nextFolders);
+    foldersRef.current = nextFolders;
     setSettings(s);
     applyTheme(s.theme);
     return nextFolders;
@@ -847,8 +864,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     setError(null);
     try {
       await backend.folders.assignFeed(folderId, feedId);
-      const listed = await loadFeeds();
-      setFolders(withFeedAssigned(listed, folderId, feedId));
+      await loadFeeds({ type: "assign", folderId, feedId });
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add feed to folder");
@@ -863,8 +879,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     setError(null);
     try {
       await backend.folders.unassignFeed(folderId, feedId);
-      const listed = await loadFeeds();
-      setFolders(withFeedUnassigned(listed, folderId, feedId));
+      await loadFeeds({ type: "unassign", folderId, feedId });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not remove feed from folder");
     } finally {

@@ -11,6 +11,7 @@ import {
   unassignedFeeds,
   withFeedAssigned,
   withFeedUnassigned,
+  mergeFolderMemberships,
 } from "./folders";
 
 function feed(partial: Partial<Feed> & Pick<Feed, "id">): Feed {
@@ -89,6 +90,19 @@ describe("folder feed grouping", () => {
   test("removes a feed from a folder", () => {
     const next = withFeedUnassigned([news], "news", "nyt");
     expect(feedsForFolder([nyt, bbc, hn], next[0]!).map((f) => f.id)).toEqual(["bbc"]);
+  });
+
+  test("keeps the previous feed when a reload omits feedIds and another feed is assigned", () => {
+    const prev = [folder({ id: "news", name: "News", feedIds: ["nyt"] })];
+    const listed = [folder({ id: "news", name: "News", feedIds: [] })];
+    const next = withFeedAssigned(mergeFolderMemberships(listed, prev), "news", "bbc");
+    expect(folderFeedIds(next[0]!)).toEqual(["nyt", "bbc"]);
+  });
+
+  test("unions memberships from the server list with local folder state", () => {
+    const prev = [folder({ id: "news", name: "News", feedIds: ["nyt"] })];
+    const listed = [folder({ id: "news", name: "News", feedIds: ["bbc"] })];
+    expect(folderFeedIds(mergeFolderMemberships(listed, prev)[0]!)).toEqual(["bbc", "nyt"]);
   });
 });
 
