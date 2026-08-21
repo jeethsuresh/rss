@@ -13,11 +13,16 @@ type StoryRepo struct{ db *DB }
 
 func NewStoryRepo(db *DB) *StoryRepo { return &StoryRepo{db: db} }
 
+const rssMemberCountSQL = `COALESCE((SELECT COUNT(1) FROM story_articles sa
+		JOIN articles a ON a.id = sa.article_id
+		WHERE sa.story_id = s.id AND a.is_read_later = 0), 0)`
+
 func (r *StoryRepo) List(ctx context.Context) ([]domain.Story, error) {
 	rows, err := r.db.SQL.QueryContext(ctx, `
 		SELECT s.id, s.title, s.summary, s.is_read, s.is_starred, s.created_at, s.updated_at,
-		       COALESCE((SELECT COUNT(1) FROM story_articles sa WHERE sa.story_id = s.id), 0)
+		       `+rssMemberCountSQL+`
 		FROM stories s
+		WHERE `+rssMemberCountSQL+` >= 2
 		ORDER BY s.updated_at DESC`)
 	if err != nil {
 		return nil, err
@@ -37,7 +42,7 @@ func (r *StoryRepo) List(ctx context.Context) ([]domain.Story, error) {
 func (r *StoryRepo) Get(ctx context.Context, id string) (*domain.Story, error) {
 	row := r.db.SQL.QueryRowContext(ctx, `
 		SELECT s.id, s.title, s.summary, s.is_read, s.is_starred, s.created_at, s.updated_at,
-		       COALESCE((SELECT COUNT(1) FROM story_articles sa WHERE sa.story_id = s.id), 0)
+		       `+rssMemberCountSQL+`
 		FROM stories s WHERE s.id = ?`, id)
 	s, err := scanStory(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -65,7 +70,10 @@ func (r *StoryRepo) Get(ctx context.Context, id string) (*domain.Story, error) {
 }
 
 func (r *StoryRepo) memberIDs(ctx context.Context, storyID string) ([]string, error) {
-	rows, err := r.db.SQL.QueryContext(ctx, `SELECT article_id FROM story_articles WHERE story_id = ?`, storyID)
+	rows, err := r.db.SQL.QueryContext(ctx, `
+		SELECT sa.article_id FROM story_articles sa
+		JOIN articles a ON a.id = sa.article_id
+		WHERE sa.story_id = ? AND a.is_read_later = 0`, storyID)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +115,29 @@ func (r *StoryRepo) Update(ctx context.Context, story *domain.Story) error {
 	return nil
 }
 
+func (r *StoryRepo) rssArticleIDs(ctx context.Context, articleIDs []string) ([]string, error) {
+	ar := NewArticleRepo(r.db)
+	out := make([]string, 0, len(articleIDs))
+	seen := map[string]bool{}
+	for _, aid := range articleIDs {
+		if aid == "" || seen[aid] {
+			continue
+		}
+		a, err := ar.Get(ctx, aid)
+		if err != nil || a.IsReadLater {
+			continue
+		}
+		seen[aid] = true
+		out = append(out, aid)
+	}
+	return out, nil
+}
+
 func (r *StoryRepo) SetMembers(ctx context.Context, storyID string, articleIDs []string) error {
+	ids, err := r.rssArticleIDs(ctx, articleIDs)
+	if err != nil {
+		return err
+	}
 	tx, err := r.db.SQL.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -119,7 +149,7 @@ func (r *StoryRepo) SetMembers(ctx context.Context, storyID string, articleIDs [
 	if _, err := tx.ExecContext(ctx, `DELETE FROM story_articles WHERE story_id=?`, storyID); err != nil {
 		return err
 	}
-	for _, aid := range articleIDs {
+	for _, aid := range ids {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM story_articles WHERE article_id=?`, aid); err != nil {
 			return err
 		}
@@ -134,6 +164,13 @@ func (r *StoryRepo) SetMembers(ctx context.Context, storyID string, articleIDs [
 }
 
 func (r *StoryRepo) AddMember(ctx context.Context, storyID, articleID string) error {
+	ids, err := r.rssArticleIDs(ctx, []string{articleID})
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
 	tx, err := r.db.SQL.BeginTx(ctx, nil)
 	if err != nil {
 		return err

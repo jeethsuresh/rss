@@ -344,7 +344,8 @@ Rules:
 - Prefer crawled/full-page text when available and not marked unreliable.
 - If crawled text looks wrong (nav chrome, paywall, empty), call mark_crawl_unreliable then use the feed/RSS preview text.
 - Use search_articles to find related coverage before create/join.
-- storyAction=join needs storyId or memberIds from search; create needs title/summary/memberIds including this article.`
+- Never include Read Later items in stories; skip clustering for those.
+- storyAction=join needs storyId or memberIds from search; create needs title/summary/memberIds including this article, with at least two RSS members.`
 
 	user := fmt.Sprintf("Article id=%s feed=%q title=%q crawlStatus=%s unreliable=%v\nText:\n%s",
 		article.ID, article.FeedTitle, article.Title, article.CrawlStatus, article.CrawlUnreliable, truncate(bodyForAI, 3500))
@@ -439,6 +440,13 @@ Rules:
 		return err
 	}
 
+	if !ShouldClusterStories(article.IsReadLater) {
+		if s.Emit != nil {
+			s.Emit("article.updated", map[string]any{"articleId": article.ID, "priority": pri})
+		}
+		return nil
+	}
+
 	switch out.StoryAction {
 	case "join":
 		storyID := out.StoryID
@@ -451,7 +459,10 @@ Rules:
 			_ = s.Stories.AddMember(ctx, storyID, article.ID)
 		}
 	case "create":
-		members := uniqueStrings(append(out.MemberIDs, article.ID))
+		members := s.eligibleStoryMembers(ctx, uniqueStrings(append(out.MemberIDs, article.ID)))
+		if !CanCreateStory(members) {
+			break
+		}
 		now := time.Now().UTC()
 		st := &domain.Story{
 			ID:        uuid.NewString(),
@@ -512,6 +523,9 @@ func (s *Service) runTool(ctx context.Context, article *domain.Article, tc toolC
 		}
 		hits := make([]hit, 0, len(arts))
 		for _, a := range arts {
+			if a.IsReadLater {
+				continue
+			}
 			hits = append(hits, hit{
 				ID: a.ID, Title: a.Title, FeedTitle: a.FeedTitle,
 				Summary: truncate(stripTags(a.Summary), 180), StoryID: a.StoryID,
@@ -614,6 +628,13 @@ func uniqueStrings(in []string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+func (s *Service) eligibleStoryMembers(ctx context.Context, ids []string) []string {
+	return FilterStoryMemberIDs(ids, func(id string) bool {
+		a, err := s.Articles.Get(ctx, id)
+		return err != nil || a.IsReadLater
+	})
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -30,6 +30,12 @@ import {
   withFeedUnassigned,
   withFolderExpanded,
 } from "./lib/folders";
+import {
+  adjacentStoryListRow,
+  memberArticle,
+  storyListRowKey,
+  storyListRows,
+} from "./lib/stories";
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
@@ -129,14 +135,16 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [appMode, setAppMode] = useState<AppMode>("rss");
   const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
-  const [expandedMemberIds, setExpandedMemberIds] = useState<Record<string, boolean>>({});
+  const [storyMemberId, setStoryMemberId] = useState<string | null>(null);
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
   const [contentBusy, setContentBusy] = useState(false);
   const foldersRef = useRef<Folder[]>([]);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
 
-  const active = articles.find((a) => a.id === activeId) ?? null;
   const isStoriesMode = selected.type === "stories";
+  const storyMember = isStoriesMode ? memberArticle(activeStory, storyMemberId) : null;
+  const active = isStoriesMode ? storyMember : (articles.find((a) => a.id === activeId) ?? null);
+  const storyRows = isStoriesMode ? storyListRows(stories, activeStory) : [];
 
   const applyTheme = useCallback((theme: Settings["theme"]) => {
     const root = document.documentElement;
@@ -268,7 +276,10 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
 
   useEffect(() => {
     if (!isStoriesMode || !activeStoryId) {
-      if (!isStoriesMode) setActiveStory(null);
+      if (!isStoriesMode) {
+        setActiveStory(null);
+        setStoryMemberId(null);
+      }
       return;
     }
     void backend.stories.get(activeStoryId).then(setActiveStory).catch(() => setActiveStory(null));
@@ -372,11 +383,22 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
 
   const patchArticle = useCallback((updated: Article) => {
     setArticles((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
+    setActiveStory((prev) => {
+      if (!prev?.articles) return prev;
+      return {
+        ...prev,
+        articles: prev.articles.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)),
+      };
+    });
   }, []);
 
   const patchStory = useCallback((updated: Story) => {
     setStories((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
-    setActiveStory((prev) => (prev?.id === updated.id ? updated : prev));
+    setActiveStory((prev) =>
+      prev?.id === updated.id
+        ? { ...prev, ...updated, articles: prev.articles, articleIds: prev.articleIds }
+        : prev,
+    );
   }, []);
 
   const selectArticle = useCallback(
@@ -398,7 +420,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const selectStory = useCallback(
     async (story: Story) => {
       setActiveStoryId(story.id);
-      setExpandedMemberIds({});
+      setStoryMemberId(null);
+      setActiveId(null);
       try {
         const full = await backend.stories.get(story.id);
         setActiveStory(full);
@@ -413,16 +436,52 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     [backend, settings?.markReadOnOpen, patchStory],
   );
 
+  const selectStoryMember = useCallback(
+    async (article: Article) => {
+      setStoryMemberId(article.id);
+      setActiveId(article.id);
+      if (settings?.markReadOnOpen && !article.isRead) {
+        try {
+          const updated = await backend.articles.markRead(article.id);
+          patchArticle(updated);
+          void loadFeeds();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Failed to mark read");
+        }
+      }
+    },
+    [backend, settings?.markReadOnOpen, patchArticle, loadFeeds],
+  );
+
   const moveSelection = useCallback(
     (delta: number) => {
       if (isStoriesMode) {
-        if (stories.length === 0) return;
-        const idx = stories.findIndex((s) => s.id === activeStoryId);
-        const from = idx < 0 ? (delta > 0 ? -1 : 0) : idx;
-        const to = Math.min(stories.length - 1, Math.max(0, from + delta));
-        const next = stories[to];
-        if (next && next.id !== activeStoryId) {
-          void selectStory(next);
+        const currentKey = storyMemberId
+          ? storyListRowKey({ kind: "member", storyId: activeStoryId ?? "", articleId: storyMemberId })
+          : activeStoryId
+            ? storyListRowKey({ kind: "story", storyId: activeStoryId })
+            : null;
+        const next = adjacentStoryListRow(storyRows, currentKey, delta);
+        if (!next) return;
+        switch (next.kind) {
+          case "story": {
+            const story = stories.find((s) => s.id === next.storyId);
+            if (story && (story.id !== activeStoryId || storyMemberId)) {
+              void selectStory(story);
+            }
+            break;
+          }
+          case "member": {
+            const member = memberArticle(activeStory, next.articleId);
+            if (member && member.id !== storyMemberId) {
+              void selectStoryMember(member);
+            }
+            break;
+          }
+          default: {
+            const _exhaustive: never = next;
+            return _exhaustive;
+          }
         }
         return;
       }
@@ -435,7 +494,19 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         void selectArticle(next);
       }
     },
-    [isStoriesMode, stories, activeStoryId, selectStory, articles, activeId, selectArticle],
+    [
+      isStoriesMode,
+      storyRows,
+      storyMemberId,
+      activeStoryId,
+      stories,
+      activeStory,
+      selectStory,
+      selectStoryMember,
+      articles,
+      activeId,
+      selectArticle,
+    ],
   );
 
   useEffect(() => {
@@ -731,10 +802,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const assignFolder = folders.find((folder) => folder.id === assignFolderId) ?? null;
   const assignableFeeds = assignFolder ? feedsNotInFolder(feeds, assignFolder) : [];
 
-  const toggleMemberExpand = useCallback((articleId: string) => {
-    setExpandedMemberIds((prev) => ({ ...prev, [articleId]: !prev[articleId] }));
-  }, []);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -764,10 +831,10 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           moveSelection(-1);
           break;
         case "o":
-          if (!isStoriesMode && active?.url) void window.desktop.openExternal(active.url);
+          if (active?.url) void window.desktop.openExternal(active.url);
           break;
         case "r":
-          if (isStoriesMode && activeStory) {
+          if (isStoriesMode && !storyMemberId && activeStory) {
             void backend.stories.markRead(activeStory.id).then((updated) => {
               patchStory(updated);
             });
@@ -779,7 +846,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           }
           break;
         case "u":
-          if (isStoriesMode && activeStory) {
+          if (isStoriesMode && !storyMemberId && activeStory) {
             void backend.stories.markUnread(activeStory.id).then((updated) => {
               patchStory(updated);
             });
@@ -791,7 +858,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           }
           break;
         case "s":
-          if (isStoriesMode && activeStory) {
+          if (isStoriesMode && !storyMemberId && activeStory) {
             void backend.stories.toggleStar(activeStory.id).then((updated) => {
               patchStory(updated);
             });
@@ -826,6 +893,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     patchArticle,
     patchStory,
     moveSelection,
+    storyMemberId,
   ]);
 
   const addFeed = async () => {
@@ -1262,21 +1330,58 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                 <p>Enable AI triage in Settings to cluster related articles.</p>
               </div>
             ) : (
-              stories.map((story) => (
-                <button
-                  key={story.id}
-                  className={`article-row ${story.id === activeStoryId ? "active" : ""} ${story.isRead ? "" : "unread"}`}
-                  onClick={() => void selectStory(story)}
-                >
-                  <div className="article-meta">
-                    <span>{story.memberCount} article{story.memberCount === 1 ? "" : "s"}</span>
-                    <span>{formatRelativeTime(story.updatedAt ?? story.createdAt)}</span>
-                    {story.isStarred ? <span>★</span> : null}
-                  </div>
-                  <h3 className="article-title">{decodeHtmlEntities(story.title || "(untitled story)")}</h3>
-                  <p className="article-summary">{story.summary || ""}</p>
-                </button>
-              ))
+              storyRows.map((row) => {
+                switch (row.kind) {
+                  case "story": {
+                    const story = stories.find((s) => s.id === row.storyId);
+                    if (!story) return null;
+                    const isActive = story.id === activeStoryId && !storyMemberId;
+                    return (
+                      <button
+                        key={storyListRowKey(row)}
+                        className={`article-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
+                        onClick={() => void selectStory(story)}
+                      >
+                        <div className="article-meta">
+                          <span>
+                            {story.memberCount} article{story.memberCount === 1 ? "" : "s"}
+                          </span>
+                          <span>{formatRelativeTime(story.updatedAt ?? story.createdAt)}</span>
+                          {story.isStarred ? <span>★</span> : null}
+                        </div>
+                        <h3 className="article-title">{decodeHtmlEntities(story.title || "(untitled story)")}</h3>
+                        <p className="article-summary">{story.summary || ""}</p>
+                      </button>
+                    );
+                  }
+                  case "member": {
+                    const member = memberArticle(activeStory, row.articleId);
+                    if (!member) return null;
+                    return (
+                      <button
+                        key={storyListRowKey(row)}
+                        className={`article-row story-member-row ${member.id === storyMemberId ? "active" : ""} ${member.isRead ? "" : "unread"}`}
+                        onClick={() => void selectStoryMember(member)}
+                      >
+                        <div className="article-meta">
+                          <span>{member.feedTitle}</span>
+                          <span>{formatRelativeTime(member.publishedAt ?? member.discoveredAt)}</span>
+                          {member.isStarred ? <span>★</span> : null}
+                        </div>
+                        <h3 className="article-title">
+                          <PriorityBadge priority={member.priority} />
+                          {decodeHtmlEntities(member.title || "(untitled)")}
+                        </h3>
+                        <p className="article-summary">{stripHtml(member.summary || member.content)}</p>
+                      </button>
+                    );
+                  }
+                  default: {
+                    const _exhaustive: never = row;
+                    return _exhaustive;
+                  }
+                }
+              })
             )
           ) : articles.length === 0 ? (
             <div className="empty">
@@ -1315,7 +1420,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         </section>
 
         <section className="pane reader-pane">
-          {isStoriesMode ? (
+          {isStoriesMode && !storyMemberId ? (
             !activeStory ? (
               <div className="empty">
                 <h2>Stories</h2>
@@ -1355,45 +1460,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     {activeStory.isStarred ? "Unstar" : "Star"}
                   </button>
                 </div>
-                {activeStory.articles && activeStory.articles.length > 0 ? (
-                  <div className="story-members">
-                    {activeStory.articles.map((member) => {
-                      const expanded = expandedMemberIds[member.id] === true;
-                      return (
-                        <div key={member.id} className="story-member">
-                          <button
-                            type="button"
-                            className="story-member-head"
-                            onClick={() => toggleMemberExpand(member.id)}
-                          >
-                            <span>{expanded ? "▾" : "▸"}</span>
-                            <span>
-                              {member.feedTitle || "Feed"}
-                              {" · "}
-                              {decodeHtmlEntities(member.title || "(untitled)")}
-                              {priorityBadgeLabel(member.priority) ? (
-                                <>
-                                  {" · "}
-                                  <PriorityBadge priority={member.priority} />
-                                </>
-                              ) : null}
-                            </span>
-                          </button>
-                          {expanded ? (
-                            <div
-                              className="story-member-body"
-                              dangerouslySetInnerHTML={{
-                                __html: sanitizeArticleHtml(
-                                  member.content || member.summary || "<p>No content</p>",
-                                ),
-                              }}
-                            />
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
               </article>
             )
           ) : !active ? (

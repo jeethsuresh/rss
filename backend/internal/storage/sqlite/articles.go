@@ -391,7 +391,7 @@ func (r *ArticleRepo) SearchCompact(ctx context.Context, query string, limit int
 	if limit <= 0 || limit > 20 {
 		limit = 10
 	}
-	q := domain.ArticleQuery{Search: query, Limit: limit}
+	q := domain.ArticleQuery{Search: query, Limit: limit, ExcludeReadLater: true}
 	res, err := r.List(ctx, q)
 	if err != nil {
 		return nil, err

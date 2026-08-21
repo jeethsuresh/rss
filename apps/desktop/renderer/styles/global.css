@@ -1046,34 +1046,8 @@ button {
   color: var(--unread);
 }
 
-.story-members {
-  display: grid;
-  gap: 8px;
-  margin-top: 20px;
-  max-width: 46rem;
-}
-
-.story-member {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--bg2) 40%, transparent);
-}
-
-.story-member-head {
-  width: 100%;
-  text-align: left;
-  padding: 10px 12px;
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-}
-
-.story-member-body {
-  padding: 0 12px 14px;
-  border-top: 1px solid var(--border);
-  font-size: 0.95rem;
-  line-height: 1.6;
+.article-row.story-member-row {
+  padding-left: 22px;
 }
 
 .content-tabs {

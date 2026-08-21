@@ -224,3 +224,103 @@ func TestFolderListIncludesMultipleAssignedFeedIDs(t *testing.T) {
 		t.Fatalf("expected feeds %s and %s, got %v", feedA.ID, feedB.ID, got)
 	}
 }
+
+func TestStoryListHidesSingletonsAndReadLaterMembers(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feed := &domain.Feed{
+		ID:                  uuid.NewString(),
+		URL:                 "https://example.com/news.xml",
+		Title:               "News",
+		PollIntervalSeconds: 3600,
+		Enabled:             true,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if err := feeds.Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+
+	articles := sqlite.NewArticleRepo(db)
+	rssA := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "A", URL: "https://example.com/a",
+		ExternalID: "a", DiscoveredAt: now,
+	}
+	rssB := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "B", URL: "https://example.com/b",
+		ExternalID: "b", DiscoveredAt: now,
+	}
+	rssC := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "C", URL: "https://example.com/c",
+		ExternalID: "c", DiscoveredAt: now,
+	}
+	rssD := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "D", URL: "https://example.com/d",
+		ExternalID: "d", DiscoveredAt: now,
+	}
+	rl := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "RL", URL: "https://example.com/rl",
+		ExternalID: "rl", DiscoveredAt: now, IsReadLater: true,
+	}
+	if _, err := articles.UpsertMany(ctx, []domain.Article{rssA, rssB, rssC, rssD, rl}); err != nil {
+		t.Fatal(err)
+	}
+
+	stories := sqlite.NewStoryRepo(db)
+	cluster := &domain.Story{ID: uuid.NewString(), Title: "Cluster", CreatedAt: now, UpdatedAt: now}
+	singleton := &domain.Story{ID: uuid.NewString(), Title: "One", CreatedAt: now, UpdatedAt: now}
+	rlPair := &domain.Story{ID: uuid.NewString(), Title: "RL pair", CreatedAt: now, UpdatedAt: now}
+	for _, st := range []*domain.Story{cluster, singleton, rlPair} {
+		if err := stories.Create(ctx, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := stories.SetMembers(ctx, cluster.ID, []string{rssA.ID, rssB.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, singleton.ID, []string{rssD.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, rlPair.ID, []string{rssC.ID, rl.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != cluster.ID {
+		t.Fatalf("expected only cluster story, got %+v", list)
+	}
+	if list[0].MemberCount != 2 {
+		t.Fatalf("member count %d", list[0].MemberCount)
+	}
+
+	got, err := stories.Get(ctx, cluster.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.AddMember(ctx, cluster.ID, rl.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = stories.Get(ctx, cluster.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MemberCount != 2 {
+		t.Fatalf("read later should not count, got %d", got.MemberCount)
+	}
+	for _, a := range got.Articles {
+		if a.IsReadLater {
+			t.Fatalf("get returned read later member %s", a.ID)
+		}
+	}
+}
