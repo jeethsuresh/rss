@@ -324,3 +324,82 @@ func TestStoryListHidesSingletonsAndReadLaterMembers(t *testing.T) {
 		}
 	}
 }
+
+func TestStoryMarkReadDoesNotReorderList(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feed := &domain.Feed{
+		ID:                  uuid.NewString(),
+		URL:                 "https://example.com/news.xml",
+		Title:               "News",
+		PollIntervalSeconds: 3600,
+		Enabled:             true,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	if err := feeds.Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+	articles := sqlite.NewArticleRepo(db)
+	arts := make([]domain.Article, 4)
+	for i := range arts {
+		arts[i] = domain.Article{
+			ID: uuid.NewString(), FeedID: feed.ID, Title: string(rune('A' + i)),
+			URL: "https://example.com/" + string(rune('a'+i)), ExternalID: string(rune('a' + i)),
+			DiscoveredAt: now,
+		}
+	}
+	if _, err := articles.UpsertMany(ctx, arts); err != nil {
+		t.Fatal(err)
+	}
+
+	stories := sqlite.NewStoryRepo(db)
+	newer := &domain.Story{ID: uuid.NewString(), Title: "Newer", CreatedAt: now, UpdatedAt: now}
+	older := &domain.Story{
+		ID: uuid.NewString(), Title: "Older", CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
+	}
+	if err := stories.Create(ctx, newer); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.Create(ctx, older); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, newer.ID, []string{arts[0].ID, arts[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, older.ID, []string{arts[2].ID, arts[3].ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 2 || before[0].ID != newer.ID || before[1].ID != older.ID {
+		t.Fatalf("expected newer then older, got %+v", before)
+	}
+
+	read := true
+	if err := stories.CascadeFlags(ctx, older.ID, &read, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 || after[0].ID != newer.ID || after[1].ID != older.ID {
+		t.Fatalf("marking read must not move a story to the top, got %+v", after)
+	}
+	if !after[1].IsRead {
+		t.Fatal("older story should be marked read")
+	}
+}

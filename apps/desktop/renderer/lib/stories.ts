@@ -54,3 +54,13 @@ export function memberArticle(story: Story | null, articleId: string | null): Ar
   }
   return story.articles?.find((article) => article.id === articleId) ?? null;
 }
+
+export function upsertStoryInPlace(stories: Story[], story: Story): Story[] {
+  const exists = stories.some((s) => s.id === story.id);
+  if (!exists) {
+    return [story, ...stories];
+  }
+  return stories.map((s) =>
+    s.id === story.id ? { ...s, ...story, articles: s.articles, articleIds: s.articleIds } : s,
+  );
+}

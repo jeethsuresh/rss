@@ -35,6 +35,7 @@ import {
   memberArticle,
   storyListRowKey,
   storyListRows,
+  upsertStoryInPlace,
 } from "./lib/stories";
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
@@ -344,11 +345,26 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           break;
         }
         case "story.updated": {
-          void loadStories();
           const payload = event.payload as { storyId?: string };
-          if (payload.storyId && payload.storyId === activeStoryId) {
-            void backend.stories.get(payload.storyId).then(setActiveStory);
+          if (!payload.storyId) {
+            void loadStories();
+            break;
           }
+          void backend.stories
+            .get(payload.storyId)
+            .then((full) => {
+              setStories((prev) => upsertStoryInPlace(prev, full));
+              if (payload.storyId === activeStoryId) {
+                setActiveStory((prev) =>
+                  prev?.id === full.id
+                    ? { ...prev, ...full, articles: prev.articles, articleIds: prev.articleIds }
+                    : full,
+                );
+              }
+            })
+            .catch(() => {
+              void loadStories();
+            });
           break;
         }
         case "ai.status":

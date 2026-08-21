@@ -214,7 +214,6 @@ func (r *StoryRepo) CascadeFlags(ctx context.Context, storyID string, isRead *bo
 	if isStarred != nil {
 		story.IsStarred = *isStarred
 	}
-	story.UpdatedAt = time.Now().UTC()
 	if err := r.Update(ctx, story); err != nil {
 		return err
 	}

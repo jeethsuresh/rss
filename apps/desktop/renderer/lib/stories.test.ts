@@ -5,6 +5,7 @@ import {
   memberArticle,
   storyListRowKey,
   storyListRows,
+  upsertStoryInPlace,
 } from "./stories";
 
 function article(partial: Partial<Article> & Pick<Article, "id">): Article {
@@ -78,5 +79,13 @@ describe("storyListRows", () => {
     const cluster = story({ id: "s1", articles: [a] });
     expect(memberArticle(cluster, "a")?.id).toBe("a");
     expect(memberArticle(cluster, "missing")).toBeNull();
+  });
+
+  test("upsertStoryInPlace patches flags without moving the row", () => {
+    const a = story({ id: "a" });
+    const b = story({ id: "b" });
+    const next = upsertStoryInPlace([a, b], { ...b, isRead: true });
+    expect(next.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(next[1].isRead).toBe(true);
   });
 });
