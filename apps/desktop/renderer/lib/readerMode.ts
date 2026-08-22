@@ -26,8 +26,15 @@ export type ReaderArticle = {
 };
 
 export function readerSourceHtml(
-  article: Pick<Article, "crawledContent" | "liveContent" | "rssContent" | "content" | "summary">,
+  article: Pick<
+    Article,
+    "crawledContent" | "liveContent" | "rssContent" | "content" | "summary" | "readerContent" | "extractStatus"
+  >,
 ): string | null {
+  if (article.extractStatus === "ok") {
+    const stored = (article.readerContent ?? "").trim();
+    if (stored) return stored;
+  }
   const crawled = article.crawledContent.trim();
   if (crawled) return crawled;
   const live = article.liveContent.trim();
@@ -60,6 +67,13 @@ export type ReaderPaneModel =
   | { kind: "article"; byline: string; contentHtml: string };
 
 export function readerPaneModel(article: Article): ReaderPaneModel {
+  if (article.extractStatus === "ok" && (article.readerContent ?? "").trim()) {
+    const contentHtml = sanitizeArticleHtml(article.readerContent ?? "");
+    if (!stripHtml(contentHtml)) {
+      return { kind: "status", message: "Couldn't extract an article.", recrawl: true };
+    }
+    return { kind: "article", byline: "", contentHtml };
+  }
   const source = readerSourceHtml(article);
   if (!source) {
     if (article.crawlStatus === "pending") {

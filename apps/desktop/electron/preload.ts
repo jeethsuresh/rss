@@ -27,6 +27,8 @@ const api: ReaderBackend = {
     toggleStar: (id) => request("articles.toggleStar", { id }),
     recrawl: (id) => request("articles.recrawl", { id }),
     fetchLive: (id) => request("articles.fetchLive", { id }),
+    setExtract: (articleId, html) => request("articles.setExtract", { articleId, html }),
+    pendingExtract: () => request("articles.pendingExtract"),
   },
   readLater: {
     add: (url) => request("readLater.add", { url }),

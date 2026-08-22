@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -113,7 +114,7 @@ func (s *Service) Split(ctx context.Context, storyID string) ([]string, error) {
 		if a.IsReadLater {
 			continue
 		}
-		title, body := rssText(a)
+		title, body := clusterText(a)
 		members = append(members, Member{ID: a.ID, Title: a.Title, Vec: Tokenize(title, body, tallies)})
 	}
 	comps := SplitComponents(members, JoinThreshold)
@@ -294,7 +295,7 @@ func (s *Service) loadWorld(ctx context.Context, now, articleSince, storySince t
 }
 
 func (s *Service) toCandidate(a domain.Article, weights map[string]TokenTally) Candidate {
-	title, body := rssText(a)
+	title, body := clusterText(a)
 	return Candidate{
 		ID:      a.ID,
 		StoryID: a.StoryID,
@@ -529,7 +530,7 @@ func (s *Service) overlapTokens(st *domain.Story, articleID string) []string {
 	rest := Vector{}
 	weights := map[string]TokenTally{}
 	for _, a := range st.Articles {
-		title, body := rssText(a)
+		title, body := clusterText(a)
 		vec := Tokenize(title, body, weights)
 		if a.ID == articleID {
 			article = a
@@ -542,7 +543,7 @@ func (s *Service) overlapTokens(st *domain.Story, articleID string) []string {
 	if article.ID == "" {
 		return nil
 	}
-	title, body := rssText(article)
+	title, body := clusterText(article)
 	return OverlapTokens(Tokenize(title, body, weights), rest)
 }
 
@@ -557,7 +558,7 @@ func (s *Service) overlapFromSnapshot(ctx context.Context, snapshot []string, ar
 		if err != nil {
 			continue
 		}
-		title, body := rssText(*a)
+		title, body := clusterText(*a)
 		vec := Tokenize(title, body, nil)
 		if id == articleID {
 			article = a
@@ -570,7 +571,7 @@ func (s *Service) overlapFromSnapshot(ctx context.Context, snapshot []string, ar
 	if article == nil {
 		return nil
 	}
-	title, body := rssText(*article)
+	title, body := clusterText(*article)
 	return OverlapTokens(Tokenize(title, body, nil), rest)
 }
 
@@ -600,7 +601,7 @@ func (s *Service) deterministicTitle(ctx context.Context, memberIDs []string) (s
 		if err != nil || a.IsReadLater {
 			continue
 		}
-		title, body := rssText(*a)
+		title, body := clusterText(*a)
 		members = append(members, Member{ID: a.ID, Title: a.Title, Vec: Tokenize(title, body, nil)})
 		sum := a.Summary
 		if sum == "" {
@@ -629,10 +630,14 @@ func shouldCluster(a domain.Article) bool {
 	return !a.IsReadLater
 }
 
-func rssText(a domain.Article) (title, body string) {
-	body = a.RSSContent
-	if body == "" {
-		body = a.Summary
+func clusterText(a domain.Article) (title, body string) {
+	if a.ExtractStatus == domain.ExtractOK && strings.TrimSpace(a.ReaderContent) != "" {
+		body = stripTags(a.ReaderContent)
+	} else {
+		body = a.RSSContent
+		if body == "" {
+			body = a.Summary
+		}
 	}
 	return a.Title, body
 }

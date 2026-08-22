@@ -21,7 +21,8 @@ const articleSelect = `
 		       a.published_at, a.updated_at, a.external_id, a.is_read, a.is_starred,
 		       a.priority, COALESCE(a.story_id, ''),
 		       a.rss_content, a.crawled_content, a.live_content, a.crawl_status,
-		       a.crawl_error, a.crawl_unreliable, a.is_read_later, a.archived_at,
+		       a.crawl_error, a.crawl_unreliable, a.crawl_retryable, a.reader_content,
+		       a.extract_status, a.extract_source, a.is_read_later, a.archived_at,
 		       a.discovered_at, f.title
 		FROM articles a
 		JOIN feeds f ON f.id = a.feed_id`
@@ -320,10 +321,10 @@ func (r *ArticleRepo) Update(ctx context.Context, article *domain.Article) error
 	return nil
 }
 
-func (r *ArticleRepo) SetCrawlResult(ctx context.Context, id string, status domain.CrawlStatus, crawled string, errMsg string, unreliable bool) error {
+func (r *ArticleRepo) SetCrawlResult(ctx context.Context, id string, status domain.CrawlStatus, crawled string, errMsg string, unreliable, retryable bool) error {
 	res, err := r.db.SQL.ExecContext(ctx, `
-		UPDATE articles SET crawl_status=?, crawled_content=?, crawl_error=?, crawl_unreliable=? WHERE id=?`,
-		string(status), crawled, errMsg, boolToInt(unreliable), id,
+		UPDATE articles SET crawl_status=?, crawled_content=?, crawl_error=?, crawl_unreliable=?, crawl_retryable=? WHERE id=?`,
+		string(status), crawled, errMsg, boolToInt(unreliable), boolToInt(retryable), id,
 	)
 	if err != nil {
 		return err
@@ -333,6 +334,52 @@ func (r *ArticleRepo) SetCrawlResult(ctx context.Context, id string, status doma
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *ArticleRepo) SetExtract(ctx context.Context, id string, html string, status domain.ExtractStatus, source string) error {
+	if status == "" {
+		status = domain.ExtractNone
+	}
+	res, err := r.db.SQL.ExecContext(ctx, `
+		UPDATE articles SET reader_content=?, extract_status=?, extract_source=? WHERE id=?`,
+		html, string(status), source, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ArticleRepo) ListPendingExtract(ctx context.Context, limit int) ([]domain.Article, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.SQL.QueryContext(ctx, articleSelect+`
+		WHERE a.extract_status = 'js' AND a.crawled_content != ''
+		ORDER BY a.discovered_at ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanArticles(rows)
+}
+
+func (r *ArticleRepo) ListNeedingGoExtract(ctx context.Context, limit int) ([]domain.Article, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.SQL.QueryContext(ctx, articleSelect+`
+		WHERE a.crawl_status = 'ok' AND a.extract_status = 'none' AND a.crawled_content != ''
+		ORDER BY a.discovered_at ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanArticles(rows)
 }
 
 func (r *ArticleRepo) SetLiveContent(ctx context.Context, id string, live string) error {
@@ -385,7 +432,7 @@ func (r *ArticleRepo) ListNeedingCrawl(ctx context.Context, limit int) ([]domain
 		WHERE a.url != ''
 		  AND (
 		    a.crawl_status IN ('none', 'pending')
-		    OR (a.crawl_unreliable = 0 AND a.crawl_status = 'failed' AND a.crawled_content = '')
+		    OR (a.crawl_unreliable = 0 AND a.crawl_status = 'failed' AND a.crawled_content = '' AND a.crawl_retryable = 1)
 		  )
 		ORDER BY CASE WHEN a.crawl_status IN ('none', 'pending') THEN 0 ELSE 1 END,
 		         a.discovered_at ASC
@@ -447,14 +494,15 @@ func (r *ArticleRepo) SearchCompact(ctx context.Context, query string, limit int
 func scanArticle(row rowScanner) (domain.Article, error) {
 	var a domain.Article
 	var published, updated, archived sql.NullString
-	var isRead, isStarred, crawlUnreliable, isReadLater int
-	var priority, storyID, crawlStatus, discovered string
+	var isRead, isStarred, crawlUnreliable, crawlRetryable, isReadLater int
+	var priority, storyID, crawlStatus, extractStatus, extractSource, discovered string
 	err := row.Scan(
 		&a.ID, &a.FeedID, &a.Title, &a.URL, &a.Author, &a.Content, &a.Summary,
 		&published, &updated, &a.ExternalID, &isRead, &isStarred,
 		&priority, &storyID,
 		&a.RSSContent, &a.CrawledContent, &a.LiveContent, &crawlStatus,
-		&a.CrawlError, &crawlUnreliable, &isReadLater, &archived,
+		&a.CrawlError, &crawlUnreliable, &crawlRetryable, &a.ReaderContent,
+		&extractStatus, &extractSource, &isReadLater, &archived,
 		&discovered, &a.FeedTitle,
 	)
 	if err != nil {
@@ -475,6 +523,12 @@ func scanArticle(row rowScanner) (domain.Article, error) {
 		a.CrawlStatus = domain.CrawlNone
 	}
 	a.CrawlUnreliable = crawlUnreliable == 1
+	a.CrawlRetryable = crawlRetryable == 1
+	a.ExtractStatus = domain.ExtractStatus(extractStatus)
+	if a.ExtractStatus == "" {
+		a.ExtractStatus = domain.ExtractNone
+	}
+	a.ExtractSource = extractSource
 	a.IsReadLater = isReadLater == 1
 	if a.Content == "" && a.RSSContent != "" {
 		a.Content = a.RSSContent

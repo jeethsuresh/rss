@@ -20,6 +20,7 @@ type Service struct {
 	Feeds    domain.FeedRepository
 	Log      *slog.Logger
 	Emit     func(name string, payload any)
+	OnReady  func(ctx context.Context, articleID string)
 	Client   *http.Client
 
 	mu      sync.Mutex
@@ -82,21 +83,33 @@ func (s *Service) CrawlOne(ctx context.Context, articleID string) error {
 		return err
 	}
 	if strings.TrimSpace(a.URL) == "" || !strings.HasPrefix(a.URL, "http") {
-		_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlFailed, "", "no http url", false)
+		_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlFailed, "", "no http url", false, false)
+		_ = s.Articles.SetExtract(ctx, articleID, "", domain.ExtractFailed, "")
+		s.ready(ctx, articleID)
 		return nil
 	}
-	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlPending, a.CrawledContent, "", a.CrawlUnreliable)
+	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlPending, a.CrawledContent, "", a.CrawlUnreliable, true)
+	_ = s.Articles.SetExtract(ctx, articleID, "", domain.ExtractNone, "")
 
-	html, finalURL, title, err := s.fetchFullPage(ctx, a.URL)
-	if err != nil || strings.TrimSpace(html) == "" {
-		msg := "empty page"
-		if err != nil {
+	html, finalURL, title, status, contentType, err := s.fetchFullPage(ctx, a.URL)
+	class := ClassifyFetch(status, err, html, contentType)
+	if err != nil || class.Invalid || status < 200 || status >= 300 {
+		msg := class.Message
+		if msg == "" && err != nil {
 			msg = err.Error()
 		}
-		_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlFailed, "", msg, a.CrawlUnreliable)
+		_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlFailed, "", msg, a.CrawlUnreliable, class.Retryable)
 		_ = s.Feeds.RecordCrawlResult(ctx, a.FeedID, true)
+		if !class.Retryable {
+			_ = s.Articles.SetExtract(ctx, articleID, "", domain.ExtractFailed, "")
+			s.ready(ctx, articleID)
+		}
 		if s.Emit != nil {
-			s.Emit("article.updated", map[string]any{"articleId": articleID, "crawlStatus": "failed"})
+			payload := map[string]any{"articleId": articleID, "crawlStatus": "failed"}
+			if !class.Retryable {
+				payload["extractStatus"] = "failed"
+			}
+			s.Emit("article.updated", payload)
 		}
 		return err
 	}
@@ -105,12 +118,61 @@ func (s *Service) CrawlOne(ctx context.Context, articleID string) error {
 		a.Title = title
 		_ = s.Articles.Update(ctx, a)
 	}
-	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlOK, prepared, "", false)
+	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlOK, prepared, "", false, false)
 	_ = s.Feeds.RecordCrawlResult(ctx, a.FeedID, false)
-	if s.Emit != nil {
-		s.Emit("article.updated", map[string]any{"articleId": articleID, "crawlStatus": "ok"})
-	}
+	s.applyGoExtract(ctx, articleID, prepared)
 	return nil
+}
+
+func (s *Service) applyGoExtract(ctx context.Context, articleID, pageHTML string) {
+	html, err := ExtractHTML(pageHTML)
+	if err != nil || strings.TrimSpace(html) == "" {
+		_ = s.Articles.SetExtract(ctx, articleID, "", domain.ExtractJS, "")
+		if s.Emit != nil {
+			s.Emit("article.updated", map[string]any{"articleId": articleID, "crawlStatus": "ok", "extractStatus": "js"})
+		}
+		return
+	}
+	_ = s.Articles.SetExtract(ctx, articleID, html, domain.ExtractOK, "go")
+	if s.Emit != nil {
+		s.Emit("article.updated", map[string]any{"articleId": articleID, "crawlStatus": "ok", "extractStatus": "ok"})
+	}
+	s.ready(ctx, articleID)
+}
+
+func (s *Service) ApplyGoExtract(ctx context.Context, articleID string) error {
+	a, err := s.Articles.Get(ctx, articleID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(a.CrawledContent) == "" {
+		_ = s.Articles.SetExtract(ctx, articleID, "", domain.ExtractFailed, "")
+		s.ready(ctx, articleID)
+		return nil
+	}
+	s.applyGoExtract(ctx, articleID, a.CrawledContent)
+	return nil
+}
+
+func (s *Service) BackfillExtracts(ctx context.Context) {
+	for {
+		arts, err := s.Articles.ListNeedingGoExtract(ctx, 20)
+		if err != nil || len(arts) == 0 {
+			return
+		}
+		for _, a := range arts {
+			if err := s.ApplyGoExtract(ctx, a.ID); err != nil {
+				_ = s.Articles.SetExtract(ctx, a.ID, "", domain.ExtractFailed, "")
+				s.ready(ctx, a.ID)
+			}
+		}
+	}
+}
+
+func (s *Service) ready(ctx context.Context, articleID string) {
+	if s.OnReady != nil {
+		s.OnReady(ctx, articleID)
+	}
 }
 
 func (s *Service) FetchLive(ctx context.Context, articleID string) (string, error) {
@@ -118,7 +180,7 @@ func (s *Service) FetchLive(ctx context.Context, articleID string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	html, finalURL, _, err := s.fetchFullPage(ctx, a.URL)
+	html, finalURL, _, _, _, err := s.fetchFullPage(ctx, a.URL)
 	if err != nil {
 		return "", err
 	}
@@ -127,25 +189,27 @@ func (s *Service) FetchLive(ctx context.Context, articleID string) (string, erro
 	return prepared, nil
 }
 
-func (s *Service) fetchFullPage(ctx context.Context, pageURL string) (html string, finalURL string, title string, err error) {
+func (s *Service) fetchFullPage(ctx context.Context, pageURL string) (html string, finalURL string, title string, status int, contentType string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", 0, "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; RSSReader/0.1; +local desktop)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	res, err := s.Client.Do(req)
 	if err != nil {
-		return "", "", "", fmt.Errorf("%w: %v", domain.ErrNetwork, err)
+		return "", "", "", 0, "", fmt.Errorf("%w: %v", domain.ErrNetwork, err)
 	}
 	defer res.Body.Close()
+	status = res.StatusCode
+	contentType = res.Header.Get("Content-Type")
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return "", "", "", fmt.Errorf("%w: status %d", domain.ErrNetwork, res.StatusCode)
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
+		return "", "", "", status, contentType, fmt.Errorf("%w: status %d", domain.ErrNetwork, res.StatusCode)
 	}
-	// Save full document HTML (inline CSS/JS included; external assets resolve via <base>).
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", status, contentType, err
 	}
 	html = string(raw)
 	finalURL = pageURL
@@ -154,9 +218,9 @@ func (s *Service) fetchFullPage(ctx context.Context, pageURL string) (html strin
 	}
 	title = extractTitle(html)
 	if strings.TrimSpace(html) == "" {
-		return "", finalURL, title, fmt.Errorf("empty body")
+		return "", finalURL, title, status, contentType, fmt.Errorf("empty body")
 	}
-	return html, finalURL, title, nil
+	return html, finalURL, title, status, contentType, nil
 }
 
 var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)

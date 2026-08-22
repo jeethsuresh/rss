@@ -41,6 +41,7 @@ export interface Feed {
 }
 
 export type CrawlStatus = "none" | "pending" | "ok" | "failed";
+export type ExtractStatus = "none" | "js" | "ok" | "failed";
 
 export interface Article {
   id: string;
@@ -56,6 +57,10 @@ export interface Article {
   crawlStatus: CrawlStatus;
   crawlError: string;
   crawlUnreliable: boolean;
+  crawlRetryable?: boolean;
+  readerContent?: string;
+  extractStatus?: ExtractStatus;
+  extractSource?: string;
   publishedAt: string | null;
   updatedAt: string | null;
   externalId: string;
@@ -462,6 +467,8 @@ export interface ReaderBackend {
     toggleStar(id: string): Promise<Article>;
     recrawl(id: string): Promise<Article>;
     fetchLive(id: string): Promise<Article>;
+    setExtract(articleId: string, html: string): Promise<Article>;
+    pendingExtract(): Promise<{ articleIds: string[] }>;
   };
   readLater: {
     add(url: string): Promise<Article>;
@@ -547,6 +554,8 @@ export const RPC_METHODS = [
   "articles.toggleStar",
   "articles.recrawl",
   "articles.fetchLive",
+  "articles.setExtract",
+  "articles.pendingExtract",
   "readLater.add",
   "readLater.addFromArticle",
   "readLater.list",

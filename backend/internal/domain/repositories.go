@@ -37,7 +37,10 @@ type ArticleRepository interface {
 	ListForClustering(ctx context.Context, articleSince, storyNewestSince time.Time) ([]Article, error)
 	Update(ctx context.Context, article *Article) error
 	SetPriority(ctx context.Context, id string, priority Priority) error
-	SetCrawlResult(ctx context.Context, id string, status CrawlStatus, crawled string, errMsg string, unreliable bool) error
+	SetCrawlResult(ctx context.Context, id string, status CrawlStatus, crawled string, errMsg string, unreliable, retryable bool) error
+	SetExtract(ctx context.Context, id string, html string, status ExtractStatus, source string) error
+	ListPendingExtract(ctx context.Context, limit int) ([]Article, error)
+	ListNeedingGoExtract(ctx context.Context, limit int) ([]Article, error)
 	SetLiveContent(ctx context.Context, id string, live string) error
 	SetArchived(ctx context.Context, id string, archived bool) error
 	Delete(ctx context.Context, id string) error
