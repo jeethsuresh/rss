@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { PAGE_FRAME_SANDBOX, preparePageFrameHtml } from "../lib/pageFrame";
 
 type Props = {
   html: string;
@@ -7,11 +8,11 @@ type Props = {
   title?: string;
 };
 
-/** Renders a saved full web page in a sandboxed iframe (scripts allowed; opaque origin — no parent access). */
+/** Renders a saved full web page in a sandboxed iframe (no scripts; CSS/images via base href). */
 export function PageFrame({ html, pageUrl, title = "Article page" }: Props) {
   const [src, setSrc] = useState<string | null>(null);
 
-  const prepared = useMemo(() => ensureBase(html, pageUrl), [html, pageUrl]);
+  const prepared = useMemo(() => preparePageFrameHtml(html, pageUrl), [html, pageUrl]);
 
   useEffect(() => {
     const blob = new Blob([prepared], { type: "text/html;charset=utf-8" });
@@ -29,51 +30,8 @@ export function PageFrame({ html, pageUrl, title = "Article page" }: Props) {
       className="page-frame"
       title={title}
       src={src}
-      // Do NOT set allow-same-origin with allow-scripts: blob URLs inherit the
-      // app origin, and page scripts can then call history.replaceState / touch
-      // the parent (SecurityError + broken Vite HMR when doc URL is blob:).
-      sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+      sandbox={PAGE_FRAME_SANDBOX}
       referrerPolicy="no-referrer-when-downgrade"
     />
   );
-}
-
-function ensureBase(html: string, pageUrl: string): string {
-  const href = baseHrefFor(pageUrl);
-  if (!href) {
-    return html;
-  }
-  // Always prefer our origin-rooted base so relative CSS/JS resolve reliably.
-  const withoutBase = html.replace(/<base\b[^>]*>/gi, "");
-  const base = `<base href="${escapeAttr(href)}">`;
-  const headMatch = withoutBase.match(/<head[^>]*>/i);
-  if (headMatch && headMatch.index != null) {
-    const insertAt = headMatch.index + headMatch[0].length;
-    return withoutBase.slice(0, insertAt) + base + withoutBase.slice(insertAt);
-  }
-  const htmlMatch = withoutBase.match(/<html[^>]*>/i);
-  if (htmlMatch && htmlMatch.index != null) {
-    const insertAt = htmlMatch.index + htmlMatch[0].length;
-    return withoutBase.slice(0, insertAt) + `<head>${base}</head>` + withoutBase.slice(insertAt);
-  }
-  return `<head>${base}</head>${withoutBase}`;
-}
-
-/** Prefer site origin so `/styles.css` and relative assets resolve like a normal page load. */
-function baseHrefFor(pageUrl: string): string {
-  try {
-    const u = new URL(pageUrl);
-    return `${u.origin}/`;
-  } catch {
-    return pageUrl;
-  }
-}
-
-function escapeAttr(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
