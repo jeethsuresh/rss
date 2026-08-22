@@ -334,6 +334,12 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.VoteStory(ctx, p.ID, parseStoryVote(p.Vote))
+	case "stories.reindex":
+		n, err := s.svc.ReindexStories(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"storyCount": n}, nil
 	case "ai.test":
 		if s.svc.AI == nil {
 			return nil, fmt.Errorf("ai unavailable")

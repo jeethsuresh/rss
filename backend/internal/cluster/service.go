@@ -40,6 +40,30 @@ func (s *Service) ClusterNew(ctx context.Context, since time.Time) error {
 	return s.ClusterArticles(ctx, ids)
 }
 
+func (s *Service) ReindexAll(ctx context.Context) (int, error) {
+	if err := s.Stories.ClearAllMemberships(ctx); err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC()
+	arts, err := s.Articles.ListForClustering(ctx, time.Time{}, time.Time{})
+	if err != nil {
+		return 0, err
+	}
+	for _, a := range arts {
+		if err := s.clusterOneAt(ctx, a.ID, nil, nil, now, time.Time{}, time.Time{}); err != nil {
+			if s.Log != nil {
+				s.Log.Warn("reindex article", "id", a.ID, "err", err)
+			}
+		}
+	}
+	list, err := s.Stories.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	s.emit("story.updated", map[string]any{})
+	return len(list), nil
+}
+
 func (s *Service) ClusterArticles(ctx context.Context, ids []string) error {
 	for _, id := range ids {
 		if err := s.clusterOne(ctx, id, nil, nil); err != nil {
@@ -60,7 +84,7 @@ func (s *Service) Suggest(ctx context.Context, articleID string) (*Suggestion, e
 		return &Suggestion{Action: ActionNone}, nil
 	}
 	now := time.Now().UTC()
-	world, err := s.loadWorld(ctx, now)
+	world, err := s.loadWorld(ctx, now, now.Add(-ArticleWindow), now.Add(-StoryMemberWindow))
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +149,13 @@ type world struct {
 	weights  map[string]TokenTally
 }
 
-func (s *Service) loadWorld(ctx context.Context, now time.Time) (*world, error) {
+func (s *Service) loadWorld(ctx context.Context, now, articleSince, storySince time.Time) (*world, error) {
 	weights, err := s.Stories.GetTokenWeights(ctx)
 	if err != nil {
 		return nil, err
 	}
 	tallies := toTallies(weights)
-	arts, err := s.Articles.ListForClustering(ctx, now.Add(-ArticleWindow), now.Add(-StoryMemberWindow))
+	arts, err := s.Articles.ListForClustering(ctx, articleSince, storySince)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +204,11 @@ func (s *Service) toCandidate(a domain.Article, weights map[string]TokenTally) C
 }
 
 func (s *Service) clusterOne(ctx context.Context, articleID string, excludeStory, excludeArticle map[string]bool) error {
+	now := time.Now().UTC()
+	return s.clusterOneAt(ctx, articleID, excludeStory, excludeArticle, now, now.Add(-ArticleWindow), now.Add(-StoryMemberWindow))
+}
+
+func (s *Service) clusterOneAt(ctx context.Context, articleID string, excludeStory, excludeArticle map[string]bool, now, articleSince, storySince time.Time) error {
 	article, err := s.Articles.Get(ctx, articleID)
 	if err != nil {
 		return err
@@ -190,8 +219,7 @@ func (s *Service) clusterOne(ctx context.Context, articleID string, excludeStory
 	if article.StoryID != "" && !excludeStory[article.StoryID] {
 		return nil
 	}
-	now := time.Now().UTC()
-	world, err := s.loadWorld(ctx, now)
+	world, err := s.loadWorld(ctx, now, articleSince, storySince)
 	if err != nil {
 		return err
 	}
@@ -341,7 +369,7 @@ func (s *Service) rerankLeftover(ctx context.Context, storyID string, excludeArt
 		return s.clusterOne(ctx, ids[0], map[string]bool{storyID: true}, excludeArticle)
 	}
 	now := time.Now().UTC()
-	world, err := s.loadWorld(ctx, now)
+	world, err := s.loadWorld(ctx, now, now.Add(-ArticleWindow), now.Add(-StoryMemberWindow))
 	if err != nil {
 		return err
 	}

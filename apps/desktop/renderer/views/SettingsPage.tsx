@@ -40,6 +40,8 @@ export function SettingsPage({
   const logPanelRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexCount, setReindexCount] = useState<number | null>(null);
   const [generalSaving, setGeneralSaving] = useState(false);
   const [aiSaving, setAiSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -674,6 +676,35 @@ export function SettingsPage({
                   </button>
                 </div>
               )}
+              <h2>Meta-stories</h2>
+              <p className="muted">
+                Rebuild every story from RSS text with the nearest-neighbour grouper. AI titles are
+                replaced. Thumbs-learned word weights are kept. Does not require AI triage.
+              </p>
+              <div className="settings-row">
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={busy || reindexing || aiTesting}
+                  onClick={() => {
+                    setReindexing(true);
+                    setReindexCount(null);
+                    setError(null);
+                    void backend.stories
+                      .reindex()
+                      .then((r) => setReindexCount(r.storyCount))
+                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Re-index failed"))
+                      .finally(() => setReindexing(false));
+                  }}
+                >
+                  {reindexing ? "Re-indexing…" : "Re-index all stories"}
+                </button>
+                {reindexCount !== null ? (
+                  <span className="muted">
+                    {reindexCount} grouped stor{reindexCount === 1 ? "y" : "ies"}
+                  </span>
+                ) : null}
+              </div>
               <div className="ai-log-panel" ref={logPanelRef}>
                 {aiLogs.length === 0 ? (
                   <div className="muted">No AI log entries yet.</div>

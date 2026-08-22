@@ -424,3 +424,18 @@ func (r *StoryRepo) ClearStoryVote(ctx context.Context, storyID string) error {
 	_, err := r.db.SQL.ExecContext(ctx, `DELETE FROM story_votes WHERE story_id=?`, storyID)
 	return err
 }
+
+func (r *StoryRepo) ClearAllMemberships(ctx context.Context) error {
+	tx, err := r.db.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE articles SET story_id=NULL`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM stories`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

@@ -137,6 +137,59 @@ func TestReadLaterNotClustered(t *testing.T) {
 	}
 }
 
+func TestReindexAllFixesWrongMembership(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	b := rssArticle(feedID, "Talks in Kyiv", "Zelensky and Biden hold talks in Kyiv with NATO officials.", now)
+	c := rssArticle(feedID, "Apple visor", "Apple unveils a new headset in Cupertino today.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b, c}); err != nil {
+		t.Fatal(err)
+	}
+	st := &domain.Story{
+		ID: uuid.NewString(), Title: "Wrong", Source: domain.StorySourceAI,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := stories.Create(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, st.ID, []string{a.ID, b.ID, c.ID}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := svc.ReindexAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 rebuilt story, got %d", n)
+	}
+	list, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("got %d stories", len(list))
+	}
+	if list[0].MemberCount != 2 {
+		t.Fatalf("member count %d", list[0].MemberCount)
+	}
+	gotC, err := articles.Get(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotC.StoryID != "" {
+		t.Fatal("apple article should not remain in a meta-story")
+	}
+	gotA, _ := articles.Get(ctx, a.ID)
+	gotB, _ := articles.Get(ctx, b.ID)
+	if gotA.StoryID == "" || gotA.StoryID != gotB.StoryID {
+		t.Fatalf("kyiv articles should regroup together a=%s b=%s", gotA.StoryID, gotB.StoryID)
+	}
+	if list[0].Source != domain.StorySourceDeterministic {
+		t.Fatalf("rebuilt source %s", list[0].Source)
+	}
+}
+
 func setupCluster(t *testing.T) (*Service, *sqlite.ArticleRepo, *sqlite.StoryRepo, string, time.Time) {
 	t.Helper()
 	db, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))

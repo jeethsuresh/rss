@@ -84,6 +84,13 @@ func (s *Service) VoteStory(ctx context.Context, storyID string, vote domain.Sto
 	return s.Cluster.VoteStory(ctx, storyID, vote)
 }
 
+func (s *Service) ReindexStories(ctx context.Context) (int, error) {
+	if s.Cluster == nil {
+		return 0, domain.ErrInvalidParams
+	}
+	return s.Cluster.ReindexAll(ctx)
+}
+
 func (s *Service) UpdateSettings(ctx context.Context, patch map[string]any) (*domain.Settings, error) {
 	sset, err := s.Settings.Get(ctx)
 	if err != nil {

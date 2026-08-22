@@ -66,6 +66,7 @@ type StoryRepository interface {
 	GetStoryVote(ctx context.Context, storyID string) (StoryVote, error)
 	SetStoryVote(ctx context.Context, storyID string, vote StoryVote) error
 	ClearStoryVote(ctx context.Context, storyID string) error
+	ClearAllMemberships(ctx context.Context) error
 }
 
 type FolderRepository interface {

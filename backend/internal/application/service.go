@@ -51,6 +51,7 @@ type CrawlerService interface {
 
 type Clusterer interface {
 	ClusterNew(ctx context.Context, since time.Time) error
+	ReindexAll(ctx context.Context) (int, error)
 	VoteArticle(ctx context.Context, storyID, articleID string, vote domain.StoryVote) (*domain.Story, error)
 	VoteStory(ctx context.Context, storyID string, vote domain.StoryVote) (*domain.Story, error)
 }
