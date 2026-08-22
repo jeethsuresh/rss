@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	JoinThreshold      = 0.35
+	JoinThreshold      = 0.50
 	StaleJoinThreshold = 0.70
 	StaleAge           = 72 * time.Hour
 	ArticleWindow      = 7 * 24 * time.Hour
@@ -70,6 +70,10 @@ func Cosine(a, b Vector) float64 {
 		return 0
 	}
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
+}
+
+func scoresAtLeast(score, threshold float64) bool {
+	return score+1e-9 >= threshold
 }
 
 func Mean(vecs []Vector) Vector {
@@ -185,14 +189,14 @@ func DecideExcluding(article Candidate, articles []Candidate, stories []StoryCan
 		if now.Sub(best.newest) > StaleAge {
 			out.Threshold = StaleJoinThreshold
 		}
-		if best.score >= out.Threshold {
+		if scoresAtLeast(best.score, out.Threshold) {
 			out.Action = ActionJoin
 			out.StoryID = best.storyID
 			out.MemberIDs = []string{article.ID}
 		}
 		return out
 	}
-	if best.neighborID != "" && best.score >= JoinThreshold {
+	if best.neighborID != "" && scoresAtLeast(best.score, JoinThreshold) {
 		out.Action = ActionCreate
 		out.MemberIDs = []string{article.ID, best.neighborID}
 	}
