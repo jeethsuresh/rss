@@ -735,6 +735,22 @@ button {
   border-radius: 8px;
 }
 
+.reader-byline {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0 0 1rem;
+}
+
+.reader-mode-body figure {
+  margin: 1.25rem 0;
+}
+
+.reader-mode-body figcaption {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 0.4rem;
+}
+
 .empty {
   height: 100%;
   display: grid;

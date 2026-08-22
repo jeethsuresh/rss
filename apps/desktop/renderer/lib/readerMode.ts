@@ -1,9 +1,23 @@
 import { Readability } from "@mozilla/readability";
 import type { Article } from "@rss-reader/shared";
-import { parseHTML } from "linkedom";
 import { sanitizeArticleHtml, stripHtml } from "./html";
 
 export type ContentTab = "primary" | "reader" | "secondary";
+
+export function isFullBleedTab(tab: ContentTab, isReadLater: boolean): boolean {
+  switch (tab) {
+    case "reader":
+      return false;
+    case "secondary":
+      return true;
+    case "primary":
+      return isReadLater;
+    default: {
+      const _exhaustive: never = tab;
+      return _exhaustive;
+    }
+  }
+}
 
 export type ReaderArticle = {
   title: string;
@@ -23,10 +37,7 @@ export function readerSourceHtml(
 }
 
 function parseHtmlDocument(html: string): Document {
-  if (typeof DOMParser !== "undefined") {
-    return new DOMParser().parseFromString(html, "text/html");
-  }
-  return parseHTML(html).document as unknown as Document;
+  return new DOMParser().parseFromString(html, "text/html");
 }
 
 function injectBase(doc: Document, pageUrl: string): void {
@@ -42,6 +53,26 @@ function injectBase(doc: Document, pageUrl: string): void {
   if (htmlEl) {
     htmlEl.insertBefore(base, htmlEl.firstChild);
   }
+}
+
+export type ReaderPaneModel =
+  | { kind: "status"; message: string; recrawl: boolean }
+  | { kind: "article"; byline: string; contentHtml: string };
+
+export function readerPaneModel(article: Article): ReaderPaneModel {
+  const source = readerSourceHtml(article);
+  if (!source) {
+    if (article.crawlStatus === "pending") {
+      return { kind: "status", message: "Crawl in progress…", recrawl: false };
+    }
+    return { kind: "status", message: "No page to extract yet.", recrawl: true };
+  }
+  const extracted = extractReaderArticle(source, article.url);
+  const contentHtml = extracted?.contentHtml || sanitizeArticleHtml(source);
+  if (!stripHtml(contentHtml)) {
+    return { kind: "status", message: "Couldn't extract an article.", recrawl: true };
+  }
+  return { kind: "article", byline: extracted?.byline ?? "", contentHtml };
 }
 
 export function extractReaderArticle(html: string, pageUrl: string): ReaderArticle | null {

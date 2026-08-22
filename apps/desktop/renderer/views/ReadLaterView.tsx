@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared";
 import { PageFrame } from "../components/PageFrame";
+import { ReaderBody } from "../components/ReaderBody";
 import { formatRelativeTime, stripHtml, decodeHtmlEntities } from "../lib/html";
-
-type ContentTab = "primary" | "secondary";
+import { isFullBleedTab, type ContentTab } from "../lib/readerMode";
 
 type Props = {
   backend: ReaderBackend;
@@ -36,6 +36,10 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
 
   const active = articles.find((a) => a.id === activeId) ?? null;
+
+  useEffect(() => {
+    setContentTab("primary");
+  }, [activeId]);
 
   const load = useCallback(async () => {
     const list = (await backend.readLater.list(filter, search.trim() || undefined)) ?? [];
@@ -113,6 +117,12 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
   };
 
   const renderBody = (article: Article) => {
+    if (contentTab === "reader") {
+      return (
+        <ReaderBody article={article} contentBusy={contentBusy} onRecrawl={() => void recrawl()} />
+      );
+    }
+
     let bodyHtml: string | null = null;
     let statusMessage: string | null = null;
 
@@ -207,7 +217,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
             <p>Select a saved link to read.</p>
           </div>
         ) : (
-          <article className="reader reader-fullbleed">
+          <article className={`reader ${isFullBleedTab(contentTab, true) ? "reader-fullbleed" : ""}`}>
             <div className="reader-toolbar">
               <div className="content-tabs">
                 <button
@@ -216,6 +226,13 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
                   onClick={() => setContentTab("primary")}
                 >
                   Live
+                </button>
+                <button
+                  type="button"
+                  className={`content-tab ${contentTab === "reader" ? "active" : ""}`}
+                  onClick={() => setContentTab("reader")}
+                >
+                  Reader
                 </button>
                 <button
                   type="button"
@@ -269,13 +286,16 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
                     Open original
                   </button>
                 )}
-                {contentTab === "secondary" && (
+                {contentTab === "secondary" || contentTab === "reader" ? (
                   <button className="btn" disabled={contentBusy} onClick={() => void recrawl()}>
                     {contentBusy ? "Re-crawling…" : "Re-crawl page"}
                   </button>
-                )}
+                ) : null}
               </div>
             </div>
+            {contentTab === "reader" ? (
+              <h1>{decodeHtmlEntities(active.title || "(untitled)")}</h1>
+            ) : null}
             {renderBody(active)}
           </article>
         )}
