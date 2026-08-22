@@ -232,6 +232,157 @@ func TestReindexAllWritesAILogs(t *testing.T) {
 	}
 }
 
+func TestSplitBreaksMixedMembership(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	b := rssArticle(feedID, "Talks in Kyiv", "Zelensky and Biden hold talks in Kyiv with NATO officials.", now)
+	c := rssArticle(feedID, "Apple visor", "Apple unveils a new headset in Cupertino today.", now)
+	d := rssArticle(feedID, "Apple Cupertino", "Apple shows the headset again in Cupertino with Vision branding.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b, c, d}); err != nil {
+		t.Fatal(err)
+	}
+	st := &domain.Story{
+		ID: uuid.NewString(), Title: "(4) Mixed", Source: domain.StorySourceAI,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := stories.Create(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, st.ID, []string{a.ID, b.ID, c.ID, d.ID}); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := svc.Split(ctx, st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 new stories, got %v", ids)
+	}
+	list, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("listable %d", len(list))
+	}
+	gotA, _ := articles.Get(ctx, a.ID)
+	gotB, _ := articles.Get(ctx, b.ID)
+	gotC, _ := articles.Get(ctx, c.ID)
+	gotD, _ := articles.Get(ctx, d.ID)
+	if gotA.StoryID == "" || gotA.StoryID != gotB.StoryID {
+		t.Fatalf("kyiv articles should stay together a=%s b=%s", gotA.StoryID, gotB.StoryID)
+	}
+	if gotC.StoryID == "" || gotC.StoryID != gotD.StoryID {
+		t.Fatalf("apple articles should stay together c=%s d=%s", gotC.StoryID, gotD.StoryID)
+	}
+	if gotA.StoryID == gotC.StoryID {
+		t.Fatal("mixed groups should not remain one story")
+	}
+	if gotA.StoryID == st.ID || gotC.StoryID == st.ID {
+		t.Fatal("original story should be emptied")
+	}
+}
+
+func TestSplitNoOpWhenStillOneComponent(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	b := rssArticle(feedID, "Talks in Kyiv", "Zelensky and Biden hold talks in Kyiv with NATO officials.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ClusterNew(ctx, now.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	list, err := stories.List(ctx)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("setup %v %v", list, err)
+	}
+	ids, err := svc.Split(ctx, list[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != list[0].ID {
+		t.Fatalf("no-op should return original id, got %v", ids)
+	}
+	weights, err := stories.GetTokenWeights(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(weights) != 0 {
+		t.Fatalf("no-op must not down-weight, got %+v", weights)
+	}
+	again, err := stories.List(ctx)
+	if err != nil || len(again) != 1 || again[0].ID != list[0].ID || again[0].MemberCount != 2 {
+		t.Fatalf("membership should be unchanged, got %+v", again)
+	}
+}
+
+func TestSplitUngroupsAWeakPair(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	c := rssArticle(feedID, "Apple visor", "Apple unveils a new headset in Cupertino today.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, c}); err != nil {
+		t.Fatal(err)
+	}
+	st := &domain.Story{
+		ID: uuid.NewString(), Title: "(2) Mixed", Source: domain.StorySourceDeterministic,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := stories.Create(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, st.ID, []string{a.ID, c.ID}); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := svc.Split(ctx, st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("weak pair should become singletons, got %v", ids)
+	}
+	list, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("no listable stories, got %d", len(list))
+	}
+}
+
+func TestSplitWritesAILog(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	logs := &memLogs{}
+	svc.Logs = logs
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	b := rssArticle(feedID, "Talks in Kyiv", "Zelensky and Biden hold talks in Kyiv with NATO officials.", now)
+	c := rssArticle(feedID, "Apple visor", "Apple unveils a new headset in Cupertino today.", now)
+	d := rssArticle(feedID, "Apple Cupertino", "Apple shows the headset again in Cupertino with Vision branding.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b, c, d}); err != nil {
+		t.Fatal(err)
+	}
+	st := &domain.Story{
+		ID: uuid.NewString(), Title: "Mixed", Source: domain.StorySourceAI,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := stories.Create(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, st.ID, []string{a.ID, b.ID, c.ID, d.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Split(ctx, st.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !logs.hasPrefix("split story:") {
+		t.Fatalf("missing split log: %+v", logs.messages())
+	}
+}
+
 type memLogs struct {
 	entries []domain.AILogEntry
 }

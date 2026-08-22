@@ -98,6 +98,71 @@ func (s *Service) ReindexAll(ctx context.Context) (int, error) {
 	return len(list), nil
 }
 
+func (s *Service) Split(ctx context.Context, storyID string) ([]string, error) {
+	st, err := s.Stories.Get(ctx, storyID)
+	if err != nil {
+		return nil, err
+	}
+	weights, err := s.Stories.GetTokenWeights(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tallies := toTallies(weights)
+	members := make([]Member, 0, len(st.Articles))
+	for _, a := range st.Articles {
+		if a.IsReadLater {
+			continue
+		}
+		title, body := rssText(a)
+		members = append(members, Member{ID: a.ID, Title: a.Title, Vec: Tokenize(title, body, tallies)})
+	}
+	comps := SplitComponents(members, JoinThreshold)
+	if len(comps) <= 1 {
+		if len(members) >= 2 {
+			return []string{storyID}, nil
+		}
+		return []string{}, nil
+	}
+	overlap := CrossComponentOverlap(comps)
+	if err := s.Stories.AdjustTokenWeights(ctx, overlap, 0, 1); err != nil {
+		return nil, err
+	}
+	if err := s.Stories.SetMembers(ctx, storyID, nil); err != nil {
+		return nil, err
+	}
+	s.emit("story.updated", map[string]any{"storyId": storyID})
+	created := make([]string, 0)
+	for _, c := range comps {
+		if len(c) < 2 {
+			continue
+		}
+		ids := make([]string, 0, len(c))
+		for _, m := range c {
+			ids = append(ids, m.ID)
+		}
+		now := time.Now().UTC()
+		title, summary := s.deterministicTitle(ctx, ids)
+		nst := &domain.Story{
+			ID:        uuid.NewString(),
+			Title:     title,
+			Summary:   summary,
+			Source:    domain.StorySourceDeterministic,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		if err := s.Stories.Create(ctx, nst); err != nil {
+			return nil, err
+		}
+		if err := s.Stories.SetMembers(ctx, nst.ID, ids); err != nil {
+			return nil, err
+		}
+		s.emit("story.updated", map[string]any{"storyId": nst.ID})
+		created = append(created, nst.ID)
+	}
+	s.appendLog(ctx, "info", "", fmt.Sprintf("split story: %d → %d groups", len(members), len(comps)), st.Title)
+	return created, nil
+}
+
 func (s *Service) ClusterArticles(ctx context.Context, ids []string) error {
 	for _, id := range ids {
 		if err := s.clusterOne(ctx, id, nil, nil); err != nil {
