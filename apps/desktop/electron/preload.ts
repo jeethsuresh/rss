@@ -67,6 +67,7 @@ const api: ReaderBackend = {
     voteArticle: (storyId, articleId, vote) => request("stories.voteArticle", { storyId, articleId, vote }),
     voteStory: (id, vote) => request("stories.voteStory", { id, vote }),
     reindex: () => request("stories.reindex"),
+    split: (id) => request("stories.split", { id }),
   },
   folders: {
     list: () => request("folders.list"),

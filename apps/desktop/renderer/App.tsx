@@ -487,6 +487,20 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     [backend, activeStory, patchStory],
   );
 
+  const splitActiveStory = useCallback(async () => {
+    if (!activeStory) return;
+    try {
+      const { storyIds } = await backend.stories.split(activeStory.id);
+      await loadStories();
+      if (storyIds?.[0]) {
+        setActiveStoryId(storyIds[0]);
+        setStoryMemberId(null);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to split story");
+    }
+  }, [backend, activeStory, loadStories]);
+
   const selectArticle = useCallback(
     async (article: Article) => {
       setActiveId(article.id);
@@ -1587,6 +1601,9 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     }
                   >
                     {activeStory.isStarred ? "Unstar" : "Star"}
+                  </button>
+                  <button type="button" className="btn" onClick={() => void splitActiveStory()}>
+                    Split
                   </button>
                   <button
                     type="button"

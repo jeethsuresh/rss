@@ -54,6 +54,7 @@ type Clusterer interface {
 	ReindexAll(ctx context.Context) (int, error)
 	VoteArticle(ctx context.Context, storyID, articleID string, vote domain.StoryVote) (*domain.Story, error)
 	VoteStory(ctx context.Context, storyID string, vote domain.StoryVote) (*domain.Story, error)
+	Split(ctx context.Context, storyID string) ([]string, error)
 }
 
 func (s *Service) emit(name string, payload any) {

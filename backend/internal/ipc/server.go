@@ -340,6 +340,21 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"storyCount": n}, nil
+	case "stories.split":
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		ids, err := s.svc.SplitStory(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ids == nil {
+			ids = []string{}
+		}
+		return map[string]any{"storyIds": ids}, nil
 	case "ai.test":
 		if s.svc.AI == nil {
 			return nil, fmt.Errorf("ai unavailable")

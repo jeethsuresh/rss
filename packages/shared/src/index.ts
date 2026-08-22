@@ -498,6 +498,7 @@ export interface ReaderBackend {
     voteArticle(storyId: string, articleId: string, vote: StoryVote | "none"): Promise<Story>;
     voteStory(id: string, vote: StoryVote | "none"): Promise<Story>;
     reindex(): Promise<{ storyCount: number }>;
+    split(id: string): Promise<{ storyIds: string[] }>;
   };
   folders: {
     list(): Promise<Folder[]>;
@@ -576,6 +577,7 @@ export const RPC_METHODS = [
   "stories.voteArticle",
   "stories.voteStory",
   "stories.reindex",
+  "stories.split",
   "folders.list",
   "folders.create",
   "folders.remove",

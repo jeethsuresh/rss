@@ -91,6 +91,13 @@ func (s *Service) ReindexStories(ctx context.Context) (int, error) {
 	return s.Cluster.ReindexAll(ctx)
 }
 
+func (s *Service) SplitStory(ctx context.Context, storyID string) ([]string, error) {
+	if s.Cluster == nil {
+		return nil, domain.ErrInvalidParams
+	}
+	return s.Cluster.Split(ctx, storyID)
+}
+
 func (s *Service) UpdateSettings(ctx context.Context, patch map[string]any) (*domain.Settings, error) {
 	sset, err := s.Settings.Get(ctx)
 	if err != nil {

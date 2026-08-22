@@ -383,6 +383,66 @@ func TestSplitWritesAILog(t *testing.T) {
 	}
 }
 
+func TestSplitDownWeightsCrossCutTokens(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	army1 := rssArticle(feedID, "Army GTA bonus", "The Army offers GTA time as a reenlistment bonus.", now)
+	army2 := rssArticle(feedID, "Army reenlist GTA", "An Army unit offers days off to play GTA.", now)
+	gta1 := rssArticle(feedID, "GTA leaks Discord", "Take-Two subpoenaed Discord over GTA leaks.", now)
+	gta2 := rssArticle(feedID, "GTA Discord Microsoft", "Take-Two asked Discord and Microsoft about GTA leaks.", now)
+	all := []domain.Article{army1, army2, gta1, gta2}
+	if _, err := articles.UpsertMany(ctx, all); err != nil {
+		t.Fatal(err)
+	}
+	st := &domain.Story{
+		ID: uuid.NewString(), Title: "Mixed GTA", Source: domain.StorySourceDeterministic,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := stories.Create(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, st.ID, []string{army1.ID, army2.ID, gta1.ID, gta2.ID}); err != nil {
+		t.Fatal(err)
+	}
+	members := make([]Member, 0, 4)
+	for _, a := range all {
+		title, body := rssText(a)
+		members = append(members, Member{ID: a.ID, Title: a.Title, Vec: Tokenize(title, body, nil)})
+	}
+	comps := SplitComponents(members, JoinThreshold)
+	overlap := CrossComponentOverlap(comps)
+	if len(comps) < 2 {
+		t.Fatalf("expected mixed GTA cluster to break, got %d components", len(comps))
+	}
+	if len(overlap) == 0 {
+		t.Fatal("expected a cross-cut token such as gta")
+	}
+	if _, err := svc.Split(ctx, st.ID); err != nil {
+		t.Fatal(err)
+	}
+	weights, err := stories.GetTokenWeights(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range overlap {
+		if weights[tok].Down < 1 {
+			t.Fatalf("cross-cut token %q should be down-weighted, got %+v", tok, weights)
+		}
+	}
+	if fb, ok := weights["army"]; ok && fb.Down > 0 && !containsString(overlap, "army") {
+		t.Fatalf("intra-group army should not be down-weighted: %+v overlap %v", fb, overlap)
+	}
+}
+
+func containsString(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
 type memLogs struct {
 	entries []domain.AILogEntry
 }

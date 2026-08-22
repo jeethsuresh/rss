@@ -14,6 +14,7 @@ describe("shared contract", () => {
     expect(RPC_METHODS).toContain("stories.list");
     expect(RPC_METHODS).toContain("stories.voteArticle");
     expect(RPC_METHODS).toContain("stories.reindex");
+    expect(RPC_METHODS).toContain("stories.split");
     expect(RPC_METHODS).toContain("ai.scan");
   });
 });
