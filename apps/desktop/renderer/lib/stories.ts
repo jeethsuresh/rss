@@ -17,9 +17,18 @@ export function storyListRowKey(row: StoryListRow): string {
   }
 }
 
+export const MIN_STORY_MEMBER_COUNT = 2;
+
+export function isListableStory(story: Pick<Story, "memberCount">): boolean {
+  return story.memberCount >= MIN_STORY_MEMBER_COUNT;
+}
+
 export function storyListRows(stories: Story[], expanded: Story | null): StoryListRow[] {
   const rows: StoryListRow[] = [];
   for (const story of stories) {
+    if (!isListableStory(story)) {
+      continue;
+    }
     rows.push({ kind: "story", storyId: story.id });
     if (expanded?.id !== story.id) {
       continue;
@@ -56,6 +65,9 @@ export function memberArticle(story: Story | null, articleId: string | null): Ar
 }
 
 export function upsertStoryInPlace(stories: Story[], story: Story): Story[] {
+  if (!isListableStory(story)) {
+    return stories.filter((s) => s.id !== story.id);
+  }
   const exists = stories.some((s) => s.id === story.id);
   if (!exists) {
     return [story, ...stories];

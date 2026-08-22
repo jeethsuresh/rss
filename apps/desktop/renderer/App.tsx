@@ -34,6 +34,7 @@ import {
 } from "./lib/folders";
 import {
   adjacentStoryListRow,
+  isListableStory,
   memberArticle,
   nextStoryVote,
   storyListRowKey,
@@ -217,8 +218,8 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   );
 
   const loadStories = useCallback(async () => {
-    const list = await backend.stories.list();
-    setStories(list ?? []);
+    const list = (await backend.stories.list() ?? []).filter(isListableStory);
+    setStories(list);
     setActiveStoryId((id) => {
       if (id && list.some((s) => s.id === id)) return id;
       return list[0]?.id ?? null;
@@ -287,8 +288,19 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       }
       return;
     }
-    void backend.stories.get(activeStoryId).then(setActiveStory).catch(() => setActiveStory(null));
-  }, [backend, isStoriesMode, activeStoryId]);
+    void backend.stories
+      .get(activeStoryId)
+      .then((full) => {
+        if (!isListableStory(full)) {
+          setActiveStory(null);
+          setStoryMemberId(null);
+          void loadStories();
+          return;
+        }
+        setActiveStory(full);
+      })
+      .catch(() => setActiveStory(null));
+  }, [backend, isStoriesMode, activeStoryId, loadStories]);
 
   useEffect(() => {
     return backend.onEvent((event) => {
@@ -358,6 +370,14 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             .get(payload.storyId)
             .then((full) => {
               setStories((prev) => upsertStoryInPlace(prev, full));
+              if (!isListableStory(full)) {
+                if (payload.storyId === activeStoryId) {
+                  setActiveStory(null);
+                  setStoryMemberId(null);
+                  void loadStories();
+                }
+                return;
+              }
               if (payload.storyId === activeStoryId) {
                 setActiveStory((prev) =>
                   prev?.id === full.id

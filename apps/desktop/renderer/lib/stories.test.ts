@@ -83,11 +83,32 @@ describe("storyListRows", () => {
   });
 
   test("upsertStoryInPlace patches flags without moving the row", () => {
-    const a = story({ id: "a" });
-    const b = story({ id: "b" });
+    const a = story({ id: "a", memberCount: 2 });
+    const b = story({ id: "b", memberCount: 2 });
     const next = upsertStoryInPlace([a, b], { ...b, isRead: true });
     expect(next.map((s) => s.id)).toEqual(["a", "b"]);
     expect(next[1].isRead).toBe(true);
+  });
+
+  test("upsertStoryInPlace does not insert stories with fewer than two members", () => {
+    const visible = story({ id: "keep", memberCount: 2 });
+    const next = upsertStoryInPlace([visible], story({ id: "empty", memberCount: 0, title: "(3) leftover" }));
+    expect(next.map((s) => s.id)).toEqual(["keep"]);
+  });
+
+  test("upsertStoryInPlace removes a story that dropped below two members", () => {
+    const keep = story({ id: "keep", memberCount: 2 });
+    const gone = story({ id: "gone", memberCount: 3, title: "(3) US Army" });
+    const next = upsertStoryInPlace([keep, gone], { ...gone, memberCount: 0 });
+    expect(next.map((s) => s.id)).toEqual(["keep"]);
+  });
+
+  test("storyListRows skips stories with fewer than two members", () => {
+    const empty = story({ id: "empty", memberCount: 0, title: "(3) leftover" });
+    const one = story({ id: "one", memberCount: 1 });
+    const two = story({ id: "two", memberCount: 2 });
+    const rows = storyListRows([empty, one, two], empty);
+    expect(rows).toEqual([{ kind: "story", storyId: "two" }]);
   });
 });
 
