@@ -33,8 +33,8 @@ When AI triage is off, RSS articles still cluster into meta-stories. The grouper
 - Candidates for a new article: other non–Read Later RSS articles whose published/discovered time is within the last **7 days**, plus every current member of any story whose newest member is ≤ **14 days** old.
 - Also score against each eligible **story centroid** (mean of member vectors).
 - Take the best neighbour (article or centroid). Skip the article itself. Treat membership in an excluded story as ungrouped (used after thumbs-down).
-- **Join** an existing story if the best match is that story (or a member of it) and score ≥ **0.35**. If the story’s newest member is older than **72 hours**, require score ≥ **0.70** instead. The 72h clock uses the newest member’s published/discovered time, so ongoing coverage stays open.
-- **Create** a story if the best match is an ungrouped article, score ≥ **0.35**, and both are eligible RSS items. Title/summary as below.
+- **Join** an existing story if the best match is that story (or a member of it) and score ≥ **0.50**. If the story’s newest member is older than **72 hours**, require score ≥ **0.70** instead. The 72h clock uses the newest member’s published/discovered time, so ongoing coverage stays open.
+- **Create** a story if the best match is an ungrouped article, score ≥ **0.50**, and both are eligible RSS items. Title/summary as below.
 - Otherwise leave the article ungrouped (singleton stories stay hidden).
 - Process new articles in published/discovered order so same-fetch items can pair.
 - Skip Read Later everywhere, same as AI clustering.
@@ -81,7 +81,7 @@ New tool `suggest_meta_story` (implied current triage article):
 ## Tests
 
 - Tokenization: stopwords gone; title “Biden” is not a proper noun; body “Biden” is.
-- Cosine join/create thresholds; 72h barrier blocks 0.35 and allows 0.70.
+- Cosine join/create thresholds; 72h barrier blocks moderate scores and allows 0.70.
 - Thumbs-down removes, re-ranks article and leftover cluster, undo restores snapshot; token weights move.
 - AI tool is read-only.
 - Read Later never clustered.
