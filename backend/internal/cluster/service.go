@@ -422,7 +422,7 @@ func (s *Service) rerankLeftover(ctx context.Context, storyID string, excludeArt
 	}
 	centroid := Mean(vecs)
 	target, score, _ := bestStoryForCentroid(centroid, world.stories, now, map[string]bool{storyID: true})
-	if target == "" || score < JoinThreshold {
+	if target == "" || !scoresAtLeast(score, JoinThreshold) {
 		return nil
 	}
 	for _, id := range ids {
@@ -449,7 +449,7 @@ func bestStoryForCentroid(centroid Vector, stories []StoryCandidate, now time.Ti
 		if now.Sub(st.Newest) > StaleAge {
 			th = StaleJoinThreshold
 		}
-		if sc >= th && sc > best {
+		if scoresAtLeast(sc, th) && sc > best {
 			best = sc
 			storyID = st.ID
 			score = sc

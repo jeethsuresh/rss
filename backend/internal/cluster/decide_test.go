@@ -46,6 +46,32 @@ func TestOverlapTokensAreShared(t *testing.T) {
 	}
 }
 
+func TestJoinThresholdIsHalf(t *testing.T) {
+	if JoinThreshold != 0.50 {
+		t.Fatalf("JoinThreshold=%v", JoinThreshold)
+	}
+}
+
+func TestDecideDoesNotCreateBelowJoinThreshold(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	article := Candidate{ID: "a", Vec: Vector{"x": 1, "y": 1, "extra": 1}, At: now}
+	other := Candidate{ID: "b", Vec: Vector{"x": 1, "z": 1}, At: now}
+	got := Decide(article, []Candidate{other}, nil, now, nil)
+	if got.Action != ActionNone {
+		t.Fatalf("below 0.50 must not create, got %+v", got)
+	}
+}
+
+func TestDecideCreatesAtJoinThreshold(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	article := Candidate{ID: "a", Vec: Vector{"x": 1, "y": 1}, At: now}
+	other := Candidate{ID: "b", Vec: Vector{"x": 1, "z": 1}, At: now}
+	got := Decide(article, []Candidate{other}, nil, now, nil)
+	if got.Action != ActionCreate {
+		t.Fatalf("cosine 0.50 must create, got %+v", got)
+	}
+}
+
 func TestDecideCreatesPair(t *testing.T) {
 	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	article := Candidate{ID: "a", Vec: Vector{"biden": 3, "kyiv": 3}, At: now}
