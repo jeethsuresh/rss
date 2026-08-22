@@ -61,6 +61,7 @@ func main() {
 
 	crawlSvc := crawl.New(articles, feeds, log)
 	clusterSvc := cluster.New(articles, stories, log)
+	clusterSvc.Logs = aiLogs
 	aiSvc := ai.New(articles, stories, settings, feeds, queue, aiLogs, log)
 	aiSvc.Suggester = clusterSvc
 

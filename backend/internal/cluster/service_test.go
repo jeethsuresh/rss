@@ -190,6 +190,78 @@ func TestReindexAllFixesWrongMembership(t *testing.T) {
 	}
 }
 
+func TestClusterNewWritesAILogs(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, _, feedID, now := setupCluster(t)
+	logs := &memLogs{}
+	svc.Logs = logs
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	b := rssArticle(feedID, "Talks in Kyiv", "Zelensky and Biden hold talks in Kyiv with NATO officials.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ClusterNew(ctx, now.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if !logs.hasPrefix("deterministic index:") {
+		t.Fatalf("missing index start log: %+v", logs.messages())
+	}
+	if !logs.hasPrefix("created meta-story") {
+		t.Fatalf("missing create log: %+v", logs.messages())
+	}
+}
+
+func TestReindexAllWritesAILogs(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, _, feedID, now := setupCluster(t)
+	logs := &memLogs{}
+	svc.Logs = logs
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	b := rssArticle(feedID, "Talks in Kyiv", "Zelensky and Biden hold talks in Kyiv with NATO officials.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ReindexAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !logs.hasPrefix("re-index started") {
+		t.Fatalf("missing re-index start: %+v", logs.messages())
+	}
+	if !logs.hasPrefix("re-index done:") {
+		t.Fatalf("missing re-index done: %+v", logs.messages())
+	}
+}
+
+type memLogs struct {
+	entries []domain.AILogEntry
+}
+
+func (m *memLogs) Append(_ context.Context, entry domain.AILogEntry) error {
+	m.entries = append(m.entries, entry)
+	return nil
+}
+
+func (m *memLogs) List(_ context.Context, _ int) ([]domain.AILogEntry, error) {
+	return m.entries, nil
+}
+
+func (m *memLogs) messages() []string {
+	out := make([]string, 0, len(m.entries))
+	for _, e := range m.entries {
+		out = append(out, e.Message)
+	}
+	return out
+}
+
+func (m *memLogs) hasPrefix(prefix string) bool {
+	for _, e := range m.entries {
+		if strings.HasPrefix(e.Message, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func setupCluster(t *testing.T) (*Service, *sqlite.ArticleRepo, *sqlite.StoryRepo, string, time.Time) {
 	t.Helper()
 	db, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))

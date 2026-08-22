@@ -707,7 +707,7 @@ export function SettingsPage({
               </div>
               <div className="ai-log-panel" ref={logPanelRef}>
                 {aiLogs.length === 0 ? (
-                  <div className="muted">No AI log entries yet.</div>
+                  <div className="muted">No log entries yet.</div>
                 ) : (
                   aiLogs.map((entry) => (
                     <div

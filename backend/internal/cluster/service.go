@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"time"
@@ -14,6 +15,7 @@ import (
 type Service struct {
 	Articles domain.ArticleRepository
 	Stories  domain.StoryRepository
+	Logs     domain.AILogRepository
 	Log      *slog.Logger
 	Emit     func(name string, payload any)
 }
@@ -28,29 +30,59 @@ func (s *Service) emit(name string, payload any) {
 	}
 }
 
+func (s *Service) appendLog(ctx context.Context, level, articleID, message, detail string) {
+	if s.Logs == nil {
+		return
+	}
+	entry := domain.AILogEntry{
+		ID:        uuid.NewString(),
+		TS:        time.Now().UTC().Format(time.RFC3339Nano),
+		Level:     level,
+		ArticleID: articleID,
+		Message:   message,
+		Detail:    detail,
+	}
+	_ = s.Logs.Append(ctx, entry)
+	if s.Emit != nil {
+		s.Emit("ai.log", entry)
+	}
+}
+
 func (s *Service) ClusterNew(ctx context.Context, since time.Time) error {
 	arts, err := s.Articles.ListDiscoveredSince(ctx, since)
 	if err != nil {
+		s.appendLog(ctx, "error", "", "deterministic index failed", err.Error())
 		return err
 	}
 	ids := make([]string, 0, len(arts))
 	for _, a := range arts {
 		ids = append(ids, a.ID)
 	}
-	return s.ClusterArticles(ctx, ids)
+	s.appendLog(ctx, "info", "", fmt.Sprintf("deterministic index: %d articles", len(ids)), "")
+	err = s.ClusterArticles(ctx, ids)
+	if err != nil {
+		s.appendLog(ctx, "error", "", "deterministic index failed", err.Error())
+		return err
+	}
+	s.appendLog(ctx, "info", "", "deterministic index done", "")
+	return nil
 }
 
 func (s *Service) ReindexAll(ctx context.Context) (int, error) {
 	if err := s.Stories.ClearAllMemberships(ctx); err != nil {
+		s.appendLog(ctx, "error", "", "re-index failed", err.Error())
 		return 0, err
 	}
 	now := time.Now().UTC()
 	arts, err := s.Articles.ListForClustering(ctx, time.Time{}, time.Time{})
 	if err != nil {
+		s.appendLog(ctx, "error", "", "re-index failed", err.Error())
 		return 0, err
 	}
+	s.appendLog(ctx, "info", "", fmt.Sprintf("re-index started (%d articles)", len(arts)), "")
 	for _, a := range arts {
 		if err := s.clusterOneAt(ctx, a.ID, nil, nil, now, time.Time{}, time.Time{}); err != nil {
+			s.appendLog(ctx, "error", a.ID, "re-index article failed", err.Error())
 			if s.Log != nil {
 				s.Log.Warn("reindex article", "id", a.ID, "err", err)
 			}
@@ -58,8 +90,10 @@ func (s *Service) ReindexAll(ctx context.Context) (int, error) {
 	}
 	list, err := s.Stories.List(ctx)
 	if err != nil {
+		s.appendLog(ctx, "error", "", "re-index failed", err.Error())
 		return 0, err
 	}
+	s.appendLog(ctx, "info", "", fmt.Sprintf("re-index done: %d stories", len(list)), "")
 	s.emit("story.updated", map[string]any{})
 	return len(list), nil
 }
@@ -67,6 +101,7 @@ func (s *Service) ReindexAll(ctx context.Context) (int, error) {
 func (s *Service) ClusterArticles(ctx context.Context, ids []string) error {
 	for _, id := range ids {
 		if err := s.clusterOne(ctx, id, nil, nil); err != nil {
+			s.appendLog(ctx, "error", id, "deterministic index article failed", err.Error())
 			if s.Log != nil {
 				s.Log.Warn("cluster article", "id", id, "err", err)
 			}
@@ -247,6 +282,11 @@ func (s *Service) applySuggestion(ctx context.Context, article *domain.Article, 
 			return err
 		}
 		s.emit("story.updated", map[string]any{"storyId": sug.StoryID})
+		title := sug.StoryID
+		if st, err := s.Stories.Get(ctx, sug.StoryID); err == nil {
+			title = st.Title
+		}
+		s.appendLog(ctx, "info", article.ID, "joined meta-story", title)
 		return nil
 	case ActionCreate:
 		members := uniqueIDs(sug.MemberIDs)
@@ -270,6 +310,7 @@ func (s *Service) applySuggestion(ctx context.Context, article *domain.Article, 
 			return err
 		}
 		s.emit("story.updated", map[string]any{"storyId": st.ID})
+		s.appendLog(ctx, "info", article.ID, "created meta-story", st.Title)
 		return nil
 	default:
 		return nil
