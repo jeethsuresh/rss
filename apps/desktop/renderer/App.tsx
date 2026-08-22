@@ -44,6 +44,8 @@ import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
 import { PageFrame } from "./components/PageFrame";
+import { ReaderBody } from "./components/ReaderBody";
+import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
 
 type Selection =
   | { type: "all" }
@@ -54,7 +56,6 @@ type Selection =
   | { type: "folder"; id: string };
 
 type AppMode = "rss" | "readLater" | "sports";
-type ContentTab = "primary" | "secondary";
 type View = "reader" | "settings";
 type SettingsSection = "general" | "feeds" | "ai" | "sports";
 
@@ -789,6 +790,13 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         </button>
         <button
           type="button"
+          className={`content-tab ${contentTab === "reader" ? "active" : ""}`}
+          onClick={() => void handleContentTab("reader")}
+        >
+          Reader
+        </button>
+        <button
+          type="button"
           className={`content-tab ${contentTab === "secondary" ? "active" : ""}`}
           onClick={() => void handleContentTab("secondary")}
         >
@@ -799,6 +807,16 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   };
 
   const renderContentBody = (article: Article) => {
+    if (contentTab === "reader") {
+      return (
+        <ReaderBody
+          article={article}
+          contentBusy={contentBusy}
+          onRecrawl={() => void recrawlActive()}
+        />
+      );
+    }
+
     let bodyHtml: string | null = null;
     let statusMessage: string | null = null;
     let asFullPage = false;
@@ -1578,9 +1596,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             </div>
           ) : (
             <article
-              className={`reader ${
-                contentTab === "secondary" || active.isReadLater ? "reader-fullbleed" : ""
-              }`}
+              className={`reader ${isFullBleedTab(contentTab, active.isReadLater) ? "reader-fullbleed" : ""}`}
             >
               <div className="reader-toolbar">
                 {renderContentTabs(active)}
@@ -1618,14 +1634,14 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                       Open original
                     </button>
                   )}
-                  {contentTab === "secondary" && (
+                  {(contentTab === "secondary" || contentTab === "reader") && (
                     <button className="btn" disabled={contentBusy} onClick={() => void recrawlActive()}>
                       {contentBusy ? "Re-crawling…" : "Re-crawl page"}
                     </button>
                   )}
                 </div>
               </div>
-              {contentTab === "primary" && !active.isReadLater ? (
+              {contentTab === "reader" || (contentTab === "primary" && !active.isReadLater) ? (
                 <h1>
                   <PriorityBadge priority={active.priority} />
                   {decodeHtmlEntities(active.title || "(untitled)")}

@@ -20,6 +20,7 @@
     "lint": "echo 'desktop: ok'"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "@rss-reader/shared": "workspace:*",
     "isomorphic-dompurify": "^3.22.0",
     "react": "^19.1.1",
@@ -31,6 +32,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^37.2.6",
     "electron-builder": "^26.0.12",
+    "linkedom": "^0.18.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.2"
   }
