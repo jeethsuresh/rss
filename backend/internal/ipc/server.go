@@ -23,11 +23,11 @@ type Request struct {
 }
 
 type Response struct {
-	ID     string `json:"id,omitempty"`
-	Result any    `json:"result,omitempty"`
-	Error  *Error `json:"error,omitempty"`
-	Event  string `json:"event,omitempty"`
-	Payload any   `json:"payload,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Result  any    `json:"result,omitempty"`
+	Error   *Error `json:"error,omitempty"`
+	Event   string `json:"event,omitempty"`
+	Payload any    `json:"payload,omitempty"`
 }
 
 type Error struct {
@@ -315,6 +315,25 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.ToggleStoryStar(ctx, p.ID)
+	case "stories.voteArticle":
+		var p struct {
+			StoryID   string `json:"storyId"`
+			ArticleID string `json:"articleId"`
+			Vote      string `json:"vote"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.StoryID == "" || p.ArticleID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.VoteStoryArticle(ctx, p.StoryID, p.ArticleID, parseStoryVote(p.Vote))
+	case "stories.voteStory":
+		var p struct {
+			ID   string `json:"id"`
+			Vote string `json:"vote"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.VoteStory(ctx, p.ID, parseStoryVote(p.Vote))
 	case "ai.test":
 		if s.svc.AI == nil {
 			return nil, fmt.Errorf("ai unavailable")
@@ -548,5 +567,16 @@ func mapError(err error) *Error {
 		return &Error{Code: "UNSUPPORTED_METHOD", Message: err.Error()}
 	default:
 		return &Error{Code: "INTERNAL", Message: err.Error()}
+	}
+}
+
+func parseStoryVote(v string) domain.StoryVote {
+	switch v {
+	case "up":
+		return domain.VoteUp
+	case "down":
+		return domain.VoteDown
+	default:
+		return domain.VoteNone
 	}
 }

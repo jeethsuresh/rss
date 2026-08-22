@@ -64,3 +64,10 @@ export function upsertStoryInPlace(stories: Story[], story: Story): Story[] {
     s.id === story.id ? { ...s, ...story, articles: s.articles, articleIds: s.articleIds } : s,
   );
 }
+
+export function nextStoryVote(current: string | undefined, clicked: "up" | "down"): "up" | "down" | "none" {
+  if (current === clicked) {
+    return "none";
+  }
+  return clicked;
+}

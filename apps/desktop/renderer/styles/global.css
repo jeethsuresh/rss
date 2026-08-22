@@ -1048,6 +1048,41 @@ button {
 
 .article-row.story-member-row {
   padding-left: 22px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.story-member-main {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+}
+
+.story-votes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.story-vote {
+  padding: 2px 6px;
+  line-height: 1.2;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  opacity: 0.55;
+}
+
+.story-vote:hover,
+.story-vote.active {
+  opacity: 1;
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .content-tabs {

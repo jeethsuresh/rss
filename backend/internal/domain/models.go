@@ -70,17 +70,43 @@ type Article struct {
 	FeedTitle       string      `json:"feedTitle,omitempty"`
 }
 
+const (
+	StorySourceAI            = "ai"
+	StorySourceDeterministic = "deterministic"
+)
+
+type StoryVote string
+
+const (
+	VoteNone StoryVote = ""
+	VoteUp   StoryVote = "up"
+	VoteDown StoryVote = "down"
+)
+
+type TokenFeedback struct {
+	Up   int
+	Down int
+}
+
+type ArticleVoteRecord struct {
+	Vote     StoryVote
+	Snapshot []string
+}
+
 type Story struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Summary     string    `json:"summary"`
-	IsRead      bool      `json:"isRead"`
-	IsStarred   bool      `json:"isStarred"`
-	MemberCount int       `json:"memberCount"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	ArticleIDs  []string  `json:"articleIds,omitempty"`
-	Articles    []Article `json:"articles,omitempty"`
+	ID           string               `json:"id"`
+	Title        string               `json:"title"`
+	Summary      string               `json:"summary"`
+	Source       string               `json:"source"`
+	Vote         StoryVote            `json:"vote,omitempty"`
+	ArticleVotes map[string]StoryVote `json:"articleVotes,omitempty"`
+	IsRead       bool                 `json:"isRead"`
+	IsStarred    bool                 `json:"isStarred"`
+	MemberCount  int                  `json:"memberCount"`
+	CreatedAt    time.Time            `json:"createdAt"`
+	UpdatedAt    time.Time            `json:"updatedAt"`
+	ArticleIDs   []string             `json:"articleIds,omitempty"`
+	Articles     []Article            `json:"articles,omitempty"`
 }
 
 type Folder struct {
@@ -104,18 +130,18 @@ type Settings struct {
 }
 
 type ArticleQuery struct {
-	FeedID         string
-	FolderID       string
-	UnreadOnly     bool
-	StarredOnly    bool
-	Search         string
-	Limit          int
-	Cursor         string
-	DefaultSort    string
-	Since          *time.Time
-	ReadLaterOnly  bool
-	ArchivedOnly   bool
-	ExcludeArchived bool
+	FeedID           string
+	FolderID         string
+	UnreadOnly       bool
+	StarredOnly      bool
+	Search           string
+	Limit            int
+	Cursor           string
+	DefaultSort      string
+	Since            *time.Time
+	ReadLaterOnly    bool
+	ArchivedOnly     bool
+	ExcludeArchived  bool
 	ExcludeReadLater bool
 }
 

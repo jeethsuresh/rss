@@ -64,6 +64,8 @@ const api: ReaderBackend = {
     markRead: (id) => request("stories.markRead", { id }),
     markUnread: (id) => request("stories.markUnread", { id }),
     toggleStar: (id) => request("stories.toggleStar", { id }),
+    voteArticle: (storyId, articleId, vote) => request("stories.voteArticle", { storyId, articleId, vote }),
+    voteStory: (id, vote) => request("stories.voteStory", { id, vote }),
   },
   folders: {
     list: () => request("folders.list"),

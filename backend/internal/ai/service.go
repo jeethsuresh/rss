@@ -14,18 +14,20 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jeeth/rss-reader/backend/internal/cluster"
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 )
 
 type Service struct {
-	Articles domain.ArticleRepository
-	Stories  domain.StoryRepository
-	Settings domain.SettingsRepository
-	Feeds    domain.FeedRepository
-	Queue    domain.AIQueueRepository
-	Logs     domain.AILogRepository
-	Log      *slog.Logger
-	Emit     func(name string, payload any)
+	Articles  domain.ArticleRepository
+	Stories   domain.StoryRepository
+	Settings  domain.SettingsRepository
+	Feeds     domain.FeedRepository
+	Queue     domain.AIQueueRepository
+	Logs      domain.AILogRepository
+	Suggester Suggester
+	Log       *slog.Logger
+	Emit      func(name string, payload any)
 
 	mu      sync.Mutex
 	running bool
@@ -51,6 +53,10 @@ func New(
 		Log:      log,
 		client:   &http.Client{Timeout: 15 * time.Minute},
 	}
+}
+
+type Suggester interface {
+	Suggest(ctx context.Context, articleID string) (*cluster.Suggestion, error)
 }
 
 func (s *Service) appendLog(ctx context.Context, level, articleID, message, detail string) {
@@ -344,6 +350,7 @@ Rules:
 - Prefer crawled/full-page text when available and not marked unreliable.
 - If crawled text looks wrong (nav chrome, paywall, empty), call mark_crawl_unreliable then use the feed/RSS preview text.
 - Use search_articles to find related coverage before create/join.
+- Call suggest_meta_story to see the deterministic nearest-neighbour grouping; you may still override.
 - Never include Read Later items in stories; skip clustering for those.
 - storyAction=join needs storyId or memberIds from search; create needs title/summary/memberIds including this article, with at least two RSS members.`
 
@@ -367,6 +374,17 @@ Rules:
 						"limit": map[string]any{"type": "integer"},
 					},
 					"required": []string{"query"},
+				},
+			},
+		},
+		map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "suggest_meta_story",
+				"description": "Return the deterministic nearest-neighbour meta-story suggestion for this article (RSS text only). Read-only.",
+				"parameters": map[string]any{
+					"type":       "object",
+					"properties": map[string]any{},
 				},
 			},
 		},
@@ -457,6 +475,7 @@ Rules:
 		}
 		if storyID != "" {
 			_ = s.Stories.AddMember(ctx, storyID, article.ID)
+			_ = s.Stories.SetSource(ctx, storyID, domain.StorySourceAI)
 		}
 	case "create":
 		members := s.eligibleStoryMembers(ctx, uniqueStrings(append(out.MemberIDs, article.ID)))
@@ -468,6 +487,7 @@ Rules:
 			ID:        uuid.NewString(),
 			Title:     firstNonEmpty(out.StoryTitle, article.Title),
 			Summary:   firstNonEmpty(out.StorySummary, truncate(stripTags(article.Summary), 280)),
+			Source:    domain.StorySourceAI,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -532,6 +552,28 @@ func (s *Service) runTool(ctx context.Context, article *domain.Article, tc toolC
 			})
 		}
 		b, _ := json.Marshal(hits)
+		return string(b), nil
+	case "suggest_meta_story":
+		if s.Suggester == nil {
+			return `{"action":"none","error":"suggester unavailable"}`, nil
+		}
+		sug, err := s.Suggester.Suggest(ctx, article.ID)
+		if err != nil {
+			return "", err
+		}
+		tokens := make([]map[string]any, 0, len(sug.Tokens))
+		for _, tok := range sug.Tokens {
+			tokens = append(tokens, map[string]any{"token": tok})
+		}
+		b, _ := json.Marshal(map[string]any{
+			"action":    sug.Action,
+			"storyId":   sug.StoryID,
+			"title":     sug.Title,
+			"memberIds": sug.MemberIDs,
+			"score":     sug.Score,
+			"threshold": sug.Threshold,
+			"tokens":    tokens,
+		})
 		return string(b), nil
 	case "mark_crawl_unreliable":
 		var args struct {

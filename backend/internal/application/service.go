@@ -25,6 +25,7 @@ type Service struct {
 	RSS      *rss.Fetcher
 	AI       AIService
 	Crawler  CrawlerService
+	Cluster  Clusterer
 	Log      *slog.Logger
 	Emit     EventEmitter
 	Version  string
@@ -46,6 +47,12 @@ type CrawlerService interface {
 	EnqueueAndKick(ctx context.Context)
 	CrawlOne(ctx context.Context, articleID string) error
 	FetchLive(ctx context.Context, articleID string) (string, error)
+}
+
+type Clusterer interface {
+	ClusterNew(ctx context.Context, since time.Time) error
+	VoteArticle(ctx context.Context, storyID, articleID string, vote domain.StoryVote) (*domain.Story, error)
+	VoteStory(ctx context.Context, storyID string, vote domain.StoryVote) (*domain.Story, error)
 }
 
 func (s *Service) emit(name string, payload any) {
@@ -128,6 +135,7 @@ func (s *Service) AddFeed(ctx context.Context, rawURL string) (*domain.Feed, err
 	s.emit("feed.updated", map[string]any{"feedId": feed.ID})
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
+		s.clusterSince(ctx, now)
 		s.enqueueUnscannedForFeed(ctx, feed.ID)
 		if s.Crawler != nil {
 			s.Crawler.EnqueueAndKick(ctx)
@@ -216,6 +224,7 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	s.emit("feed.updated", map[string]any{"feedId": feed.ID})
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
+		s.clusterSince(ctx, now)
 		s.enqueueUnscannedForFeed(ctx, feed.ID)
 		if s.Crawler != nil {
 			s.Crawler.EnqueueAndKick(ctx)
@@ -224,8 +233,21 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	return s.Feeds.Get(ctx, feed.ID)
 }
 
+func (s *Service) clusterSince(ctx context.Context, since time.Time) {
+	if s.Cluster == nil {
+		return
+	}
+	if err := s.Cluster.ClusterNew(ctx, since); err != nil && s.Log != nil {
+		s.Log.Warn("cluster new articles", "err", err)
+	}
+}
+
 func (s *Service) enqueueUnscannedForFeed(ctx context.Context, feedID string) {
 	if s.AI == nil {
+		return
+	}
+	settings, err := s.Settings.Get(ctx)
+	if err != nil || !settings.AIEnabled {
 		return
 	}
 	res, err := s.Articles.List(ctx, domain.ArticleQuery{FeedID: feedID, Limit: 50})

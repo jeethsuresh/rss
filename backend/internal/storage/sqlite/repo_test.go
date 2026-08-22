@@ -403,3 +403,95 @@ func TestStoryMarkReadDoesNotReorderList(t *testing.T) {
 		t.Fatal("older story should be marked read")
 	}
 }
+
+func TestStoryVotesAndClusteringLists(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feed := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/feed.xml", Title: "Ex",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := feeds.Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+	articles := sqlite.NewArticleRepo(db)
+	a := domain.Article{ID: uuid.NewString(), FeedID: feed.ID, Title: "A", URL: "https://example.com/a", ExternalID: "a", DiscoveredAt: now}
+	b := domain.Article{ID: uuid.NewString(), FeedID: feed.ID, Title: "B", URL: "https://example.com/b", ExternalID: "b", DiscoveredAt: now}
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	stories := sqlite.NewStoryRepo(db)
+	st := &domain.Story{ID: uuid.NewString(), Title: "T", Source: domain.StorySourceDeterministic, CreatedAt: now, UpdatedAt: now}
+	if err := stories.Create(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, st.ID, []string{a.ID, b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := stories.Get(ctx, st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != domain.StorySourceDeterministic {
+		t.Fatalf("source %q", got.Source)
+	}
+	if err := stories.SetArticleVote(ctx, st.ID, a.ID, domain.VoteDown, []string{a.ID, b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := stories.GetArticleVote(ctx, st.ID, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Vote != domain.VoteDown || len(rec.Snapshot) != 2 {
+		t.Fatalf("vote %+v", rec)
+	}
+	if err := stories.AdjustTokenWeights(ctx, []string{"biden"}, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	weights, err := stories.GetTokenWeights(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if weights["biden"].Down != 1 {
+		t.Fatalf("weights %+v", weights)
+	}
+	if err := stories.RemoveMember(ctx, st.ID, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = stories.Get(ctx, st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MemberCount != 1 {
+		t.Fatalf("member count %d", got.MemberCount)
+	}
+	fresh, err := articles.Get(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.StoryID != "" {
+		t.Fatalf("removed article still in story %s", fresh.StoryID)
+	}
+	listed, err := articles.ListDiscoveredSince(ctx, now.Add(-time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("discovered %d", len(listed))
+	}
+	clustered, err := articles.ListForClustering(ctx, now.Add(-7*24*time.Hour), now.Add(-14*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clustered) != 2 {
+		t.Fatalf("clustering list %d", len(clustered))
+	}
+}

@@ -35,6 +35,7 @@ import {
 import {
   adjacentStoryListRow,
   memberArticle,
+  nextStoryVote,
   storyListRowKey,
   storyListRows,
   upsertStoryInPlace,
@@ -418,6 +419,52 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         : prev,
     );
   }, []);
+
+  const refreshStoriesAfterVote = useCallback(
+    async (updated: Story) => {
+      await loadStories();
+      if (updated.memberCount >= 2) {
+        try {
+          const full = await backend.stories.get(updated.id);
+          setActiveStoryId(updated.id);
+          setActiveStory(full);
+        } catch {
+          setActiveStory(null);
+        }
+        return;
+      }
+      if (activeStoryId === updated.id) {
+        setStoryMemberId(null);
+      }
+    },
+    [backend, loadStories, activeStoryId],
+  );
+
+  const voteStoryArticle = useCallback(
+    async (storyId: string, articleId: string, clicked: "up" | "down") => {
+      const current = activeStory?.id === storyId ? activeStory.articleVotes?.[articleId] : undefined;
+      try {
+        const updated = await backend.stories.voteArticle(storyId, articleId, nextStoryVote(current, clicked));
+        await refreshStoriesAfterVote(updated);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to vote");
+      }
+    },
+    [backend, activeStory, refreshStoriesAfterVote],
+  );
+
+  const voteActiveStory = useCallback(
+    async (clicked: "up" | "down") => {
+      if (!activeStory) return;
+      try {
+        const updated = await backend.stories.voteStory(activeStory.id, nextStoryVote(activeStory.vote, clicked));
+        patchStory(updated);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to vote");
+      }
+    },
+    [backend, activeStory, patchStory],
+  );
 
   const selectArticle = useCallback(
     async (article: Article) => {
@@ -1345,7 +1392,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             stories.length === 0 ? (
               <div className="empty">
                 <h2>No stories yet</h2>
-                <p>Enable AI triage in Settings to cluster related articles.</p>
+                <p>Related RSS articles group here after feeds refresh. AI triage can still override groups when enabled.</p>
               </div>
             ) : (
               storyRows.map((row) => {
@@ -1374,24 +1421,50 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                   }
                   case "member": {
                     const member = memberArticle(activeStory, row.articleId);
-                    if (!member) return null;
+                    if (!member || !activeStory) return null;
+                    const memberVote = activeStory.articleVotes?.[member.id];
                     return (
-                      <button
+                      <div
                         key={storyListRowKey(row)}
                         className={`article-row story-member-row ${member.id === storyMemberId ? "active" : ""} ${member.isRead ? "" : "unread"}`}
-                        onClick={() => void selectStoryMember(member)}
                       >
-                        <div className="article-meta">
-                          <span>{member.feedTitle}</span>
-                          <span>{formatRelativeTime(member.publishedAt ?? member.discoveredAt)}</span>
-                          {member.isStarred ? <span>★</span> : null}
+                        <button
+                          type="button"
+                          className="story-member-main"
+                          onClick={() => void selectStoryMember(member)}
+                        >
+                          <div className="article-meta">
+                            <span>{member.feedTitle}</span>
+                            <span>{formatRelativeTime(member.publishedAt ?? member.discoveredAt)}</span>
+                            {member.isStarred ? <span>★</span> : null}
+                          </div>
+                          <h3 className="article-title">
+                            <PriorityBadge priority={member.priority} />
+                            {decodeHtmlEntities(member.title || "(untitled)")}
+                          </h3>
+                          <p className="article-summary">{stripHtml(member.summary || member.content)}</p>
+                        </button>
+                        <div className="story-votes">
+                          <button
+                            type="button"
+                            className={`story-vote ${memberVote === "up" ? "active" : ""}`}
+                            aria-label="Thumbs up"
+                            aria-pressed={memberVote === "up"}
+                            onClick={() => void voteStoryArticle(activeStory.id, member.id, "up")}
+                          >
+                            👍
+                          </button>
+                          <button
+                            type="button"
+                            className={`story-vote ${memberVote === "down" ? "active" : ""}`}
+                            aria-label="Thumbs down"
+                            aria-pressed={memberVote === "down"}
+                            onClick={() => void voteStoryArticle(activeStory.id, member.id, "down")}
+                          >
+                            👎
+                          </button>
                         </div>
-                        <h3 className="article-title">
-                          <PriorityBadge priority={member.priority} />
-                          {decodeHtmlEntities(member.title || "(untitled)")}
-                        </h3>
-                        <p className="article-summary">{stripHtml(member.summary || member.content)}</p>
-                      </button>
+                      </div>
                     );
                   }
                   default: {
@@ -1476,6 +1549,24 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     }
                   >
                     {activeStory.isStarred ? "Unstar" : "Star"}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn story-vote ${activeStory.vote === "up" ? "active" : ""}`}
+                    aria-label="Thumbs up story"
+                    aria-pressed={activeStory.vote === "up"}
+                    onClick={() => void voteActiveStory("up")}
+                  >
+                    👍
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn story-vote ${activeStory.vote === "down" ? "active" : ""}`}
+                    aria-label="Thumbs down story"
+                    aria-pressed={activeStory.vote === "down"}
+                    onClick={() => void voteActiveStory("down")}
+                  >
+                    👎
                   </button>
                 </div>
               </article>

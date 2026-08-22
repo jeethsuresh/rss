@@ -69,10 +69,15 @@ export interface Article {
   feedTitle?: string;
 }
 
+export type StoryVote = "up" | "down";
+
 export interface Story {
   id: string;
   title: string;
   summary: string;
+  source?: "ai" | "deterministic";
+  vote?: StoryVote | "";
+  articleVotes?: Record<string, StoryVote>;
   isRead: boolean;
   isStarred: boolean;
   memberCount: number;
@@ -490,6 +495,8 @@ export interface ReaderBackend {
     markRead(id: string): Promise<Story>;
     markUnread(id: string): Promise<Story>;
     toggleStar(id: string): Promise<Story>;
+    voteArticle(storyId: string, articleId: string, vote: StoryVote | "none"): Promise<Story>;
+    voteStory(id: string, vote: StoryVote | "none"): Promise<Story>;
   };
   folders: {
     list(): Promise<Folder[]>;
@@ -565,6 +572,8 @@ export const RPC_METHODS = [
   "stories.markRead",
   "stories.markUnread",
   "stories.toggleStar",
+  "stories.voteArticle",
+  "stories.voteStory",
   "folders.list",
   "folders.create",
   "folders.remove",

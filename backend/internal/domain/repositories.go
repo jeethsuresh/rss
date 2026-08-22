@@ -33,6 +33,8 @@ type ArticleRepository interface {
 	ListIDsSince(ctx context.Context, since time.Time) ([]string, error)
 	ListMissedIDs(ctx context.Context) ([]string, error)
 	UpsertMany(ctx context.Context, articles []Article) (inserted int, err error)
+	ListDiscoveredSince(ctx context.Context, since time.Time) ([]Article, error)
+	ListForClustering(ctx context.Context, articleSince, storyNewestSince time.Time) ([]Article, error)
 	Update(ctx context.Context, article *Article) error
 	SetPriority(ctx context.Context, id string, priority Priority) error
 	SetCrawlResult(ctx context.Context, id string, status CrawlStatus, crawled string, errMsg string, unreliable bool) error
@@ -51,8 +53,19 @@ type StoryRepository interface {
 	Update(ctx context.Context, story *Story) error
 	SetMembers(ctx context.Context, storyID string, articleIDs []string) error
 	AddMember(ctx context.Context, storyID, articleID string) error
+	RemoveMember(ctx context.Context, storyID, articleID string) error
 	FindStoryForArticle(ctx context.Context, articleID string) (*Story, error)
 	CascadeFlags(ctx context.Context, storyID string, isRead *bool, isStarred *bool) error
+	SetSource(ctx context.Context, storyID, source string) error
+	GetTokenWeights(ctx context.Context) (map[string]TokenFeedback, error)
+	AdjustTokenWeights(ctx context.Context, tokens []string, upDelta, downDelta int) error
+	GetArticleVote(ctx context.Context, storyID, articleID string) (ArticleVoteRecord, error)
+	SetArticleVote(ctx context.Context, storyID, articleID string, vote StoryVote, snapshot []string) error
+	ClearArticleVote(ctx context.Context, storyID, articleID string) error
+	ListArticleVotes(ctx context.Context, storyID string) (map[string]StoryVote, error)
+	GetStoryVote(ctx context.Context, storyID string) (StoryVote, error)
+	SetStoryVote(ctx context.Context, storyID string, vote StoryVote) error
+	ClearStoryVote(ctx context.Context, storyID string) error
 }
 
 type FolderRepository interface {

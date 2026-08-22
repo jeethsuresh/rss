@@ -3,6 +3,7 @@ import type { Article, Story } from "@rss-reader/shared";
 import {
   adjacentStoryListRow,
   memberArticle,
+  nextStoryVote,
   storyListRowKey,
   storyListRows,
   upsertStoryInPlace,
@@ -87,5 +88,13 @@ describe("storyListRows", () => {
     const next = upsertStoryInPlace([a, b], { ...b, isRead: true });
     expect(next.map((s) => s.id)).toEqual(["a", "b"]);
     expect(next[1].isRead).toBe(true);
+  });
+});
+
+describe("nextStoryVote", () => {
+  test("toggles off when clicking the active vote", () => {
+    expect(nextStoryVote("up", "up")).toBe("none");
+    expect(nextStoryVote(undefined, "down")).toBe("down");
+    expect(nextStoryVote("up", "down")).toBe("down");
   });
 });

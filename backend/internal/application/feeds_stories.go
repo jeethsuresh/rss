@@ -70,6 +70,20 @@ func (s *Service) ToggleStoryStar(ctx context.Context, id string) (*domain.Story
 	return s.Stories.Get(ctx, id)
 }
 
+func (s *Service) VoteStoryArticle(ctx context.Context, storyID, articleID string, vote domain.StoryVote) (*domain.Story, error) {
+	if s.Cluster == nil {
+		return nil, domain.ErrInvalidParams
+	}
+	return s.Cluster.VoteArticle(ctx, storyID, articleID, vote)
+}
+
+func (s *Service) VoteStory(ctx context.Context, storyID string, vote domain.StoryVote) (*domain.Story, error) {
+	if s.Cluster == nil {
+		return nil, domain.ErrInvalidParams
+	}
+	return s.Cluster.VoteStory(ctx, storyID, vote)
+}
+
 func (s *Service) UpdateSettings(ctx context.Context, patch map[string]any) (*domain.Settings, error) {
 	sset, err := s.Settings.Get(ctx)
 	if err != nil {

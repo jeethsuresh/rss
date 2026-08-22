@@ -150,6 +150,51 @@ func (r *ArticleRepo) ListIDsSince(ctx context.Context, since time.Time) ([]stri
 	return ids, rows.Err()
 }
 
+func (r *ArticleRepo) ListDiscoveredSince(ctx context.Context, since time.Time) ([]domain.Article, error) {
+	rows, err := r.db.SQL.QueryContext(ctx, articleSelect+`
+		WHERE a.is_read_later = 0 AND a.discovered_at >= ?
+		ORDER BY COALESCE(a.published_at, a.discovered_at) ASC, a.id ASC`,
+		since.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, err
+	}
+	return scanArticles(rows)
+}
+
+func (r *ArticleRepo) ListForClustering(ctx context.Context, articleSince, storyNewestSince time.Time) ([]domain.Article, error) {
+	rows, err := r.db.SQL.QueryContext(ctx, articleSelect+`
+		WHERE a.is_read_later = 0 AND (
+			COALESCE(a.published_at, a.discovered_at) >= ?
+			OR COALESCE(a.story_id, '') IN (
+				SELECT sa.story_id FROM story_articles sa
+				JOIN articles m ON m.id = sa.article_id
+				GROUP BY sa.story_id
+				HAVING MAX(COALESCE(m.published_at, m.discovered_at)) >= ?
+			)
+		)
+		ORDER BY COALESCE(a.published_at, a.discovered_at) ASC, a.id ASC`,
+		articleSince.UTC().Format(time.RFC3339Nano),
+		storyNewestSince.UTC().Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return scanArticles(rows)
+}
+
+func scanArticles(rows *sql.Rows) ([]domain.Article, error) {
+	defer rows.Close()
+	out := []domain.Article{}
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (r *ArticleRepo) ListMissedIDs(ctx context.Context) ([]string, error) {
 	// Never successfully triaged (priority still none), plus queue failures.
 	rows, err := r.db.SQL.QueryContext(ctx, `
