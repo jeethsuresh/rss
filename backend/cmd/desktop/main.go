@@ -89,6 +89,9 @@ func main() {
 		Version:  version,
 		DBPath:   *dbPath,
 	}
+	crawlSvc.OnReady = func(ctx context.Context, articleID string) {
+		svc.ClusterArticle(ctx, articleID)
+	}
 
 	if _, err := feeds.EnsureReadLater(context.Background()); err != nil {
 		log.Warn("ensure read later feed", "err", err)
@@ -113,6 +116,7 @@ func main() {
 	sportsSvc.Emit = server.Emit
 	aiSvc.Resume(ctx)
 	crawlSvc.EnqueueAndKick(ctx)
+	go crawlSvc.BackfillExtracts(ctx)
 
 	log.Info("backend started", "version", version, "db", *dbPath)
 

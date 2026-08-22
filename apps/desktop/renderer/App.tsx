@@ -46,6 +46,7 @@ import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
 import { PageFrame } from "./components/PageFrame";
 import { ReaderBody } from "./components/ReaderBody";
+import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
 import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
 
 type Selection =
@@ -260,6 +261,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       try {
         await backend.system.ping();
         await loadFeeds();
+        void drainPendingExtracts(backend);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to start");
       }
@@ -319,8 +321,13 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             priority?: Priority;
             isRead?: boolean;
             isStarred?: boolean;
+            extractStatus?: string;
+            crawlStatus?: string;
           };
           if (payload.articleId) {
+            if (payload.extractStatus === "js") {
+              void runFrontendExtract(backend, payload.articleId);
+            }
             setArticles((prev) =>
               prev.map((a) =>
                 a.id === payload.articleId
@@ -329,6 +336,12 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                       ...(payload.priority !== undefined ? { priority: payload.priority } : {}),
                       ...(payload.isRead !== undefined ? { isRead: payload.isRead } : {}),
                       ...(payload.isStarred !== undefined ? { isStarred: payload.isStarred } : {}),
+                      ...(payload.extractStatus !== undefined
+                        ? { extractStatus: payload.extractStatus as Article["extractStatus"] }
+                        : {}),
+                      ...(payload.crawlStatus !== undefined
+                        ? { crawlStatus: payload.crawlStatus as Article["crawlStatus"] }
+                        : {}),
                     }
                   : a,
               ),

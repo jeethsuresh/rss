@@ -581,7 +581,7 @@ func (s *Service) runTool(ctx context.Context, article *domain.Article, tc toolC
 		}
 		_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 		reason := firstNonEmpty(args.Reason, "model flagged crawl as unreliable")
-		_ = s.Articles.SetCrawlResult(ctx, article.ID, domain.CrawlFailed, article.CrawledContent, reason, true)
+		_ = s.Articles.SetCrawlResult(ctx, article.ID, domain.CrawlFailed, article.CrawledContent, reason, true, false)
 		_ = s.Feeds.RecordCrawlResult(ctx, article.FeedID, true)
 		s.appendLog(ctx, "warn", article.ID, "mark_crawl_unreliable", reason)
 		if s.Emit != nil {

@@ -555,6 +555,24 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.RecrawlArticle(ctx, p.ID)
+	case "articles.setExtract":
+		var p struct {
+			ArticleID string `json:"articleId"`
+			HTML      string `json:"html"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.ArticleID == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SetArticleExtract(ctx, p.ArticleID, p.HTML)
+	case "articles.pendingExtract":
+		ids, err := s.svc.PendingExtractIDs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if ids == nil {
+			ids = []string{}
+		}
+		return map[string]any{"articleIds": ids}, nil
 	case "articles.fetchLive":
 		var p struct {
 			ID string `json:"id"`

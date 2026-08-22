@@ -495,3 +495,47 @@ func TestStoryVotesAndClusteringLists(t *testing.T) {
 		t.Fatalf("clustering list %d", len(clustered))
 	}
 }
+
+func TestListNeedingCrawlSkipsPermanentFailures(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feed := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/feed.xml", Title: "Ex",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := feeds.Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+	articles := sqlite.NewArticleRepo(db)
+	retry := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "retry", URL: "https://example.com/retry",
+		ExternalID: "retry", DiscoveredAt: now,
+	}
+	perm := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "perm", URL: "https://example.com/perm",
+		ExternalID: "perm", DiscoveredAt: now,
+	}
+	if _, err := articles.UpsertMany(ctx, []domain.Article{retry, perm}); err != nil {
+		t.Fatal(err)
+	}
+	if err := articles.SetCrawlResult(ctx, retry.ID, domain.CrawlFailed, "", "timeout", false, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := articles.SetCrawlResult(ctx, perm.ID, domain.CrawlFailed, "", "http 404", false, false); err != nil {
+		t.Fatal(err)
+	}
+	need, err := articles.ListNeedingCrawl(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(need) != 1 || need[0].ID != retry.ID {
+		t.Fatalf("expected only retryable failure, got %+v", need)
+	}
+}

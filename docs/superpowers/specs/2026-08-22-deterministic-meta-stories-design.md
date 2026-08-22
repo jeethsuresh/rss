@@ -19,7 +19,7 @@ When AI triage is off, RSS articles still cluster into meta-stories. The grouper
 
 ## Text and tokens
 
-- Input: `rssContent`, else `summary`, plus the title. Never `crawledContent` / `liveContent`.
+- Input: strip-tags(`readerContent`) when extract succeeded; otherwise `rssContent`, else `summary`, plus the title. Never raw `crawledContent` / `liveContent`. See `2026-08-22-readability-clustering-design.md`.
 - Strip HTML. Split on non-letters. Lowercase for matching.
 - Drop a fixed list of the 100 most common English words.
 - **Title tokens:** included after stopword filter, never marked proper-noun (base weight 1).

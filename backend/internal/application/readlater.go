@@ -170,6 +170,33 @@ func (s *Service) RecrawlArticle(ctx context.Context, id string) (*domain.Articl
 	return s.Articles.Get(ctx, id)
 }
 
+func (s *Service) SetArticleExtract(ctx context.Context, id, html string) (*domain.Article, error) {
+	status := domain.ExtractFailed
+	source := ""
+	if strings.TrimSpace(html) != "" {
+		status = domain.ExtractOK
+		source = "js"
+	}
+	if err := s.Articles.SetExtract(ctx, id, html, status, source); err != nil {
+		return nil, err
+	}
+	s.ClusterArticle(ctx, id)
+	s.emit("article.updated", map[string]any{"articleId": id, "extractStatus": string(status)})
+	return s.Articles.Get(ctx, id)
+}
+
+func (s *Service) PendingExtractIDs(ctx context.Context) ([]string, error) {
+	arts, err := s.Articles.ListPendingExtract(ctx, 100)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(arts))
+	for _, a := range arts {
+		ids = append(ids, a.ID)
+	}
+	return ids, nil
+}
+
 func (s *Service) FetchLiveArticle(ctx context.Context, id string) (*domain.Article, error) {
 	if s.Crawler == nil {
 		return nil, domain.ErrInvalidParams

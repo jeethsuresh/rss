@@ -20,6 +20,15 @@ const (
 	CrawlFailed  CrawlStatus = "failed"
 )
 
+type ExtractStatus string
+
+const (
+	ExtractNone   ExtractStatus = "none"
+	ExtractJS     ExtractStatus = "js"
+	ExtractOK     ExtractStatus = "ok"
+	ExtractFailed ExtractStatus = "failed"
+)
+
 type Feed struct {
 	ID                  string     `json:"id"`
 	URL                 string     `json:"url"`
@@ -44,30 +53,34 @@ type Feed struct {
 }
 
 type Article struct {
-	ID              string      `json:"id"`
-	FeedID          string      `json:"feedId"`
-	Title           string      `json:"title"`
-	URL             string      `json:"url"`
-	Author          string      `json:"author"`
-	Content         string      `json:"content"` // active display helper = rss or crawled preferred
-	Summary         string      `json:"summary"`
-	RSSContent      string      `json:"rssContent"`
-	CrawledContent  string      `json:"crawledContent"`
-	LiveContent     string      `json:"liveContent"`
-	CrawlStatus     CrawlStatus `json:"crawlStatus"`
-	CrawlError      string      `json:"crawlError"`
-	CrawlUnreliable bool        `json:"crawlUnreliable"`
-	IsReadLater     bool        `json:"isReadLater"`
-	ArchivedAt      *time.Time  `json:"archivedAt,omitempty"`
-	PublishedAt     *time.Time  `json:"publishedAt"`
-	UpdatedAt       *time.Time  `json:"updatedAt"`
-	ExternalID      string      `json:"externalId"`
-	IsRead          bool        `json:"isRead"`
-	IsStarred       bool        `json:"isStarred"`
-	Priority        Priority    `json:"priority"`
-	StoryID         string      `json:"storyId,omitempty"`
-	DiscoveredAt    time.Time   `json:"discoveredAt"`
-	FeedTitle       string      `json:"feedTitle,omitempty"`
+	ID              string        `json:"id"`
+	FeedID          string        `json:"feedId"`
+	Title           string        `json:"title"`
+	URL             string        `json:"url"`
+	Author          string        `json:"author"`
+	Content         string        `json:"content"` // active display helper = rss or crawled preferred
+	Summary         string        `json:"summary"`
+	RSSContent      string        `json:"rssContent"`
+	CrawledContent  string        `json:"crawledContent"`
+	LiveContent     string        `json:"liveContent"`
+	CrawlStatus     CrawlStatus   `json:"crawlStatus"`
+	CrawlError      string        `json:"crawlError"`
+	CrawlUnreliable bool          `json:"crawlUnreliable"`
+	CrawlRetryable  bool          `json:"crawlRetryable"`
+	ReaderContent   string        `json:"readerContent"`
+	ExtractStatus   ExtractStatus `json:"extractStatus"`
+	ExtractSource   string        `json:"extractSource"`
+	IsReadLater     bool          `json:"isReadLater"`
+	ArchivedAt      *time.Time    `json:"archivedAt,omitempty"`
+	PublishedAt     *time.Time    `json:"publishedAt"`
+	UpdatedAt       *time.Time    `json:"updatedAt"`
+	ExternalID      string        `json:"externalId"`
+	IsRead          bool          `json:"isRead"`
+	IsStarred       bool          `json:"isStarred"`
+	Priority        Priority      `json:"priority"`
+	StoryID         string        `json:"storyId,omitempty"`
+	DiscoveredAt    time.Time     `json:"discoveredAt"`
+	FeedTitle       string        `json:"feedTitle,omitempty"`
 }
 
 const (

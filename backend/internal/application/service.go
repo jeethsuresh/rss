@@ -47,10 +47,12 @@ type CrawlerService interface {
 	EnqueueAndKick(ctx context.Context)
 	CrawlOne(ctx context.Context, articleID string) error
 	FetchLive(ctx context.Context, articleID string) (string, error)
+	BackfillExtracts(ctx context.Context)
 }
 
 type Clusterer interface {
 	ClusterNew(ctx context.Context, since time.Time) error
+	ClusterArticles(ctx context.Context, ids []string) error
 	ReindexAll(ctx context.Context) (int, error)
 	VoteArticle(ctx context.Context, storyID, articleID string, vote domain.StoryVote) (*domain.Story, error)
 	VoteStory(ctx context.Context, storyID string, vote domain.StoryVote) (*domain.Story, error)
@@ -137,7 +139,6 @@ func (s *Service) AddFeed(ctx context.Context, rawURL string) (*domain.Feed, err
 	s.emit("feed.updated", map[string]any{"feedId": feed.ID})
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
-		s.clusterSince(ctx, now)
 		s.enqueueUnscannedForFeed(ctx, feed.ID)
 		if s.Crawler != nil {
 			s.Crawler.EnqueueAndKick(ctx)
@@ -226,7 +227,6 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	s.emit("feed.updated", map[string]any{"feedId": feed.ID})
 	if n > 0 {
 		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
-		s.clusterSince(ctx, now)
 		s.enqueueUnscannedForFeed(ctx, feed.ID)
 		if s.Crawler != nil {
 			s.Crawler.EnqueueAndKick(ctx)
@@ -235,12 +235,12 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	return s.Feeds.Get(ctx, feed.ID)
 }
 
-func (s *Service) clusterSince(ctx context.Context, since time.Time) {
-	if s.Cluster == nil {
+func (s *Service) ClusterArticle(ctx context.Context, id string) {
+	if s.Cluster == nil || id == "" {
 		return
 	}
-	if err := s.Cluster.ClusterNew(ctx, since); err != nil && s.Log != nil {
-		s.Log.Warn("cluster new articles", "err", err)
+	if err := s.Cluster.ClusterArticles(ctx, []string{id}); err != nil && s.Log != nil {
+		s.Log.Warn("cluster article", "id", id, "err", err)
 	}
 }
 

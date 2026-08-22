@@ -51,6 +51,20 @@ const noisyPage = `<!doctype html><html><body>
 </body></html>`;
 
 describe("readerSourceHtml", () => {
+  test("prefers stored readability extract when status is ok", () => {
+    expect(
+      readerSourceHtml({
+        extractStatus: "ok",
+        readerContent: "<p>stored</p>",
+        crawledContent: "<p>crawl</p>",
+        liveContent: "<p>live</p>",
+        rssContent: "<p>rss</p>",
+        content: "",
+        summary: "",
+      }),
+    ).toBe("<p>stored</p>");
+  });
+
   test("prefers crawled, then live, then RSS fields", () => {
     expect(
       readerSourceHtml({

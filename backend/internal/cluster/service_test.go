@@ -47,6 +47,32 @@ func TestClusterNewGroupsSharedProperNouns(t *testing.T) {
 	}
 }
 
+func TestClusterPrefersExtractedBodyOverRSS(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	a := rssArticle(feedID, "Alpha headline", "unrelated rss snippet about weather", now)
+	b := rssArticle(feedID, "Beta headline", "different rss snippet about sports", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	if err := articles.SetExtract(ctx, a.ID, "<p>President Biden meets Zelensky in Kyiv after the strike.</p>", domain.ExtractOK, "go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := articles.SetExtract(ctx, b.ID, "<p>Zelensky and Biden hold talks in Kyiv with NATO officials.</p>", domain.ExtractOK, "go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ClusterArticles(ctx, []string{a.ID, b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].MemberCount != 2 {
+		t.Fatalf("extracted kyiv text should cluster, got %+v", list)
+	}
+}
+
 func TestThumbsDownReranksAndUndoRestores(t *testing.T) {
 	ctx := context.Background()
 	svc, articles, stories, feedID, now := setupCluster(t)
@@ -406,7 +432,7 @@ func TestSplitDownWeightsCrossCutTokens(t *testing.T) {
 	}
 	members := make([]Member, 0, 4)
 	for _, a := range all {
-		title, body := rssText(a)
+		title, body := clusterText(a)
 		members = append(members, Member{ID: a.ID, Title: a.Title, Vec: Tokenize(title, body, nil)})
 	}
 	comps := SplitComponents(members, JoinThreshold)
