@@ -20,8 +20,10 @@
     "lint": "echo 'desktop: ok'"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "@rss-reader/shared": "workspace:*",
     "isomorphic-dompurify": "^3.22.0",
+    "linkedom": "^0.18.13",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
