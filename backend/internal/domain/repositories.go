@@ -29,6 +29,7 @@ type FeedRepository interface {
 
 type ArticleRepository interface {
 	List(ctx context.Context, q ArticleQuery) (ArticleListResult, error)
+	MarkAllRead(ctx context.Context, q ArticleQuery) (int, error)
 	Get(ctx context.Context, id string) (*Article, error)
 	ListIDsSince(ctx context.Context, since time.Time) ([]string, error)
 	ListMissedIDs(ctx context.Context) ([]string, error)
@@ -101,4 +102,9 @@ type AIQueueRepository interface {
 type AILogRepository interface {
 	Append(ctx context.Context, entry AILogEntry) error
 	List(ctx context.Context, limit int) ([]AILogEntry, error)
+}
+
+type ErrorLogRepository interface {
+	Append(ctx context.Context, entry ErrorLogEntry) error
+	List(ctx context.Context, limit int) ([]ErrorLogEntry, error)
 }

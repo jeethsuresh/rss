@@ -114,6 +114,10 @@ export interface ArticleListResult {
   nextCursor: string | null;
 }
 
+export interface MarkAllReadResult {
+  updated: number;
+}
+
 export interface FeedPreview {
   url: string;
   title: string;
@@ -161,6 +165,15 @@ export interface AILogEntry {
   detail?: string;
 }
 
+export interface ErrorLogEntry {
+  id: string;
+  occurredAt: string;
+  source: string;
+  operation: string;
+  message: string;
+  detail?: string;
+}
+
 export interface AITestResult {
   ok: boolean;
   message: string;
@@ -196,11 +209,13 @@ export interface SportsCacheUpdatedEvent {
   season?: number;
   year?: number;
   teamId?: number;
+  date?: string;
   gamePk?: number;
   sessionKey?: number;
   games?: MlbGame[];
   races?: F1Race[];
   standings?: MlbStandings | F1Standings;
+  roster?: MlbRoster;
   detail?: MlbGameDetail | F1RaceDetail;
   data?: unknown;
 }
@@ -220,6 +235,7 @@ export interface MlbTeam {
   abbreviation: string;
   shortName?: string;
   logoUrl?: string;
+  league?: "AL" | "NL" | string;
 }
 
 export interface MlbSeason {
@@ -241,6 +257,64 @@ export interface MlbGame {
   homeScore?: number;
   currentInning?: number;
   currentInningHalf?: "top" | "bottom" | string;
+  league?: "AL" | "NL" | string;
+  inningScores?: MlbInningScore[];
+}
+
+export interface MlbInningScore {
+  number: number;
+  awayRuns?: number;
+  homeRuns?: number;
+}
+
+export interface MlbBattingStats {
+  games: number;
+  plateAppearances: number;
+  atBats: number;
+  runs: number;
+  hits: number;
+  doubles: number;
+  triples: number;
+  homeRuns: number;
+  rbi: number;
+  walks: number;
+  strikeOuts: number;
+  stolenBases: number;
+  average: string;
+  onBasePercentage: string;
+  slugging: string;
+  ops: string;
+}
+
+export interface MlbPitchingStats {
+  games: number;
+  gamesStarted: number;
+  wins: number;
+  losses: number;
+  saves: number;
+  inningsPitched: string;
+  era: string;
+  whip: string;
+  strikeOuts: number;
+  walks: number;
+}
+
+export interface MlbRosterPlayer {
+  playerId: number;
+  name: string;
+  jerseyNumber?: string;
+  position?: string;
+  positionType?: string;
+  rosterStatus: "active" | "injured";
+  statusDescription?: string;
+  batting?: MlbBattingStats;
+  pitching?: MlbPitchingStats;
+}
+
+export interface MlbRoster {
+  teamId: number;
+  season: number;
+  players: MlbRosterPlayer[];
 }
 
 export interface MlbInning {
@@ -260,6 +334,8 @@ export interface MlbPlay {
   event: string;
   description: string;
   isScoringPlay: boolean;
+  pitcherId?: number;
+  pitcherName?: string;
   awayScore?: number;
   homeScore?: number;
   atBatIndex?: number;
@@ -464,6 +540,7 @@ export interface ReaderBackend {
     get(id: string): Promise<Article>;
     markRead(id: string): Promise<Article>;
     markUnread(id: string): Promise<Article>;
+    markAllRead(query: ArticleQuery): Promise<MarkAllReadResult>;
     toggleStar(id: string): Promise<Article>;
     recrawl(id: string): Promise<Article>;
     fetchLive(id: string): Promise<Article>;
@@ -485,10 +562,12 @@ export interface ReaderBackend {
     followedSet(teamIds: number[]): Promise<number[]>;
     followedToggle(teamId: number): Promise<number[]>;
     schedule(params: { teamId?: number; season?: number }): Promise<MlbGame[]>;
+    dailySchedule(params: { date: string }): Promise<MlbGame[]>;
     gameGet(gamePk: number): Promise<MlbGameDetail>;
     gameWatch(gamePk: number): Promise<MlbGameDetail>;
     gameUnwatch(gamePk: number): Promise<{ ok: true }>;
     standings(params: { season?: number }): Promise<MlbStandings>;
+    roster(params: { teamId: number; season?: number }): Promise<MlbRoster>;
     f1Years(): Promise<F1Season[]>;
     f1Races(params: { year?: number }): Promise<F1Race[]>;
     f1RaceGet(sessionKey: number): Promise<F1RaceDetail>;
@@ -525,6 +604,9 @@ export interface ReaderBackend {
     logs(limit?: number): Promise<AILogEntry[]>;
     retryFailed(): Promise<{ requeued: number; status: AIStatus }>;
   };
+  errors: {
+    list(limit?: number): Promise<ErrorLogEntry[]>;
+  };
   system: {
     ping(): Promise<{ ok: true; version: string }>;
     info(): Promise<{ version: string; dbPath: string; protocolVersion: number }>;
@@ -551,6 +633,7 @@ export const RPC_METHODS = [
   "articles.get",
   "articles.markRead",
   "articles.markUnread",
+  "articles.markAllRead",
   "articles.toggleStar",
   "articles.recrawl",
   "articles.fetchLive",
@@ -568,10 +651,12 @@ export const RPC_METHODS = [
   "sports.followed.set",
   "sports.followed.toggle",
   "sports.schedule.list",
+  "sports.schedule.daily",
   "sports.game.get",
   "sports.game.watch",
   "sports.game.unwatch",
   "sports.standings.get",
+  "sports.roster.get",
   "sports.f1.years.list",
   "sports.f1.races.list",
   "sports.f1.race.get",
@@ -599,6 +684,8 @@ export const RPC_METHODS = [
   "ai.status",
   "ai.logs",
   "ai.retryFailed",
+  "errors.record",
+  "errors.list",
 ] as const;
 
 export type RpcMethod = (typeof RPC_METHODS)[number];

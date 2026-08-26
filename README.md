@@ -1,6 +1,6 @@
 # RSS Reader
 
-Local-first desktop RSS reader. **Electron** is the shell; a **Go** child process owns feeds, polling, and SQLite. Designed so the same Go application can later run as a remote server without rewriting domain logic.
+Local-first desktop RSS reader with an optional multi-tenant **Go** server. Electron is the desktop shell; Go owns feeds, polling, synchronization, and SQLite in both deployment modes.
 
 **Product site / downloads:** [jeethsuresh.github.io/rss](https://jeethsuresh.github.io/rss/)
 
@@ -53,6 +53,18 @@ bun run backend:build
 
 Writes `apps/desktop/resources/bin/rss-backend` (or `.exe` on Windows).
 
+## Standalone server
+
+Run or build the multi-tenant Go server:
+
+```bash
+RSS_SERVER_REGISTRATION_ENABLED=true bun run server:dev
+bun run server:build
+```
+
+See [docs/server.md](docs/server.md) for authentication, fetch deduplication,
+adaptive scheduling, AI environment variables, APIs, and desktop feed sync.
+
 ## Packaging
 
 ```bash
@@ -104,7 +116,7 @@ Under the Electron `userData` directory, file `rss.db` (path also available via 
 
 ```text
 apps/desktop/     Electron + React + Vite
-backend/          Go application (cmd/desktop)
+backend/          Go application (cmd/desktop and cmd/server)
 packages/shared/  Shared TypeScript API contract
 docs/             Architecture, phases, build spec
 TODO.md           Phase checklist

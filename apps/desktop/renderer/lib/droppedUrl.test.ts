@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeDroppedUrl, isEditableDropTarget } from "./droppedUrl";
+import { normalizeDroppedUrl } from "./droppedUrl";
 
 describe("normalizeDroppedUrl", () => {
   test("accepts https urls", () => {
@@ -25,15 +25,19 @@ describe("normalizeDroppedUrl", () => {
     expect(r.ok).toBe(false);
   });
 
+  test("rejects http urls without a host", () => {
+    const r = normalizeDroppedUrl("https:///missing-host");
+    expect(r.ok).toBe(false);
+  });
+
+  test("rejects malformed urls", () => {
+    const r = normalizeDroppedUrl("https://example.com/%zz");
+    expect(r.ok).toBe(false);
+  });
+
   test("uses first uri-list line", () => {
     const r = normalizeDroppedUrl("# comment\nhttps://a.example/\nhttps://b.example/");
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.url).toBe("https://a.example/");
-  });
-});
-
-describe("isEditableDropTarget", () => {
-  test("returns false for null", () => {
-    expect(isEditableDropTarget(null)).toBe(false);
   });
 });

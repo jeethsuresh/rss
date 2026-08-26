@@ -9,6 +9,8 @@
     "test": "bun test && cd backend && go test ./...",
     "lint": "bun run --filter '*' lint",
     "backend:build": "mkdir -p apps/desktop/resources/bin && cd backend && go build -o ../apps/desktop/resources/bin/rss-backend ./cmd/desktop",
+    "server:build": "mkdir -p apps/desktop/resources/bin && cd backend && go build -o ../apps/desktop/resources/bin/rss-server ./cmd/server",
+    "server:dev": "cd backend && go run ./cmd/server",
     "backend:test": "cd backend && go test ./...",
     "backend:all": "bash scripts/build-backend-all.sh",
     "backend:stage": "bash scripts/stage-backend.sh"

@@ -4,29 +4,33 @@ import type {
   AIStatus,
   AITestResult,
   BackendEventName,
+  ErrorLogEntry,
   Feed,
   FeedImportResult,
   MlbTeam,
   ReaderBackend,
   Settings,
 } from "@rss-reader/shared";
+import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 
 type Props = {
   backend: ReaderBackend;
   settings: Settings;
   onSettings: (s: Settings) => void;
   onClose: () => void;
+  onOpenArticle: (articleId: string) => Promise<void>;
   applyTheme: (theme: Settings["theme"]) => void;
-  initialSection?: "general" | "feeds" | "ai" | "sports";
+  initialSection?: "general" | "feeds" | "ai" | "sports" | "errors";
 };
 
-type SettingsSection = "general" | "feeds" | "ai" | "sports";
+type SettingsSection = "general" | "feeds" | "ai" | "sports" | "errors";
 
 export function SettingsPage({
   backend,
   settings,
   onSettings,
   onClose,
+  onOpenArticle,
   applyTheme,
   initialSection = "general",
 }: Props) {
@@ -37,6 +41,7 @@ export function SettingsPage({
   const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
   const [aiTest, setAiTest] = useState<AITestResult | null>(null);
   const [aiLogs, setAiLogs] = useState<AILogEntry[]>([]);
+  const [errorLogs, setErrorLogs] = useState<ErrorLogEntry[]>([]);
   const logPanelRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
@@ -80,13 +85,18 @@ export function SettingsPage({
   }, [backend, reloadFeeds]);
 
   useEffect(() => {
+    if (section !== "errors") return;
+    void backend.errors.list(1000).then(setErrorLogs).catch(() => undefined);
+  }, [backend, section]);
+
+  useEffect(() => {
     if (section !== "sports") return;
     void Promise.all([backend.sports.teams(), backend.sports.followedGet()])
       .then(([t, f]) => {
         setMlbTeams(t ?? []);
         setFollowedIds(f ?? []);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load MLB teams"));
+      .catch(() => setError(GENERIC_ERROR_MESSAGE));
   }, [backend, section]);
 
   useEffect(() => {
@@ -168,7 +178,7 @@ export function SettingsPage({
     try {
       await patch({ defaultPollIntervalSeconds: n });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save settings");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setGeneralSaving(false);
     }
@@ -183,7 +193,7 @@ export function SettingsPage({
         aiModel: aiModelDraftRef.current.trim(),
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save AI settings");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setAiSaving(false);
     }
@@ -206,7 +216,7 @@ export function SettingsPage({
     } catch (e) {
       setAiTest({
         ok: false,
-        message: e instanceof Error ? e.message : "Test failed",
+        message: GENERIC_ERROR_MESSAGE,
       });
     } finally {
       setAiTesting(false);
@@ -239,6 +249,7 @@ export function SettingsPage({
               ["feeds", "Feeds"],
               ["sports", "Sports"],
               ["ai", "AI"],
+              ["errors", "Errors"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -366,7 +377,7 @@ export function SettingsPage({
                       <strong>{f.title || f.url}</strong>
                       <div className="muted">{f.url}</div>
                       <div className="muted">Bad crawls: {f.badCrawlPercent.toFixed(0)}%</div>
-                      {f.lastError ? <div className="error">{f.lastError}</div> : null}
+                      {f.lastError ? <div className="error">Feed refresh failed.</div> : null}
                     </div>
                     <div className="feed-table-actions">
                       <span className="muted">{f.unreadCount} unread</span>
@@ -424,7 +435,7 @@ export function SettingsPage({
                         setImportResult(r);
                         return reloadFeeds();
                       })
-                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Import failed"))
+                      .catch(() => setError(GENERIC_ERROR_MESSAGE))
                       .finally(() => setBusy(false));
                   }}
                 >
@@ -438,9 +449,7 @@ export function SettingsPage({
               </div>
               {importResult?.errors?.length ? (
                 <ul className="error-list">
-                  {importResult.errors.slice(0, 20).map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
+                  <li>Some feeds could not be imported.</li>
                 </ul>
               ) : null}
             </section>
@@ -589,8 +598,7 @@ export function SettingsPage({
                   </>
                 ) : aiTest ? (
                   <span>
-                    {aiTest.ok ? "Connected — " : "Failed — "}
-                    {aiTest.message}
+                    {aiTest.ok ? `Connected — ${aiTest.message}` : `Failed — ${GENERIC_ERROR_MESSAGE}`}
                     {aiTest.models?.length
                       ? ` · models: ${aiTest.models.slice(0, 5).join(", ")}`
                       : ""}
@@ -611,7 +619,7 @@ export function SettingsPage({
                     void backend.ai
                       .scan("24h")
                       .then((r) => setAiStatus(r.status))
-                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Scan failed"))
+                      .catch(() => setError(GENERIC_ERROR_MESSAGE))
                       .finally(() => setBusy(false));
                   }}
                 >
@@ -626,7 +634,7 @@ export function SettingsPage({
                     void backend.ai
                       .scan("7d")
                       .then((r) => setAiStatus(r.status))
-                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Scan failed"))
+                      .catch(() => setError(GENERIC_ERROR_MESSAGE))
                       .finally(() => setBusy(false));
                   }}
                 >
@@ -641,7 +649,7 @@ export function SettingsPage({
                     void backend.ai
                       .scan("missed")
                       .then((r) => setAiStatus(r.status))
-                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Scan failed"))
+                      .catch(() => setError(GENERIC_ERROR_MESSAGE))
                       .finally(() => setBusy(false));
                   }}
                 >
@@ -654,7 +662,7 @@ export function SettingsPage({
                   {aiStatus.pending > 0 ? ` · pending: ${aiStatus.pending}` : ""}
                   {aiStatus.failed > 0 ? ` · failed: ${aiStatus.failed}` : ""}
                   {aiStatus.running ? " (running)" : ""}
-                  {aiStatus.lastError ? ` · last error: ${aiStatus.lastError}` : ""}
+                  {aiStatus.lastError ? " · last operation failed" : ""}
                 </p>
               )}
               {aiStatus && aiStatus.failed > 0 && (
@@ -668,7 +676,7 @@ export function SettingsPage({
                       void backend.ai
                         .retryFailed()
                         .then((r) => setAiStatus(r.status))
-                        .catch((e: unknown) => setError(e instanceof Error ? e.message : "Retry failed"))
+                        .catch(() => setError(GENERIC_ERROR_MESSAGE))
                         .finally(() => setBusy(false));
                     }}
                   >
@@ -693,7 +701,7 @@ export function SettingsPage({
                     void backend.stories
                       .reindex()
                       .then((r) => setReindexCount(r.storyCount))
-                      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Re-index failed"))
+                      .catch(() => setError(GENERIC_ERROR_MESSAGE))
                       .finally(() => setReindexing(false));
                   }}
                 >
@@ -717,12 +725,27 @@ export function SettingsPage({
                       <span className="ai-log-ts">{new Date(entry.ts).toLocaleTimeString()}</span>
                       <span className={`ai-log-level ai-log-level-${entry.level}`}>{entry.level}</span>
                       <span className="ai-log-message">
-                        {entry.message}
-                        {entry.detail && !entry.message.includes(entry.detail) ? (
+                        {entry.level === "error"
+                          ? entry.articleId
+                            ? "processing failed"
+                            : "AI operation failed"
+                          : entry.message}
+                        {entry.level !== "error" && entry.detail && !entry.message.includes(entry.detail) ? (
                           <span className="ai-log-detail"> — {entry.detail}</span>
                         ) : null}
                         {entry.articleId ? (
-                          <span className="ai-log-article"> · {entry.articleId.slice(0, 8)}</span>
+                          <button
+                            type="button"
+                            className="ai-log-article"
+                            title={`Open article ${entry.articleId}`}
+                            onClick={() => {
+                              void onOpenArticle(entry.articleId!).catch(() => {
+                                setError(GENERIC_ERROR_MESSAGE);
+                              });
+                            }}
+                          >
+                            · {entry.articleId.slice(0, 8)}
+                          </button>
                         ) : null}
                       </span>
                     </div>
@@ -733,6 +756,32 @@ export function SettingsPage({
                 When enabled, newly fetched articles are queued for priority scoring and story grouping via
                 your local model. No cloud calls.
               </p>
+            </section>
+          )}
+
+          {section === "errors" && (
+            <section className="settings-section">
+              <h2>Errors</h2>
+              <p className="muted">
+                Detailed failures are stored in the local database so the main interface can stay concise.
+              </p>
+              <div className="error-log-panel">
+                {errorLogs.length === 0 ? (
+                  <div className="muted">No errors recorded yet.</div>
+                ) : (
+                  errorLogs.map((entry) => (
+                    <article key={entry.id} className="error-log-entry">
+                      <div className="error-log-heading">
+                        <strong>{entry.operation}</strong>
+                        <time dateTime={entry.occurredAt}>{new Date(entry.occurredAt).toLocaleString()}</time>
+                      </div>
+                      <div className="muted">{entry.source || "app"}</div>
+                      <div>{entry.message}</div>
+                      {entry.detail ? <pre>{entry.detail}</pre> : null}
+                    </article>
+                  ))
+                )}
+              </div>
             </section>
           )}
         </div>

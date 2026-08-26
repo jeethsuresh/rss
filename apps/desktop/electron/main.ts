@@ -4,6 +4,10 @@ import {
   ipcMain,
   shell,
   Notification,
+  Tray,
+  Menu,
+  clipboard,
+  nativeImage,
 } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +22,10 @@ const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 let backend: BackendBridge | null = null;
 let backendProc: ChildProcessWithoutNullStreams | null = null;
-const pendingDroppedTexts: string[] = [];
+let tray: Tray | null = null;
+let pendingAddLinkText: string | null = null;
+let backendEventsSubscribed = false;
+const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
 
 function backendBinaryPath(): string {
   const resources = isDev
@@ -64,20 +71,22 @@ function focusMainWindow() {
   }
 }
 
-function deliverDroppedText(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed) return;
+function requestAddLink(text = "") {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    pendingDroppedTexts.push(trimmed);
+    pendingAddLinkText = text;
+    void createWindow().catch((error) => {
+      console.error(error);
+      void recordError("desktop", "window.create", error);
+    });
     return;
   }
   focusMainWindow();
   const send = () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
-      pendingDroppedTexts.push(trimmed);
+      pendingAddLinkText = text;
       return;
     }
-    mainWindow.webContents.send("desktop:dropped-text", trimmed);
+    mainWindow.webContents.send("desktop:add-link-requested", text);
   };
   if (mainWindow.webContents.isLoading()) {
     mainWindow.webContents.once("did-finish-load", send);
@@ -86,29 +95,43 @@ function deliverDroppedText(text: string) {
   }
 }
 
-function flushPendingDrops() {
+function flushPendingAddLink() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  while (pendingDroppedTexts.length > 0) {
-    const text = pendingDroppedTexts.shift();
-    if (text) deliverDroppedText(text);
+  if (pendingAddLinkText !== null) {
+    const text = pendingAddLinkText;
+    pendingAddLinkText = null;
+    requestAddLink(text);
   }
 }
 
-function readWeblocURL(filePath: string): string | null {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const xmlMatch = raw.match(/<string>(https?:\/\/[^<]+)<\/string>/i);
-    if (xmlMatch?.[1]) return xmlMatch[1].trim();
-    const plistMatch = raw.match(/URL\s*=\s*"([^"]+)"/);
-    if (plistMatch?.[1]) return plistMatch[1].trim();
-  } catch {
-    // ignore
-  }
-  return null;
+function trayIcon() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><g fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round"><path d="M3 4.5a10.5 10.5 0 0 1 10.5 10.5"/><path d="M3 8.5A6.5 6.5 0 0 1 9.5 15"/></g><circle cx="3.2" cy="14.8" r="1.7" fill="black"/></svg>`;
+  const icon = nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+  icon.setTemplateImage(true);
+  return icon;
+}
+
+function setupTray() {
+  tray = new Tray(trayIcon());
+  tray.setToolTip("RSS Reader");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: "Add Link…",
+      click: () => {
+        const text = clipboard.readText().trim();
+        requestAddLink(/^https?:\/\//i.test(text) ? text : "");
+      },
+    },
+    { type: "separator" },
+    { label: "Show RSS Reader", click: () => focusMainWindow() },
+    { label: "Quit", click: () => app.quit() },
+  ]));
 }
 
 async function createWindow() {
-  backend = await startBackend();
+  if (!backend) {
+    backend = await startBackend();
+  }
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -122,26 +145,79 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
     },
+  });
+  mainWindow.once("closed", () => {
+    mainWindow = null;
+  });
+
+  mainWindow.webContents.on("will-attach-webview", (_event, webPreferences) => {
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+  });
+
+  mainWindow.webContents.on("did-attach-webview", (_event, guestContents) => {
+    guestContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) {
+        mainWindow?.webContents.send("desktop:open-in-pane", url);
+      }
+      return { action: "deny" };
+    });
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) {
+      mainWindow?.webContents.send("desktop:open-in-pane", url);
+    }
     return { action: "deny" };
   });
 
-  backend.onEvent((event) => {
-    mainWindow?.webContents.send("backend:event", event);
-    if (
-      event.event === "articles.added" &&
-      Notification.isSupported()
-    ) {
-      // Notifications gated by settings in renderer; main only relays unless settings say so later.
-    }
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!/^https?:\/\//i.test(url)) return;
+    const appOrigin = isDev ? "http://localhost:5173" : null;
+    if (appOrigin && new URL(url).origin === appOrigin) return;
+    event.preventDefault();
+    mainWindow?.webContents.send("desktop:open-in-pane", url);
   });
 
+  mainWindow.webContents.on("will-frame-navigate", (event) => {
+    const url = event.url;
+    if (!/^https?:\/\//i.test(url)) return;
+    const appOrigin = isDev ? "http://localhost:5173" : null;
+    if (event.isMainFrame && appOrigin && new URL(url).origin === appOrigin) return;
+    event.preventDefault();
+    mainWindow?.webContents.send("desktop:open-in-pane", url);
+  });
+
+  if (!backendEventsSubscribed) {
+    backendEventsSubscribed = true;
+    backend.onEvent((event) => {
+      mainWindow?.webContents.send("backend:event", event);
+      if (event.event === "feed.error") {
+        const payload = event.payload as { error?: string };
+        void recordError("backend", "feed.refresh", payload.error ?? "Feed refresh failed");
+      } else if (event.event === "sports.refresh") {
+        const payload = event.payload as { phase?: string; key?: string; error?: string };
+        if (payload.phase === "error") {
+          void recordError("backend", `sports.refresh:${payload.key ?? "unknown"}`, payload.error ?? "Sports refresh failed");
+        }
+      } else if (event.event === "ai.log") {
+        const payload = event.payload as { level?: string; message?: string; detail?: string };
+        if (payload.level === "error") {
+          void recordError(
+            "ai",
+            payload.message ?? "ai.operation",
+            payload.detail ?? payload.message ?? "AI operation failed",
+          );
+        }
+      }
+    });
+  }
+
   mainWindow.webContents.on("did-finish-load", () => {
-    flushPendingDrops();
+    flushPendingAddLink();
   });
 
   if (isDev) {
@@ -150,20 +226,42 @@ async function createWindow() {
   } else {
     await mainWindow.loadFile(path.join(__dirname, "..", "dist-renderer", "index.html"));
   }
-  flushPendingDrops();
+  flushPendingAddLink();
+}
+
+async function recordError(source: string, operation: string, error: unknown) {
+  if (!backend) return;
+  const detail = error instanceof Error ? error.message : String(error);
+  try {
+    await backend.request("errors.record", {
+      source,
+      operation,
+      message: `${operation} failed`,
+      detail,
+    });
+  } catch (logError) {
+    console.error("Failed to persist error log", logError);
+  }
 }
 
 function setupIpc() {
   ipcMain.handle("backend:request", async (_evt, method: string, params: unknown) => {
     if (!backend) {
-      throw new Error("Backend not ready");
+      throw new Error(GENERIC_ERROR_MESSAGE);
     }
-    return backend.request(method, params ?? {});
+    try {
+      return await backend.request(method, params ?? {});
+    } catch (error) {
+      if (method !== "errors.record") {
+        await recordError("renderer", method, error);
+      }
+      throw new Error(GENERIC_ERROR_MESSAGE);
+    }
   });
 
   ipcMain.handle("shell:openExternal", async (_evt, url: string) => {
     if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
-      throw new Error("Invalid URL");
+      throw new Error(GENERIC_ERROR_MESSAGE);
     }
     await shell.openExternal(url);
   });
@@ -179,28 +277,11 @@ function setupIpc() {
   });
 }
 
-app.on("will-finish-launching", () => {
-  app.on("open-url", (event, url) => {
-    event.preventDefault();
-    deliverDroppedText(url);
-  });
-  app.on("open-file", (event, filePath) => {
-    event.preventDefault();
-    const lower = filePath.toLowerCase();
-    if (lower.endsWith(".webloc") || lower.endsWith(".url")) {
-      const url = readWeblocURL(filePath);
-      if (url) deliverDroppedText(url);
-      else deliverDroppedText(filePath);
-      return;
-    }
-    deliverDroppedText(filePath);
-  });
-});
-
 app.whenReady().then(async () => {
   setupIpc();
   try {
     await createWindow();
+    setupTray();
   } catch (err) {
     console.error(err);
     app.quit();

@@ -8,7 +8,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jeeth/rss-reader/backend/internal/ai"
 	"github.com/jeeth/rss-reader/backend/internal/application"
@@ -20,6 +23,7 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/rss"
 	"github.com/jeeth/rss-reader/backend/internal/scheduler"
 	"github.com/jeeth/rss-reader/backend/internal/storage/sqlite"
+	"github.com/jeeth/rss-reader/backend/internal/syncclient"
 )
 
 const version = "0.1.0"
@@ -56,6 +60,7 @@ func main() {
 	folders := sqlite.NewFolderRepo(db)
 	settings := sqlite.NewSettingsRepo(db)
 	stories := sqlite.NewStoryRepo(db)
+	errorLogs := sqlite.NewErrorLogRepo(db)
 	queue := sqlite.NewAIQueueRepo(db)
 	aiLogs := sqlite.NewAILogRepo(db)
 
@@ -80,6 +85,7 @@ func main() {
 		Folders:  folders,
 		Settings: settings,
 		Stories:  stories,
+		Errors:   errorLogs,
 		Sports:   sportsSvc,
 		RSS:      rss.NewFetcher(),
 		AI:       aiSvc,
@@ -114,6 +120,24 @@ func main() {
 	crawlSvc.Emit = server.Emit
 	clusterSvc.Emit = server.Emit
 	sportsSvc.Emit = server.Emit
+	if syncURL := strings.TrimSpace(os.Getenv("RSS_SERVER_URL")); syncURL != "" {
+		interval := 5 * time.Minute
+		if raw := strings.TrimSpace(os.Getenv("RSS_SYNC_INTERVAL_SECONDS")); raw != "" {
+			if seconds, err := strconv.Atoi(raw); err == nil && seconds >= 30 {
+				interval = time.Duration(seconds) * time.Second
+			}
+		}
+		autoRegister, _ := strconv.ParseBool(os.Getenv("RSS_SERVER_AUTO_REGISTER"))
+		syncer := syncclient.New(db, syncclient.Config{
+			ServerURL:    syncURL,
+			Username:     strings.TrimSpace(os.Getenv("RSS_SERVER_USERNAME")),
+			Password:     os.Getenv("RSS_SERVER_PASSWORD"),
+			AutoRegister: autoRegister,
+			Interval:     interval,
+		}, log)
+		syncer.Emit = server.Emit
+		go syncer.Run(ctx)
+	}
 	aiSvc.Resume(ctx)
 	crawlSvc.EnqueueAndKick(ctx)
 	go crawlSvc.BackfillExtracts(ctx)

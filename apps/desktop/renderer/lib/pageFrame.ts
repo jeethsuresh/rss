@@ -13,7 +13,12 @@ export function preparePageFrameHtml(html: string, pageUrl: string): string {
 
 function ensureHeadLead(html: string, pageUrl: string): string {
   const href = baseHrefFor(pageUrl);
-  const withoutBase = html.replace(/<base\b[^>]*>/gi, "");
+  const withoutBase = html
+    .replace(/<base\b[^>]*>/gi, "")
+    .replace(/<a\b([^>]*)>/gi, (_match, attributes: string) => {
+      const withoutTarget = attributes.replace(/\s+target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+      return `<a${withoutTarget} target="_blank">`;
+    });
   const lead = headLead(href);
   const headMatch = withoutBase.match(/<head[^>]*>/i);
   if (headMatch && headMatch.index != null) {

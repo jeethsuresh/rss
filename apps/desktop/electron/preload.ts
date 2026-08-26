@@ -24,6 +24,7 @@ const api: ReaderBackend = {
     get: (id) => request("articles.get", { id }),
     markRead: (id) => request("articles.markRead", { id }),
     markUnread: (id) => request("articles.markUnread", { id }),
+    markAllRead: (query) => request("articles.markAllRead", query),
     toggleStar: (id) => request("articles.toggleStar", { id }),
     recrawl: (id) => request("articles.recrawl", { id }),
     fetchLive: (id) => request("articles.fetchLive", { id }),
@@ -49,10 +50,12 @@ const api: ReaderBackend = {
     followedSet: (teamIds) => request("sports.followed.set", { teamIds }),
     followedToggle: (teamId) => request("sports.followed.toggle", { teamId }),
     schedule: (params) => request("sports.schedule.list", params),
+    dailySchedule: (params) => request("sports.schedule.daily", params),
     gameGet: (gamePk) => request("sports.game.get", { gamePk }),
     gameWatch: (gamePk) => request("sports.game.watch", { gamePk }),
     gameUnwatch: (gamePk) => request("sports.game.unwatch", { gamePk }),
     standings: (params) => request("sports.standings.get", params),
+    roster: (params) => request("sports.roster.get", params),
     f1Years: () => request("sports.f1.years.list"),
     f1Races: (params) => request("sports.f1.races.list", params),
     f1RaceGet: (sessionKey) => request("sports.f1.race.get", { sessionKey }),
@@ -89,6 +92,9 @@ const api: ReaderBackend = {
     logs: (limit) => request("ai.logs", limit !== undefined ? { limit } : {}),
     retryFailed: () => request("ai.retryFailed"),
   },
+  errors: {
+    list: (limit) => request("errors.list", limit !== undefined ? { limit } : {}),
+  },
   system: {
     ping: () => request("system.ping"),
     info: () => request("system.info"),
@@ -105,11 +111,18 @@ contextBridge.exposeInMainWorld("desktop", {
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
   notify: (title: string, body: string) => ipcRenderer.invoke("app:notify", title, body),
   focusMainWindow: () => ipcRenderer.invoke("app:focusMainWindow"),
-  onDroppedText: (handler: (text: string) => void) => {
+  onAddLinkRequested: (handler: (text: string) => void) => {
     const listener = (_: Electron.IpcRendererEvent, text: string) => {
       if (typeof text === "string") handler(text);
     };
-    ipcRenderer.on("desktop:dropped-text", listener);
-    return () => ipcRenderer.removeListener("desktop:dropped-text", listener);
+    ipcRenderer.on("desktop:add-link-requested", listener);
+    return () => ipcRenderer.removeListener("desktop:add-link-requested", listener);
+  },
+  onOpenInPane: (handler: (url: string) => void) => {
+    const listener = (_: Electron.IpcRendererEvent, url: string) => {
+      if (typeof url === "string" && /^https?:\/\//i.test(url)) handler(url);
+    };
+    ipcRenderer.on("desktop:open-in-pane", listener);
+    return () => ipcRenderer.removeListener("desktop:open-in-pane", listener);
   },
 });

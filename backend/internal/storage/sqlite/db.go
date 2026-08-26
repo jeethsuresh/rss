@@ -83,6 +83,10 @@ func (db *DB) Migrate(ctx context.Context) error {
 			_ = tx.Rollback()
 			return fmt.Errorf("migration %s: %w", name, err)
 		}
+		if err := runDataMigration(ctx, tx, version); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("data migration %s: %w", name, err)
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)`, version, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			_ = tx.Rollback()
 			return err

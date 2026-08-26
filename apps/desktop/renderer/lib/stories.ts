@@ -23,6 +23,22 @@ export function isListableStory(story: Pick<Story, "memberCount">): boolean {
   return story.memberCount >= MIN_STORY_MEMBER_COUNT;
 }
 
+export function unreadStoryCount(stories: Story[]): number {
+  return stories.filter((story) => isListableStory(story) && !story.isRead).length;
+}
+
+export function unreadStorySnapshotIds(stories: Story[]): string[] {
+  return stories.filter((story) => isListableStory(story) && !story.isRead).map((story) => story.id);
+}
+
+export function storiesInSnapshot(stories: Story[], storyIds: readonly string[]): Story[] {
+  const storiesById = new Map(stories.map((story) => [story.id, story]));
+  return storyIds.flatMap((id) => {
+    const story = storiesById.get(id);
+    return story && isListableStory(story) ? [story] : [];
+  });
+}
+
 export function storyListRows(stories: Story[], expanded: Story | null): StoryListRow[] {
   const rows: StoryListRow[] = [];
   for (const story of stories) {
@@ -33,7 +49,12 @@ export function storyListRows(stories: Story[], expanded: Story | null): StoryLi
     if (expanded?.id !== story.id) {
       continue;
     }
-    for (const article of expanded.articles ?? []) {
+    const newestFirst = [...(expanded.articles ?? [])].sort((a, b) => {
+      const aTime = Date.parse(a.publishedAt ?? a.discoveredAt);
+      const bTime = Date.parse(b.publishedAt ?? b.discoveredAt);
+      return bTime - aTime;
+    });
+    for (const article of newestFirst) {
       if (article.isReadLater) {
         continue;
       }
@@ -41,6 +62,19 @@ export function storyListRows(stories: Story[], expanded: Story | null): StoryLi
     }
   }
   return rows;
+}
+
+export function adjacentMetaStory(
+  stories: Story[],
+  currentStoryId: string | null,
+  delta: number,
+): Story | null {
+  const listable = stories.filter(isListableStory);
+  if (listable.length === 0) return null;
+  const index = currentStoryId ? listable.findIndex((story) => story.id === currentStoryId) : -1;
+  const from = index < 0 ? (delta > 0 ? -1 : 0) : index;
+  const nextIndex = Math.min(listable.length - 1, Math.max(0, from + delta));
+  return listable[nextIndex] ?? null;
 }
 
 export function adjacentStoryListRow(
@@ -62,6 +96,16 @@ export function memberArticle(story: Story | null, articleId: string | null): Ar
     return null;
   }
   return story.articles?.find((article) => article.id === articleId) ?? null;
+}
+
+export function hasNoOtherUnreadStoryMembers(
+  story: Story | null,
+  currentArticleId: string | null,
+): boolean {
+  if (!story || !currentArticleId) return false;
+  const members = (story.articles ?? []).filter((article) => !article.isReadLater);
+  if (!members.some((article) => article.id === currentArticleId)) return false;
+  return members.every((article) => article.id === currentArticleId || article.isRead);
 }
 
 export function upsertStoryInPlace(stories: Story[], story: Story): Story[] {

@@ -11,14 +11,11 @@ import (
 )
 
 func (s *Service) AddReadLater(ctx context.Context, rawURL string) (*domain.Article, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return nil, domain.ErrInvalidURL
+	pageURL, err := domain.NormalizeReadLaterURL(rawURL)
+	if err != nil {
+		return nil, err
 	}
-	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
-		rawURL = "https://" + rawURL
-	}
-	return s.saveReadLater(ctx, rawURL, rawURL)
+	return s.saveReadLater(ctx, pageURL, pageURL)
 }
 
 func (s *Service) AddReadLaterFromArticle(ctx context.Context, articleID string) (*domain.Article, error) {
@@ -26,15 +23,15 @@ func (s *Service) AddReadLaterFromArticle(ctx context.Context, articleID string)
 	if err != nil {
 		return nil, err
 	}
-	url := strings.TrimSpace(src.URL)
-	if url == "" {
-		return nil, domain.ErrInvalidURL
+	pageURL, err := domain.NormalizeReadLaterURL(src.URL)
+	if err != nil {
+		return nil, err
 	}
 	title := strings.TrimSpace(src.Title)
 	if title == "" {
-		title = url
+		title = pageURL
 	}
-	return s.saveReadLater(ctx, url, title)
+	return s.saveReadLater(ctx, pageURL, title)
 }
 
 func (s *Service) saveReadLater(ctx context.Context, pageURL, title string) (*domain.Article, error) {

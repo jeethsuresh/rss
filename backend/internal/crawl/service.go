@@ -2,6 +2,7 @@ package crawl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,9 +23,29 @@ type Service struct {
 	Emit     func(name string, payload any)
 	OnReady  func(ctx context.Context, articleID string)
 	Client   *http.Client
+	Shared   SharedDocumentCache
+	// SharedOwner identifies this server process when Shared uses DB leases.
+	SharedOwner string
 
 	mu      sync.Mutex
 	running bool
+}
+
+var ErrSharedDocumentPending = errors.New("shared document fetch is in progress")
+
+type SharedDocument struct {
+	ID             string
+	Status         string
+	FinalURL       string
+	Title          string
+	CrawledContent string
+	ReaderContent  string
+	Error          string
+}
+
+type SharedDocumentCache interface {
+	GetOrClaim(ctx context.Context, rawURL, owner string, lease time.Duration) (document SharedDocument, claimed bool, err error)
+	Complete(ctx context.Context, documentID, owner, finalURL, title, crawled, reader string, fetchErr error) error
 }
 
 func New(articles domain.ArticleRepository, feeds domain.FeedRepository, log *slog.Logger) *Service {
@@ -61,18 +82,43 @@ func (s *Service) loop(ctx context.Context) {
 		s.running = false
 		s.mu.Unlock()
 	}()
+	seen := map[string]bool{}
+	pendingAttempts := map[string]int{}
+	limit := 5
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		arts, err := s.Articles.ListNeedingCrawl(ctx, 5)
+		arts, err := s.Articles.ListNeedingCrawl(ctx, limit)
 		if err != nil || len(arts) == 0 {
 			return
 		}
+		processed := false
 		for _, a := range arts {
-			_ = s.CrawlOne(ctx, a.ID)
+			if seen[a.ID] {
+				continue
+			}
+			processed = true
+			err := s.CrawlOne(ctx, a.ID)
+			if errors.Is(err, ErrSharedDocumentPending) && pendingAttempts[a.ID] < 12 {
+				pendingAttempts[a.ID]++
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+				}
+				continue
+			}
+			seen[a.ID] = true
+		}
+		if !processed {
+			if len(arts) == limit && limit < 10_000 {
+				limit *= 2
+				continue
+			}
+			return
 		}
 	}
 }
@@ -88,6 +134,36 @@ func (s *Service) CrawlOne(ctx context.Context, articleID string) error {
 		s.ready(ctx, articleID)
 		return nil
 	}
+	var sharedDocumentID string
+	if s.Shared != nil {
+		document, claimed, err := s.Shared.GetOrClaim(ctx, a.URL, s.SharedOwner, 2*time.Minute)
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			switch document.Status {
+			case "ok":
+				if document.Title != "" && (a.Title == "" || a.Title == a.URL) {
+					a.Title = document.Title
+					_ = s.Articles.Update(ctx, a)
+				}
+				_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlOK, document.CrawledContent, "", false, false)
+				if strings.TrimSpace(document.ReaderContent) != "" {
+					_ = s.Articles.SetExtract(ctx, articleID, document.ReaderContent, domain.ExtractOK, "go")
+					s.ready(ctx, articleID)
+				} else {
+					s.applyGoExtract(ctx, articleID, document.CrawledContent)
+				}
+				return nil
+			case "failed":
+				_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlFailed, "", document.Error, false, true)
+				return nil
+			default:
+				return ErrSharedDocumentPending
+			}
+		}
+		sharedDocumentID = document.ID
+	}
 	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlPending, a.CrawledContent, "", a.CrawlUnreliable, true)
 	_ = s.Articles.SetExtract(ctx, articleID, "", domain.ExtractNone, "")
 
@@ -100,6 +176,9 @@ func (s *Service) CrawlOne(ctx context.Context, articleID string) error {
 		}
 		_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlFailed, "", msg, a.CrawlUnreliable, class.Retryable)
 		_ = s.Feeds.RecordCrawlResult(ctx, a.FeedID, true)
+		if s.Shared != nil && sharedDocumentID != "" {
+			_ = s.Shared.Complete(ctx, sharedDocumentID, s.SharedOwner, finalURL, title, "", "", fmt.Errorf("%s", msg))
+		}
 		if !class.Retryable {
 			_ = s.Articles.SetExtract(ctx, articleID, "", domain.ExtractFailed, "")
 			s.ready(ctx, articleID)
@@ -120,6 +199,10 @@ func (s *Service) CrawlOne(ctx context.Context, articleID string) error {
 	}
 	_ = s.Articles.SetCrawlResult(ctx, articleID, domain.CrawlOK, prepared, "", false, false)
 	_ = s.Feeds.RecordCrawlResult(ctx, a.FeedID, false)
+	reader, _ := ExtractHTML(prepared)
+	if s.Shared != nil && sharedDocumentID != "" {
+		_ = s.Shared.Complete(ctx, sharedDocumentID, s.SharedOwner, finalURL, title, prepared, reader, nil)
+	}
 	s.applyGoExtract(ctx, articleID, prepared)
 	return nil
 }

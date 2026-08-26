@@ -85,6 +85,17 @@ Track phase completion and follow-ups. Check items as they land.
 - [x] `cmd/server` + Postgres swap documented
 - [x] Leak checklist (no Electron in domain)
 
+## Phase 9 — Multi-tenant Go server foundation
+
+- [x] Standalone `cmd/server` HTTP/JSON transport
+- [x] Salted password authentication and hashed bearer sessions
+- [x] Canonical shared feeds/articles/crawls/meta-stories/sports cache
+- [x] Per-user article/story/read-later/folder/settings/team state
+- [x] Cross-process fetch leases and adaptive feed polling
+- [x] Append-only LWW feed-list sync on desktop startup and interval
+- [x] Server-wide deterministic clustering and environment-configured AI
+- [ ] Desktop sync adapters for article state, Read Later, folders/settings, and sports teams
+
 
 
 ## Follow-ups (post-MVP)

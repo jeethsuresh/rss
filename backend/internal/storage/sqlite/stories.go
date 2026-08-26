@@ -18,9 +18,23 @@ const rssMemberCountSQL = `COALESCE((SELECT COUNT(1) FROM story_articles sa
 		JOIN articles a ON a.id = sa.article_id
 		WHERE sa.story_id = s.id AND a.is_read_later = 0), 0)`
 
+const rssStoryReadSQL = `CASE
+		WHEN EXISTS (
+			SELECT 1 FROM story_articles sa
+			JOIN articles a ON a.id = sa.article_id
+			WHERE sa.story_id = s.id AND a.is_read_later = 0 AND a.is_read = 0
+		) THEN 0
+		WHEN EXISTS (
+			SELECT 1 FROM story_articles sa
+			JOIN articles a ON a.id = sa.article_id
+			WHERE sa.story_id = s.id AND a.is_read_later = 0
+		) THEN 1
+		ELSE s.is_read
+	END`
+
 func (r *StoryRepo) List(ctx context.Context) ([]domain.Story, error) {
 	rows, err := r.db.SQL.QueryContext(ctx, `
-		SELECT s.id, s.title, s.summary, s.is_read, s.is_starred, s.created_at, s.updated_at,
+		SELECT s.id, s.title, s.summary, `+rssStoryReadSQL+`, s.is_starred, s.created_at, s.updated_at,
 		       `+rssMemberCountSQL+`, s.source
 		FROM stories s
 		WHERE `+rssMemberCountSQL+` >= 2
@@ -42,7 +56,7 @@ func (r *StoryRepo) List(ctx context.Context) ([]domain.Story, error) {
 
 func (r *StoryRepo) Get(ctx context.Context, id string) (*domain.Story, error) {
 	row := r.db.SQL.QueryRowContext(ctx, `
-		SELECT s.id, s.title, s.summary, s.is_read, s.is_starred, s.created_at, s.updated_at,
+		SELECT s.id, s.title, s.summary, `+rssStoryReadSQL+`, s.is_starred, s.created_at, s.updated_at,
 		       `+rssMemberCountSQL+`, s.source
 		FROM stories s WHERE s.id = ?`, id)
 	s, err := scanStory(row)
@@ -84,7 +98,8 @@ func (r *StoryRepo) memberIDs(ctx context.Context, storyID string) ([]string, er
 	rows, err := r.db.SQL.QueryContext(ctx, `
 		SELECT sa.article_id FROM story_articles sa
 		JOIN articles a ON a.id = sa.article_id
-		WHERE sa.story_id = ? AND a.is_read_later = 0`, storyID)
+		WHERE sa.story_id = ? AND a.is_read_later = 0
+		ORDER BY COALESCE(a.published_at, a.discovered_at) DESC, a.id DESC`, storyID)
 	if err != nil {
 		return nil, err
 	}

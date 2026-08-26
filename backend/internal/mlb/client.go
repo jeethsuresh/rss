@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,11 +21,11 @@ const baseURL = "https://statsapi.mlb.com/api"
 type Client struct {
 	HTTP *http.Client
 
-	mu          sync.Mutex
-	teamsCache  []domain.MlbTeam
-	teamsAt     time.Time
+	mu           sync.Mutex
+	teamsCache   []domain.MlbTeam
+	teamsAt      time.Time
 	seasonsCache []domain.MlbSeason
-	seasonsAt   time.Time
+	seasonsAt    time.Time
 }
 
 func NewClient() *Client {
@@ -78,6 +79,9 @@ func (c *Client) ListTeams(ctx context.Context) ([]domain.MlbTeam, error) {
 			Name         string `json:"name"`
 			Abbreviation string `json:"abbreviation"`
 			TeamName     string `json:"teamName"`
+			League       struct {
+				ID int `json:"id"`
+			} `json:"league"`
 		} `json:"teams"`
 	}
 	q := url.Values{}
@@ -89,7 +93,7 @@ func (c *Client) ListTeams(ctx context.Context) ([]domain.MlbTeam, error) {
 	for _, t := range raw.Teams {
 		out = append(out, domain.MlbTeam{
 			ID: t.ID, Name: t.Name, Abbreviation: t.Abbreviation,
-			ShortName: t.TeamName, LogoURL: logoURL(t.ID),
+			ShortName: t.TeamName, LogoURL: logoURL(t.ID), League: leagueLabel(t.League.ID),
 		})
 	}
 	c.mu.Lock()
@@ -128,7 +132,7 @@ func (c *Client) ListSeasons(ctx context.Context) ([]domain.MlbSeason, error) {
 			continue
 		}
 		out = append(out, domain.MlbSeason{
-			SeasonID: id,
+			SeasonID:               id,
 			RegularSeasonStartDate: s.RegularSeasonStartDate,
 			RegularSeasonEndDate:   s.RegularSeasonEndDate,
 		})
@@ -163,7 +167,200 @@ func (c *Client) TeamSchedule(ctx context.Context, teamID, season int) ([]domain
 			out = append(out, normalizeScheduleGame(g))
 		}
 	}
+	c.enrichGames(ctx, out)
+	sort.Slice(out, func(i, j int) bool { return out[i].GameDate < out[j].GameDate })
 	return out, nil
+}
+
+func (c *Client) DailySchedule(ctx context.Context, date string) ([]domain.MlbGame, error) {
+	var raw struct {
+		Dates []struct {
+			Games []scheduleGame `json:"games"`
+		} `json:"dates"`
+	}
+	q := url.Values{}
+	q.Set("sportId", "1")
+	q.Set("date", date)
+	q.Set("hydrate", "linescore")
+	if err := c.getJSON(ctx, "/v1/schedule", q, &raw); err != nil {
+		return nil, err
+	}
+	out := []domain.MlbGame{}
+	for _, d := range raw.Dates {
+		for _, g := range d.Games {
+			out = append(out, normalizeScheduleGame(g))
+		}
+	}
+	c.enrichGames(ctx, out)
+	sort.Slice(out, func(i, j int) bool { return out[i].GameDate < out[j].GameDate })
+	return out, nil
+}
+
+func leagueLabel(id int) string {
+	switch id {
+	case 103:
+		return "AL"
+	case 104:
+		return "NL"
+	default:
+		return ""
+	}
+}
+
+func (c *Client) enrichGames(ctx context.Context, games []domain.MlbGame) {
+	teams, err := c.ListTeams(ctx)
+	if err != nil {
+		return
+	}
+	byID := make(map[int]domain.MlbTeam, len(teams))
+	for _, team := range teams {
+		byID[team.ID] = team
+	}
+	for i := range games {
+		if team, ok := byID[games[i].AwayTeam.ID]; ok {
+			games[i].AwayTeam = team
+		}
+		if team, ok := byID[games[i].HomeTeam.ID]; ok {
+			games[i].HomeTeam = team
+			games[i].League = team.League
+		}
+	}
+}
+
+type rosterEntry struct {
+	JerseyNumber string `json:"jerseyNumber"`
+	Person       struct {
+		ID       int    `json:"id"`
+		FullName string `json:"fullName"`
+		Stats    []struct {
+			Group struct {
+				DisplayName string `json:"displayName"`
+			} `json:"group"`
+			Splits []struct {
+				Stat struct {
+					GamesPlayed      int    `json:"gamesPlayed"`
+					PlateAppearances int    `json:"plateAppearances"`
+					AtBats           int    `json:"atBats"`
+					Runs             int    `json:"runs"`
+					Hits             int    `json:"hits"`
+					Doubles          int    `json:"doubles"`
+					Triples          int    `json:"triples"`
+					HomeRuns         int    `json:"homeRuns"`
+					RBI              int    `json:"rbi"`
+					BaseOnBalls      int    `json:"baseOnBalls"`
+					StrikeOuts       int    `json:"strikeOuts"`
+					StolenBases      int    `json:"stolenBases"`
+					Average          string `json:"avg"`
+					OnBasePercentage string `json:"obp"`
+					Slugging         string `json:"slg"`
+					OPS              string `json:"ops"`
+					GamesPitched     int    `json:"gamesPitched"`
+					GamesStarted     int    `json:"gamesStarted"`
+					Wins             int    `json:"wins"`
+					Losses           int    `json:"losses"`
+					Saves            int    `json:"saves"`
+					InningsPitched   string `json:"inningsPitched"`
+					ERA              string `json:"era"`
+					WHIP             string `json:"whip"`
+				} `json:"stat"`
+			} `json:"splits"`
+		} `json:"stats"`
+	} `json:"person"`
+	Position struct {
+		Abbreviation string `json:"abbreviation"`
+		Type         string `json:"type"`
+	} `json:"position"`
+	Status struct {
+		Code        string `json:"code"`
+		Description string `json:"description"`
+	} `json:"status"`
+}
+
+func (c *Client) Roster(ctx context.Context, teamID, season int) (*domain.MlbRoster, error) {
+	if season <= 0 {
+		season = time.Now().Year()
+	}
+	fetch := func(rosterType string) ([]rosterEntry, error) {
+		var raw struct {
+			Roster []rosterEntry `json:"roster"`
+		}
+		q := url.Values{}
+		q.Set("rosterType", rosterType)
+		q.Set("season", strconv.Itoa(season))
+		q.Set("hydrate", fmt.Sprintf("person(stats(group=[hitting,pitching],type=[season],season=%d))", season))
+		path := fmt.Sprintf("/v1/teams/%d/roster", teamID)
+		if err := c.getJSON(ctx, path, q, &raw); err != nil {
+			return nil, err
+		}
+		return raw.Roster, nil
+	}
+	active, err := fetch("active")
+	if err != nil {
+		return nil, err
+	}
+	full, err := fetch("fullRoster")
+	if err != nil {
+		return nil, err
+	}
+	players := map[int]domain.MlbRosterPlayer{}
+	for _, entry := range active {
+		players[entry.Person.ID] = normalizeRosterPlayer(entry, "active")
+	}
+	for _, entry := range full {
+		status := strings.ToLower(entry.Status.Description + " " + entry.Status.Code)
+		code := strings.ToUpper(entry.Status.Code)
+		injuredCode := len(code) > 1 && code[0] == 'D' && code[1] >= '0' && code[1] <= '9'
+		onIL := strings.Contains(strings.ToUpper(entry.Status.Description), " IL")
+		if !injuredCode && !onIL && !strings.Contains(status, "injur") && !strings.Contains(status, "disabled") {
+			continue
+		}
+		players[entry.Person.ID] = normalizeRosterPlayer(entry, "injured")
+	}
+	out := make([]domain.MlbRosterPlayer, 0, len(players))
+	for _, player := range players {
+		out = append(out, player)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].RosterStatus != out[j].RosterStatus {
+			return out[i].RosterStatus == "active"
+		}
+		if out[i].PositionType != out[j].PositionType {
+			return out[i].PositionType < out[j].PositionType
+		}
+		return out[i].Name < out[j].Name
+	})
+	return &domain.MlbRoster{TeamID: teamID, Season: season, Players: out}, nil
+}
+
+func normalizeRosterPlayer(entry rosterEntry, rosterStatus string) domain.MlbRosterPlayer {
+	player := domain.MlbRosterPlayer{
+		PlayerID: entry.Person.ID, Name: entry.Person.FullName, JerseyNumber: entry.JerseyNumber,
+		Position: entry.Position.Abbreviation, PositionType: entry.Position.Type,
+		RosterStatus: rosterStatus, StatusDescription: entry.Status.Description,
+	}
+	for _, stats := range entry.Person.Stats {
+		if len(stats.Splits) == 0 {
+			continue
+		}
+		s := stats.Splits[0].Stat
+		switch strings.ToLower(stats.Group.DisplayName) {
+		case "hitting":
+			player.Batting = &domain.MlbBattingStats{
+				Games: s.GamesPlayed, PlateAppearances: s.PlateAppearances, AtBats: s.AtBats,
+				Runs: s.Runs, Hits: s.Hits, Doubles: s.Doubles, Triples: s.Triples,
+				HomeRuns: s.HomeRuns, RBI: s.RBI, Walks: s.BaseOnBalls, StrikeOuts: s.StrikeOuts,
+				StolenBases: s.StolenBases, Average: s.Average, OnBasePercentage: s.OnBasePercentage,
+				Slugging: s.Slugging, OPS: s.OPS,
+			}
+		case "pitching":
+			player.Pitching = &domain.MlbPitchingStats{
+				Games: s.GamesPitched, GamesStarted: s.GamesStarted, Wins: s.Wins, Losses: s.Losses,
+				Saves: s.Saves, InningsPitched: s.InningsPitched, ERA: s.ERA, WHIP: s.WHIP,
+				StrikeOuts: s.StrikeOuts, Walks: s.BaseOnBalls,
+			}
+		}
+	}
+	return player
 }
 
 type scheduleGame struct {
@@ -184,6 +381,15 @@ type scheduleGame struct {
 		CurrentInning int    `json:"currentInning"`
 		IsTopInning   bool   `json:"isTopInning"`
 		InningHalf    string `json:"inningHalf"`
+		Innings       []struct {
+			Num  int `json:"num"`
+			Away struct {
+				Runs *int `json:"runs"`
+			} `json:"away"`
+			Home struct {
+				Runs *int `json:"runs"`
+			} `json:"home"`
+		} `json:"innings"`
 	} `json:"linescore"`
 }
 
@@ -218,13 +424,21 @@ func normalizeScheduleGame(g scheduleGame) domain.MlbGame {
 		AwayScore: g.Teams.Away.Score,
 		HomeScore: g.Teams.Home.Score,
 	}
-	if g.Linescore != nil && g.Linescore.CurrentInning > 0 {
-		inn := g.Linescore.CurrentInning
-		game.CurrentInning = &inn
-		if g.Linescore.IsTopInning || strings.EqualFold(g.Linescore.InningHalf, "Top") {
-			game.CurrentInningHalf = "top"
-		} else {
-			game.CurrentInningHalf = "bottom"
+	if g.Linescore != nil {
+		game.InningScores = make([]domain.MlbInningScore, 0, len(g.Linescore.Innings))
+		for _, inning := range g.Linescore.Innings {
+			game.InningScores = append(game.InningScores, domain.MlbInningScore{
+				Number: inning.Num, AwayRuns: inning.Away.Runs, HomeRuns: inning.Home.Runs,
+			})
+		}
+		if g.Linescore.CurrentInning > 0 {
+			inn := g.Linescore.CurrentInning
+			game.CurrentInning = &inn
+			if g.Linescore.IsTopInning || strings.EqualFold(g.Linescore.InningHalf, "Top") {
+				game.CurrentInningHalf = "top"
+			} else {
+				game.CurrentInningHalf = "bottom"
+			}
 		}
 	}
 	return game
@@ -328,6 +542,12 @@ type liveFeed struct {
 					IsScoringPlay bool   `json:"isScoringPlay"`
 					EndTime       string `json:"endTime"`
 				} `json:"about"`
+				Matchup struct {
+					Pitcher struct {
+						ID       int    `json:"id"`
+						FullName string `json:"fullName"`
+					} `json:"pitcher"`
+				} `json:"matchup"`
 			} `json:"allPlays"`
 		} `json:"plays"`
 		Boxscore struct {
@@ -359,14 +579,14 @@ type boxTeam struct {
 		BattingOrder string `json:"battingOrder"`
 		Stats        struct {
 			Batting struct {
-				Summary    string `json:"summary"`
-				AtBats     int    `json:"atBats"`
-				Runs       int    `json:"runs"`
-				Hits       int    `json:"hits"`
-				RBI        int    `json:"rbi"`
-				BaseOnBalls int   `json:"baseOnBalls"`
-				StrikeOuts int    `json:"strikeOuts"`
-				HomeRuns   int    `json:"homeRuns"`
+				Summary     string `json:"summary"`
+				AtBats      int    `json:"atBats"`
+				Runs        int    `json:"runs"`
+				Hits        int    `json:"hits"`
+				RBI         int    `json:"rbi"`
+				BaseOnBalls int    `json:"baseOnBalls"`
+				StrikeOuts  int    `json:"strikeOuts"`
+				HomeRuns    int    `json:"homeRuns"`
 			} `json:"batting"`
 			Pitching struct {
 				Note           string `json:"note"`
@@ -464,6 +684,8 @@ func normalizeLiveFeed(raw liveFeed) *domain.MlbGameDetail {
 			Event:         p.Result.Event,
 			Description:   p.Result.Description,
 			IsScoringPlay: p.About.IsScoringPlay || p.Result.RBI > 0,
+			PitcherID:     p.Matchup.Pitcher.ID,
+			PitcherName:   p.Matchup.Pitcher.FullName,
 			AwayScore:     &away,
 			HomeScore:     &home,
 			AtBatIndex:    &idx,
@@ -637,16 +859,6 @@ func (c *Client) Standings(ctx context.Context, season int) (*domain.MlbStanding
 		return nil, err
 	}
 
-	leagueLabel := func(id int) string {
-		switch id {
-		case 103:
-			return "AL"
-		case 104:
-			return "NL"
-		default:
-			return fmt.Sprintf("L%d", id)
-		}
-	}
 	shortDiv := func(full string) string {
 		full = strings.TrimPrefix(full, "American League ")
 		full = strings.TrimPrefix(full, "National League ")
@@ -686,7 +898,7 @@ func (c *Client) Standings(ctx context.Context, season int) (*domain.MlbStanding
 			abbr := ""
 			// Prefer abbreviation from teams cache if present
 			rows = append(rows, domain.MlbStandingRow{
-				Rank:              rank,
+				Rank: rank,
 				Team: domain.MlbTeam{
 					ID:           tr.Team.ID,
 					Name:         tr.Team.Name,

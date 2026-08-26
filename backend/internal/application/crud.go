@@ -81,6 +81,20 @@ func (s *Service) MarkRead(ctx context.Context, id string, read bool) (*domain.A
 	return s.Articles.Get(ctx, id)
 }
 
+func (s *Service) MarkAllRead(ctx context.Context, q domain.ArticleQuery) (int, error) {
+	if !q.ReadLaterOnly {
+		q.ExcludeReadLater = true
+	}
+	updated, err := s.Articles.MarkAllRead(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	if updated > 0 {
+		s.emit("article.updated", map[string]any{"all": true, "updated": updated})
+	}
+	return updated, nil
+}
+
 func (s *Service) ToggleStar(ctx context.Context, id string) (*domain.Article, error) {
 	a, err := s.Articles.Get(ctx, id)
 	if err != nil {

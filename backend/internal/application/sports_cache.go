@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/jeeth/rss-reader/backend/internal/domain"
 )
 
 const (
 	ttlMeta      = 12 * time.Hour
 	ttlSchedule  = 3 * time.Minute
 	ttlStandings = 5 * time.Minute
+	ttlRoster    = 30 * time.Minute
 	ttlRaceList  = 3 * time.Minute
 	ttlRaceDone  = 2 * time.Hour
 )
@@ -63,23 +66,18 @@ func (ss *SportsService) writeCache(ctx context.Context, key string, value any) 
 }
 
 func (ss *SportsService) queueRefresh(key string, run func(context.Context) error) bool {
-	ss.refreshMu.Lock()
-	defer ss.refreshMu.Unlock()
-	if ss.refreshing == nil {
-		ss.refreshing = map[string]bool{}
-	}
-	if ss.refreshing[key] {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	started := ss.tryStartRefresh(ctx, key)
+	cancel()
+	if !started {
 		return false
 	}
-	ss.refreshing[key] = true
 	ss.emitRefresh(key, "started", "")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		err := run(ctx)
-		ss.refreshMu.Lock()
-		delete(ss.refreshing, key)
-		ss.refreshMu.Unlock()
+		ss.finishRefresh(context.Background(), key)
 		if err != nil {
 			ss.emitRefresh(key, "error", err.Error())
 			return
@@ -87,6 +85,38 @@ func (ss *SportsService) queueRefresh(key string, run func(context.Context) erro
 		ss.emitRefresh(key, "finished", "")
 	}()
 	return true
+}
+
+func (ss *SportsService) tryStartRefresh(ctx context.Context, key string) bool {
+	ss.refreshMu.Lock()
+	if ss.refreshing == nil {
+		ss.refreshing = map[string]bool{}
+	}
+	if ss.refreshing[key] {
+		ss.refreshMu.Unlock()
+		return false
+	}
+	ss.refreshing[key] = true
+	ss.refreshMu.Unlock()
+	if leases, ok := ss.Cache.(domain.SharedFetchLeaseRepository); ok {
+		claimed, err := leases.TryClaim(ctx, "sports:"+key, ss.cacheOwner, 2*time.Minute)
+		if err != nil || !claimed {
+			ss.refreshMu.Lock()
+			delete(ss.refreshing, key)
+			ss.refreshMu.Unlock()
+			return false
+		}
+	}
+	return true
+}
+
+func (ss *SportsService) finishRefresh(ctx context.Context, key string) {
+	if leases, ok := ss.Cache.(domain.SharedFetchLeaseRepository); ok {
+		_ = leases.Release(ctx, "sports:"+key, ss.cacheOwner)
+	}
+	ss.refreshMu.Lock()
+	delete(ss.refreshing, key)
+	ss.refreshMu.Unlock()
 }
 
 // getOrFetch returns cached value if present. If missing, fetches synchronously.
@@ -124,20 +154,39 @@ func getOrFetch[T any](
 		}
 		return cached, true, nil
 	}
-	fresh, err := fetch(ctx)
-	if err != nil {
-		return zero, false, err
+	for {
+		if ss.tryStartRefresh(ctx, key) {
+			fresh, err := fetch(ctx)
+			if err == nil {
+				ss.writeCache(ctx, key, fresh)
+			}
+			ss.finishRefresh(context.Background(), key)
+			if err != nil {
+				return zero, false, err
+			}
+			return fresh, false, nil
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return zero, false, ctx.Err()
+		case <-timer.C:
+		}
+		if _, ok := ss.readCache(ctx, key, &cached); ok {
+			return cached, true, nil
+		}
 	}
-	ss.writeCache(ctx, key, fresh)
-	return fresh, false, nil
 }
 
 func mlbScheduleKey(season, teamID int) string {
 	return fmt.Sprintf("mlb.schedule.%d.%d", season, teamID)
 }
 
-func mlbStandingsKey(season int) string { return fmt.Sprintf("mlb.standings.%d", season) }
-func f1RacesKey(year int) string       { return fmt.Sprintf("f1.races.%d", year) }
-func f1StandingsKey(year int) string   { return fmt.Sprintf("f1.standings.%d", year) }
-func f1RaceKey(sessionKey int) string  { return fmt.Sprintf("f1.race.%d", sessionKey) }
-func mlbGameKey(gamePk int) string     { return fmt.Sprintf("mlb.game.%d", gamePk) }
+func mlbStandingsKey(season int) string      { return fmt.Sprintf("mlb.standings.%d", season) }
+func mlbDailyScheduleKey(date string) string { return fmt.Sprintf("mlb.schedule.daily.v2.%s", date) }
+func mlbRosterKey(teamID, season int) string { return fmt.Sprintf("mlb.roster.%d.%d", teamID, season) }
+func f1RacesKey(year int) string             { return fmt.Sprintf("f1.races.%d", year) }
+func f1StandingsKey(year int) string         { return fmt.Sprintf("f1.standings.%d", year) }
+func f1RaceKey(sessionKey int) string        { return fmt.Sprintf("f1.race.%d", sessionKey) }
+func mlbGameKey(gamePk int) string           { return fmt.Sprintf("mlb.game.v2.%d", gamePk) }

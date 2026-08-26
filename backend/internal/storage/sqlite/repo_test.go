@@ -50,6 +50,7 @@ func TestMigrationsAndFeedCRUD(t *testing.T) {
 		URL:          "https://example.com/a",
 		ExternalID:   "guid-1",
 		DiscoveredAt: now,
+		IsRead:       true,
 	}
 	n, err := articles.UpsertMany(ctx, []domain.Article{a})
 	if err != nil {
@@ -62,9 +63,12 @@ func TestMigrationsAndFeedCRUD(t *testing.T) {
 	a2 := a
 	a2.ID = uuid.NewString()
 	a2.Title = "Hello updated"
-	_, err = articles.UpsertMany(ctx, []domain.Article{a2})
+	n, err = articles.UpsertMany(ctx, []domain.Article{a2})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expected existing article not to be counted as inserted, got %d", n)
 	}
 	list, err := articles.List(ctx, domain.ArticleQuery{FeedID: feed.ID, Limit: 10})
 	if err != nil {
@@ -72,6 +76,9 @@ func TestMigrationsAndFeedCRUD(t *testing.T) {
 	}
 	if len(list.Articles) != 1 {
 		t.Fatalf("expected 1 article after dedupe, got %d", len(list.Articles))
+	}
+	if !list.Articles[0].IsRead {
+		t.Fatal("upserting an existing article must preserve its read state")
 	}
 }
 
@@ -108,6 +115,120 @@ func TestReadLaterRemoveDeletesArticle(t *testing.T) {
 	}
 	if _, err := articles.Get(ctx, id); err != domain.ErrNotFound {
 		t.Fatalf("expected not found after delete, got %v", err)
+	}
+}
+
+func TestReadLaterUnreadCountExcludesArchivedArticles(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	feeds := sqlite.NewFeedRepo(db)
+	feed, err := feeds.EnsureReadLater(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	articles := sqlite.NewArticleRepo(db)
+	now := time.Now().UTC()
+	active := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "Active", URL: "https://example.com/active",
+		DiscoveredAt: now, IsReadLater: true,
+	}
+	archived := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "Archived", URL: "https://example.com/archived",
+		DiscoveredAt: now, IsReadLater: true,
+	}
+	if _, err := articles.UpsertMany(ctx, []domain.Article{active, archived}); err != nil {
+		t.Fatal(err)
+	}
+	if err := articles.SetArchived(ctx, archived.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := feeds.Get(ctx, feed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UnreadCount != 1 {
+		t.Fatalf("expected 1 unarchived unread article, got %d", got.UnreadCount)
+	}
+}
+
+func TestMarkAllReadHonorsFolderScopeAndExcludesReadLater(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feedA := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/a.xml", Title: "A",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	feedB := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/b.xml", Title: "B",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	for _, feed := range []*domain.Feed{feedA, feedB} {
+		if err := feeds.Create(ctx, feed); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	folders := sqlite.NewFolderRepo(db)
+	folder := &domain.Folder{ID: uuid.NewString(), Name: "Folder A", CreatedAt: now}
+	if err := folders.Create(ctx, folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := folders.AssignFeed(ctx, folder.ID, feedA.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	articles := sqlite.NewArticleRepo(db)
+	inFolder := domain.Article{
+		ID: uuid.NewString(), FeedID: feedA.ID, Title: "Unread A", URL: "https://example.com/a/1",
+		ExternalID: "a-1", DiscoveredAt: now,
+	}
+	outsideFolder := domain.Article{
+		ID: uuid.NewString(), FeedID: feedB.ID, Title: "Unread B", URL: "https://example.com/b/1",
+		ExternalID: "b-1", DiscoveredAt: now,
+	}
+	readLater := domain.Article{
+		ID: uuid.NewString(), FeedID: feedA.ID, Title: "Saved", URL: "https://example.com/saved",
+		ExternalID: "saved", DiscoveredAt: now, IsReadLater: true,
+	}
+	if _, err := articles.UpsertMany(ctx, []domain.Article{inFolder, outsideFolder, readLater}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := articles.MarkAllRead(ctx, domain.ArticleQuery{
+		FolderID: folder.ID, ExcludeReadLater: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated != 1 {
+		t.Fatalf("expected 1 updated article, got %d", updated)
+	}
+
+	for id, wantRead := range map[string]bool{
+		inFolder.ID: true, outsideFolder.ID: false, readLater.ID: false,
+	} {
+		got, err := articles.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.IsRead != wantRead {
+			t.Fatalf("article %s read=%v, want %v", id, got.IsRead, wantRead)
+		}
 	}
 }
 
@@ -325,6 +446,75 @@ func TestStoryListHidesSingletonsAndReadLaterMembers(t *testing.T) {
 	}
 }
 
+func TestStoryMembersAreNewestFirst(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feed := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/news.xml", Title: "News",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := sqlite.NewFeedRepo(db).Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+	olderPublished := now.Add(-2 * time.Hour)
+	newerPublished := now.Add(-time.Hour)
+	older := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "Older", URL: "https://example.com/older",
+		ExternalID: "older", PublishedAt: &olderPublished, DiscoveredAt: now,
+	}
+	newer := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "Newer", URL: "https://example.com/newer",
+		ExternalID: "newer", PublishedAt: &newerPublished, DiscoveredAt: now,
+	}
+	articles := sqlite.NewArticleRepo(db)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{older, newer}); err != nil {
+		t.Fatal(err)
+	}
+	story := &domain.Story{ID: uuid.NewString(), Title: "Story", CreatedAt: now, UpdatedAt: now}
+	stories := sqlite.NewStoryRepo(db)
+	if err := stories.Create(ctx, story); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, story.ID, []string{older.ID, newer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := stories.Get(ctx, story.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Articles) != 2 || got.Articles[0].ID != newer.ID || got.Articles[1].ID != older.ID {
+		t.Fatalf("expected newest-first members, got %+v", got.ArticleIDs)
+	}
+}
+
+func TestErrorLogsPersistDetails(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	repo := sqlite.NewErrorLogRepo(db)
+	entry := domain.ErrorLogEntry{
+		Source: "renderer", Operation: "feeds.refresh", Message: "Feed refresh failed", Detail: "connection refused",
+	}
+	if err := repo.Append(ctx, entry); err != nil {
+		t.Fatal(err)
+	}
+	logs, err := repo.List(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].Detail != "connection refused" || logs[0].Operation != "feeds.refresh" {
+		t.Fatalf("unexpected error logs: %+v", logs)
+	}
+}
+
 func TestStoryMarkReadDoesNotReorderList(t *testing.T) {
 	dir := t.TempDir()
 	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
@@ -401,6 +591,90 @@ func TestStoryMarkReadDoesNotReorderList(t *testing.T) {
 	}
 	if !after[1].IsRead {
 		t.Fatal("older story should be marked read")
+	}
+}
+
+func TestStoryReadStateFollowsMemberArticles(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feeds := sqlite.NewFeedRepo(db)
+	feed := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/story-read.xml", Title: "Story read state",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := feeds.Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+
+	articles := sqlite.NewArticleRepo(db)
+	members := []domain.Article{
+		{
+			ID: uuid.NewString(), FeedID: feed.ID, Title: "A", URL: "https://example.com/story-read/a",
+			ExternalID: "story-read-a", DiscoveredAt: now,
+		},
+		{
+			ID: uuid.NewString(), FeedID: feed.ID, Title: "B", URL: "https://example.com/story-read/b",
+			ExternalID: "story-read-b", DiscoveredAt: now,
+		},
+	}
+	if _, err := articles.UpsertMany(ctx, members); err != nil {
+		t.Fatal(err)
+	}
+	stories := sqlite.NewStoryRepo(db)
+	story := &domain.Story{ID: uuid.NewString(), Title: "Cluster", CreatedAt: now, UpdatedAt: now}
+	if err := stories.Create(ctx, story); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, story.ID, []string{members[0].ID, members[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := stories.Get(ctx, story.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsRead {
+		t.Fatal("story with unread members should be unread")
+	}
+
+	for i := range members {
+		members[i].IsRead = true
+		if err := articles.Update(ctx, &members[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = stories.Get(ctx, story.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IsRead {
+		t.Fatal("story should be read after every member is read")
+	}
+	listed, err := stories.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || !listed[0].IsRead {
+		t.Fatalf("story list should report the meta-story as read, got %+v", listed)
+	}
+
+	members[0].IsRead = false
+	if err := articles.Update(ctx, &members[0]); err != nil {
+		t.Fatal(err)
+	}
+	got, err = stories.Get(ctx, story.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsRead {
+		t.Fatal("story should become unread when any member is unread")
 	}
 }
 

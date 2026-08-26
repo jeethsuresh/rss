@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { Article, Story } from "@rss-reader/shared";
 import {
+  adjacentMetaStory,
   adjacentStoryListRow,
+  hasNoOtherUnreadStoryMembers,
   memberArticle,
   nextStoryVote,
   storyListRowKey,
   storyListRows,
+  storiesInSnapshot,
+  unreadStorySnapshotIds,
+  unreadStoryCount,
   upsertStoryInPlace,
 } from "./stories";
 
@@ -75,6 +80,40 @@ describe("storyListRows", () => {
     expect(next).toEqual({ kind: "member", storyId: "s1", articleId: "a" });
   });
 
+  test("sorts expanded members reverse-chronologically", () => {
+    const older = article({ id: "older", publishedAt: "2026-08-19T12:00:00.000Z" });
+    const newer = article({ id: "newer", publishedAt: "2026-08-21T12:00:00.000Z" });
+    const cluster = story({ id: "s1", articles: [older, newer] });
+    expect(storyListRows([cluster], cluster)).toEqual([
+      { kind: "story", storyId: "s1" },
+      { kind: "member", storyId: "s1", articleId: "newer" },
+      { kind: "member", storyId: "s1", articleId: "older" },
+    ]);
+  });
+
+  test("moves between meta-story headers without stopping on members", () => {
+    const first = story({ id: "s1", memberCount: 2 });
+    const second = story({ id: "s2", memberCount: 2 });
+    expect(adjacentMetaStory([first, second], "s1", 1)?.id).toBe("s2");
+  });
+
+  test("recognizes the final unread member even when read members follow it", () => {
+    const current = article({ id: "current", isRead: false });
+    const read = article({ id: "read", isRead: true });
+    const cluster = story({ id: "s1", articles: [current, read] });
+    expect(hasNoOtherUnreadStoryMembers(cluster, current.id)).toBe(true);
+    expect(hasNoOtherUnreadStoryMembers({ ...cluster, articles: [{ ...read, isRead: false }, current] }, current.id)).toBe(false);
+  });
+
+  test("still advances after mark-on-open has marked the final member read", () => {
+    const current = article({ id: "current", isRead: true });
+    const cluster = story({
+      id: "s1",
+      articles: [current, article({ id: "older", isRead: true })],
+    });
+    expect(hasNoOtherUnreadStoryMembers(cluster, current.id)).toBe(true);
+  });
+
   test("memberArticle looks up expanded members", () => {
     const a = article({ id: "a" });
     const cluster = story({ id: "s1", articles: [a] });
@@ -117,5 +156,38 @@ describe("nextStoryVote", () => {
     expect(nextStoryVote("up", "up")).toBe("none");
     expect(nextStoryVote(undefined, "down")).toBe("down");
     expect(nextStoryVote("up", "down")).toBe("down");
+  });
+});
+
+describe("unreadStoryCount", () => {
+  test("counts only listable unread meta-stories", () => {
+    expect(
+      unreadStoryCount([
+        story({ id: "unread", memberCount: 2 }),
+        story({ id: "read", memberCount: 3, isRead: true }),
+        story({ id: "singleton", memberCount: 1 }),
+      ]),
+    ).toBe(1);
+  });
+});
+
+describe("unread story snapshots", () => {
+  test("keeps the captured stories after they become read", () => {
+    const first = story({ id: "first", memberCount: 2 });
+    const last = story({ id: "last", memberCount: 3 });
+    const snapshot = unreadStorySnapshotIds([first, last]);
+
+    expect(storiesInSnapshot([{ ...first, isRead: true }, { ...last, isRead: true }], snapshot)).toEqual([
+      { ...first, isRead: true },
+      { ...last, isRead: true },
+    ]);
+  });
+
+  test("does not add newly unread stories to an existing snapshot", () => {
+    const captured = story({ id: "captured", memberCount: 2 });
+    const later = story({ id: "later", memberCount: 2 });
+    const snapshot = unreadStorySnapshotIds([captured]);
+
+    expect(storiesInSnapshot([later, captured], snapshot).map((item) => item.id)).toEqual(["captured"]);
   });
 });

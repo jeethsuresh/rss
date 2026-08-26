@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
 	"github.com/jeeth/rss-reader/backend/internal/openf1"
@@ -24,6 +25,7 @@ type SportsService struct {
 
 	refreshMu  sync.Mutex
 	refreshing map[string]bool
+	cacheOwner string
 }
 
 func NewSportsService(
@@ -40,6 +42,7 @@ func NewSportsService(
 		watching:   map[int]context.CancelFunc{},
 		f1Watching: map[int]context.CancelFunc{},
 		refreshing: map[string]bool{},
+		cacheOwner: uuid.NewString(),
 	}
 }
 
@@ -126,6 +129,25 @@ func (s *Service) SportsSchedule(ctx context.Context, teamID, season int) ([]dom
 		},
 		func(c context.Context) ([]domain.MlbGame, error) {
 			return s.fetchMlbSchedule(c, teamID, season)
+		},
+	)
+	return out, err
+}
+
+func (s *Service) SportsDailySchedule(ctx context.Context, date string) ([]domain.MlbGame, error) {
+	if s.Sports == nil || s.Sports.Client == nil {
+		return []domain.MlbGame{}, nil
+	}
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return nil, domain.ErrInvalidParams
+	}
+	key := mlbDailyScheduleKey(date)
+	out, _, err := getOrFetch(s.Sports, ctx, key, ttlSchedule, "mlb.schedule.daily",
+		func(games []domain.MlbGame) map[string]any {
+			return map[string]any{"date": date, "games": games}
+		},
+		func(c context.Context) ([]domain.MlbGame, error) {
+			return s.Sports.Client.DailySchedule(c, date)
 		},
 	)
 	return out, err
@@ -244,6 +266,37 @@ func (s *Service) SportsStandings(ctx context.Context, season int) (*domain.MlbS
 				return domain.MlbStandings{}, err
 			}
 			return *st, nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *Service) SportsRoster(ctx context.Context, teamID, season int) (*domain.MlbRoster, error) {
+	if s.Sports == nil || s.Sports.Client == nil || teamID <= 0 {
+		return nil, domain.ErrInvalidParams
+	}
+	if season <= 0 {
+		seasons, err := s.SportsSeasons(ctx)
+		if err != nil || len(seasons) == 0 {
+			season = time.Now().Year()
+		} else {
+			season = seasons[0].SeasonID
+		}
+	}
+	key := mlbRosterKey(teamID, season)
+	out, _, err := getOrFetch(s.Sports, ctx, key, ttlRoster, "mlb.roster",
+		func(roster domain.MlbRoster) map[string]any {
+			return map[string]any{"teamId": teamID, "season": season, "roster": roster}
+		},
+		func(c context.Context) (domain.MlbRoster, error) {
+			roster, err := s.Sports.Client.Roster(c, teamID, season)
+			if err != nil {
+				return domain.MlbRoster{}, err
+			}
+			return *roster, nil
 		},
 	)
 	if err != nil {

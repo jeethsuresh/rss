@@ -112,7 +112,7 @@ describe("folder feed grouping", () => {
 });
 
 describe("feed drag payload", () => {
-  test("recognizes the internal feed mime type so window URL-drop does not steal it", () => {
+  test("recognizes the internal feed mime type", () => {
     expect(isFeedDragTypes(["text/plain", FEED_DRAG_MIME])).toBe(true);
     expect(isFeedDragTypes(["text/plain", "text/uri-list"])).toBe(false);
   });

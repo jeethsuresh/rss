@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared";
 import { PageFrame } from "../components/PageFrame";
 import { ReaderBody } from "../components/ReaderBody";
+import { BrowserPane } from "../components/BrowserPane";
 import { formatRelativeTime, stripHtml, decodeHtmlEntities } from "../lib/html";
 import { isFullBleedTab, type ContentTab } from "../lib/readerMode";
+import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
+import { scrollListRowToTop } from "../lib/listScroll";
 
 type Props = {
   backend: ReaderBackend;
   search: string;
+  unreadCount: number;
   focusArticleId?: string | null;
   onFocusConsumed?: () => void;
 };
@@ -27,19 +31,35 @@ const FILTERS: { id: ReadLaterFilter; label: string }[] = [
   { id: "archived", label: "Archived" },
 ];
 
-export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed }: Props) {
+export function ReadLaterView({ backend, search, unreadCount, focusArticleId, onFocusConsumed }: Props) {
   const [filter, setFilter] = useState<ReadLaterFilter>("all");
   const [articles, setArticles] = useState<Article[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [contentBusy, setContentBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
+  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+  const articleListRef = useRef<HTMLElement | null>(null);
+  const lastScrolledIdRef = useRef<string | null>(null);
 
   const active = articles.find((a) => a.id === activeId) ?? null;
 
   useEffect(() => {
     setContentTab("primary");
+    setBrowserUrl(null);
   }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId || lastScrolledIdRef.current === activeId) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (scrollListRowToTop(articleListRef.current, `read-later:${activeId}`)) {
+        lastScrolledIdRef.current = activeId;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeId, articles]);
+
+  useEffect(() => window.desktop.onOpenInPane(setBrowserUrl), []);
 
   const load = useCallback(async () => {
     const list = (await backend.readLater.list(filter, search.trim() || undefined)) ?? [];
@@ -51,7 +71,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
   }, [backend, filter, search]);
 
   useEffect(() => {
-    void load().catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
+    void load().catch(() => setError(GENERIC_ERROR_MESSAGE));
   }, [load]);
 
   useEffect(() => {
@@ -87,8 +107,8 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
         if (cancelled) return;
         setArticles((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
       })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to fetch live page");
+      .catch(() => {
+        if (!cancelled) setError(GENERIC_ERROR_MESSAGE);
       })
       .finally(() => {
         if (!cancelled) setContentBusy(false);
@@ -110,7 +130,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
       const updated = await backend.articles.recrawl(active.id);
       patchLocal(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Recrawl failed");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setContentBusy(false);
     }
@@ -119,7 +139,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
   const renderBody = (article: Article) => {
     if (contentTab === "reader") {
       return (
-        <ReaderBody article={article} contentBusy={contentBusy} onRecrawl={() => void recrawl()} />
+        <ReaderBody article={article} contentBusy={contentBusy} onRecrawl={() => void recrawl()} onNavigate={setBrowserUrl} />
       );
     }
 
@@ -137,7 +157,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
     } else if (article.crawlStatus === "pending") {
       statusMessage = "Crawl in progress…";
     } else if (article.crawlStatus === "failed" && !article.crawledContent) {
-      statusMessage = article.crawlError || "Crawl failed.";
+      statusMessage = "Crawl failed.";
     } else if (article.crawledContent) {
       bodyHtml = article.crawledContent;
     } else {
@@ -179,11 +199,12 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
             onClick={() => setFilter(f.id)}
           >
             <span>{f.label}</span>
+            {f.id === "unread" ? <span className="count">{unreadCount}</span> : null}
           </button>
         ))}
       </aside>
 
-      <section className="pane article-list">
+      <section ref={articleListRef} className="pane article-list">
         {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
         {articles.length === 0 ? (
           <div className="empty">
@@ -194,6 +215,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
           articles.map((a) => (
             <button
               key={a.id}
+              data-list-row-key={`read-later:${a.id}`}
               type="button"
               className={`article-row ${a.id === activeId ? "active" : ""} ${a.isRead ? "" : "unread"}`}
               onClick={() => setActiveId(a.id)}
@@ -211,7 +233,16 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
       </section>
 
       <section className="pane reader-pane">
-        {!active ? (
+        {browserUrl ? (
+          <BrowserPane
+            initialUrl={browserUrl}
+            onClose={() => setBrowserUrl(null)}
+            onSave={async (url) => {
+              await backend.readLater.add(url);
+              await load();
+            }}
+          />
+        ) : !active ? (
           <div className="empty">
             <h2>Read Later</h2>
             <p>Select a saved link to read.</p>
@@ -282,7 +313,7 @@ export function ReadLaterView({ backend, search, focusArticleId, onFocusConsumed
                   </button>
                 )}
                 {active.url && (
-                  <button className="btn primary" onClick={() => void window.desktop.openExternal(active.url)}>
+                  <button className="btn primary" onClick={() => setBrowserUrl(active.url)}>
                     Open original
                   </button>
                 )}

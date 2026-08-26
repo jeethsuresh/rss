@@ -21,6 +21,7 @@ type Service struct {
 	Folders  domain.FolderRepository
 	Settings domain.SettingsRepository
 	Stories  domain.StoryRepository
+	Errors   domain.ErrorLogRepository
 	Sports   *SportsService
 	RSS      *rss.Fetcher
 	AI       AIService
@@ -30,6 +31,20 @@ type Service struct {
 	Emit     EventEmitter
 	Version  string
 	DBPath   string
+}
+
+func (s *Service) RecordError(ctx context.Context, entry domain.ErrorLogEntry) error {
+	if s.Errors == nil {
+		return nil
+	}
+	return s.Errors.Append(ctx, entry)
+}
+
+func (s *Service) ListErrors(ctx context.Context, limit int) ([]domain.ErrorLogEntry, error) {
+	if s.Errors == nil {
+		return []domain.ErrorLogEntry{}, nil
+	}
+	return s.Errors.List(ctx, limit)
 }
 
 // AIService is implemented by *ai.Service
@@ -175,9 +190,21 @@ func (s *Service) resolveFeedURL(ctx context.Context, rawURL string) (string, er
 }
 
 func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, error) {
+	feed, _, err := s.refreshFeed(ctx, id, true)
+	return feed, err
+}
+
+// RefreshFeedMeasured is used by the standalone server's adaptive scheduler.
+// It returns the number of newly inserted canonical articles so the next poll
+// can be based on the feed's observed publishing rate.
+func (s *Service) RefreshFeedMeasured(ctx context.Context, id string) (*domain.Feed, int, error) {
+	return s.refreshFeed(ctx, id, true)
+}
+
+func (s *Service) refreshFeed(ctx context.Context, id string, emitArticlesAdded bool) (*domain.Feed, int, error) {
 	feed, err := s.Feeds.Get(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	now := time.Now().UTC()
 	feed.LastAttemptAt = &now
@@ -187,14 +214,14 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 		feed.LastError = err.Error()
 		_ = s.Feeds.Update(ctx, feed)
 		s.emit("feed.error", map[string]any{"feedId": feed.ID, "error": feed.LastError})
-		return feed, err
+		return feed, 0, err
 	}
 	if res.NotModified {
 		feed.LastSuccessAt = &now
 		feed.LastError = ""
 		_ = s.Feeds.Update(ctx, feed)
 		s.emit("feed.updated", map[string]any{"feedId": feed.ID, "notModified": true})
-		return feed, nil
+		return feed, 0, nil
 	}
 	if res.ETag != "" {
 		feed.ETag = res.ETag
@@ -214,7 +241,7 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	feed.LastSuccessAt = &now
 	feed.LastError = ""
 	if err := s.Feeds.Update(ctx, feed); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	articles := rss.NormalizeArticles(feed.ID, res.Feed, now)
 	for i := range articles {
@@ -222,17 +249,20 @@ func (s *Service) RefreshFeed(ctx context.Context, id string) (*domain.Feed, err
 	}
 	n, err := s.Articles.UpsertMany(ctx, articles)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	s.emit("feed.updated", map[string]any{"feedId": feed.ID})
 	if n > 0 {
-		s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
+		if emitArticlesAdded {
+			s.emit("articles.added", map[string]any{"feedId": feed.ID, "count": n})
+		}
 		s.enqueueUnscannedForFeed(ctx, feed.ID)
 		if s.Crawler != nil {
 			s.Crawler.EnqueueAndKick(ctx)
 		}
 	}
-	return s.Feeds.Get(ctx, feed.ID)
+	updatedFeed, err := s.Feeds.Get(ctx, feed.ID)
+	return updatedFeed, n, err
 }
 
 func (s *Service) ClusterArticle(ctx context.Context, id string) {
@@ -272,13 +302,19 @@ func (s *Service) RefreshAll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	totalNewUnread := 0
 	for _, f := range feeds {
 		if !f.Enabled || f.IsReadLater {
 			continue
 		}
-		if _, err := s.RefreshFeed(ctx, f.ID); err != nil {
+		if _, n, err := s.refreshFeed(ctx, f.ID, false); err != nil {
 			s.Log.Warn("refresh failed", "feedId", f.ID, "err", err)
+		} else {
+			totalNewUnread += n
 		}
+	}
+	if totalNewUnread > 0 {
+		s.emit("articles.added", map[string]any{"count": totalNewUnread})
 	}
 	return nil
 }

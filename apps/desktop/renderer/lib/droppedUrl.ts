@@ -1,4 +1,4 @@
-/** Normalize / validate text dropped for Read Later. */
+/** Normalize and validate a URL entered for Read Later. */
 
 export type DroppedUrlResult =
   | { ok: true; url: string }
@@ -29,6 +29,11 @@ export function normalizeDroppedUrl(raw: string): DroppedUrlResult {
     candidate = `https://${candidate}`;
   }
 
+  const authority = candidate.match(/^https?:\/\/([^/?#]*)/i)?.[1];
+  if (!authority || /%(?![0-9a-fA-F]{2})/.test(candidate)) {
+    return { ok: false, attempted };
+  }
+
   let parsed: URL;
   try {
     parsed = new URL(candidate);
@@ -44,18 +49,4 @@ export function normalizeDroppedUrl(raw: string): DroppedUrlResult {
   }
 
   return { ok: true, url: parsed.toString() };
-}
-
-export function isEditableDropTarget(target: EventTarget | null): boolean {
-  if (target == null) return false;
-  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
-  const el = target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']");
-  return el != null;
-}
-
-export function extractDropText(dataTransfer: DataTransfer | null): string {
-  if (!dataTransfer) return "";
-  const uri = dataTransfer.getData("text/uri-list")?.trim();
-  if (uri) return uri;
-  return dataTransfer.getData("text/plain") ?? "";
 }

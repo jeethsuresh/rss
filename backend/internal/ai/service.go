@@ -28,6 +28,9 @@ type Service struct {
 	Suggester Suggester
 	Log       *slog.Logger
 	Emit      func(name string, payload any)
+	// APIKey is intentionally supplied by the process environment on servers;
+	// it is not persisted in the shared settings table.
+	APIKey string
 
 	mu      sync.Mutex
 	running bool
@@ -220,7 +223,7 @@ func (s *Service) SyncFailedQueueLogs(ctx context.Context) {
 		if seen[it.ArticleID+"|"+it.LastError] || seen[it.ArticleID] {
 			continue
 		}
-		s.appendLog(ctx, "error", it.ArticleID, "failed: "+it.LastError, it.LastError)
+		s.appendLog(ctx, "error", it.ArticleID, "processing failed", it.LastError)
 		seen[it.ArticleID] = true
 	}
 }
@@ -236,6 +239,7 @@ func (s *Service) Test(ctx context.Context) (*domain.AITestResult, error) {
 		s.appendLog(ctx, "error", "", "connection test failed", err.Error())
 		return &domain.AITestResult{OK: false, Message: err.Error()}, nil
 	}
+	s.authorize(req)
 	res, err := s.client.Do(req)
 	if err != nil {
 		s.appendLog(ctx, "error", "", "connection test failed", err.Error())
@@ -287,10 +291,10 @@ func (s *Service) worker() {
 		cancel()
 		if err != nil {
 			_ = s.Queue.MarkFailed(ctx, id, err.Error())
-			s.appendLog(ctx, "error", id, "failed: "+err.Error(), err.Error())
+			s.appendLog(ctx, "error", id, "processing failed", err.Error())
 		} else {
 			_ = s.Queue.MarkDone(ctx, id)
-			s.appendLog(ctx, "info", id, "done", "")
+			s.appendLog(ctx, "info", id, "processing succeeded", "")
 		}
 		s.emitStatus(ctx)
 	}
@@ -605,6 +609,7 @@ func (s *Service) chat(ctx context.Context, baseURL, model string, messages []ch
 		return chatMessage{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	s.authorize(req)
 	res, err := s.client.Do(req)
 	if err != nil {
 		return chatMessage{}, err
@@ -625,6 +630,12 @@ func (s *Service) chat(ctx context.Context, baseURL, model string, messages []ch
 		return chatMessage{}, fmt.Errorf("no choices")
 	}
 	return parsed.Choices[0].Message, nil
+}
+
+func (s *Service) authorize(req *http.Request) {
+	if key := strings.TrimSpace(s.APIKey); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 }
 
 func truncate(s string, n int) string {

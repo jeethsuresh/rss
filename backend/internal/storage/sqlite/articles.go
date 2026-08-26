@@ -27,11 +27,7 @@ const articleSelect = `
 		FROM articles a
 		JOIN feeds f ON f.id = a.feed_id`
 
-func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.ArticleListResult, error) {
-	limit := q.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 50
-	}
+func articleWhere(q domain.ArticleQuery) ([]string, []any) {
 	args := []any{}
 	where := []string{"1=1"}
 	if q.FeedID != "" {
@@ -66,6 +62,15 @@ func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.A
 		where = append(where, `COALESCE(a.published_at, a.discovered_at) >= ?`)
 		args = append(args, q.Since.UTC().Format(time.RFC3339Nano))
 	}
+	return where, args
+}
+
+func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.ArticleListResult, error) {
+	limit := q.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	where, args := articleWhere(q)
 	order := "COALESCE(a.published_at, a.discovered_at) DESC"
 	if q.DefaultSort == "oldest" {
 		order = "COALESCE(a.published_at, a.discovered_at) ASC"
@@ -110,6 +115,21 @@ func (r *ArticleRepo) List(ctx context.Context, q domain.ArticleQuery) (domain.A
 		next = encodeCursor(ts, last.ID)
 	}
 	return domain.ArticleListResult{Articles: ensureArticles(articles), NextCursor: next}, nil
+}
+
+func (r *ArticleRepo) MarkAllRead(ctx context.Context, q domain.ArticleQuery) (int, error) {
+	where, args := articleWhere(q)
+	where = append(where, "a.is_read = 0")
+	res, err := r.db.SQL.ExecContext(
+		ctx,
+		fmt.Sprintf(`UPDATE articles AS a SET is_read = 1 WHERE %s`, strings.Join(where, " AND ")),
+		args...,
+	)
+	if err != nil {
+		return 0, err
+	}
+	updated, err := res.RowsAffected()
+	return int(updated), err
 }
 
 func ensureArticles(articles []domain.Article) []domain.Article {
@@ -251,6 +271,11 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 		return 0, err
 	}
 	defer stmt.Close()
+	existsStmt, err := tx.PrepareContext(ctx, `SELECT 1 FROM articles WHERE feed_id = ? AND fingerprint = ?`)
+	if err != nil {
+		return 0, err
+	}
+	defer existsStmt.Close()
 	for _, a := range articles {
 		pri := a.Priority
 		if pri == "" {
@@ -264,17 +289,23 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 		if content == "" {
 			content = rssContent
 		}
-		res, err := stmt.ExecContext(ctx,
+		fingerprint := aFingerprint(a)
+		var exists int
+		existsErr := existsStmt.QueryRowContext(ctx, a.FeedID, fingerprint).Scan(&exists)
+		isNew := errors.Is(existsErr, sql.ErrNoRows)
+		if existsErr != nil && !isNew {
+			return inserted, existsErr
+		}
+		_, err := stmt.ExecContext(ctx,
 			a.ID, a.FeedID, a.Title, a.URL, a.Author, content, a.Summary,
-			nullTime(a.PublishedAt), nullTime(a.UpdatedAt), a.ExternalID, aFingerprint(a),
+			nullTime(a.PublishedAt), nullTime(a.UpdatedAt), a.ExternalID, fingerprint,
 			boolToInt(a.IsRead), boolToInt(a.IsStarred), a.DiscoveredAt.UTC().Format(time.RFC3339Nano), string(pri),
 			rssContent, boolToInt(a.IsReadLater),
 		)
 		if err != nil {
 			return inserted, err
 		}
-		n, _ := res.RowsAffected()
-		if n == 1 {
+		if isNew {
 			inserted++
 		}
 	}

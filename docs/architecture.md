@@ -30,13 +30,16 @@ JSON-RPC–style request/response over **stdin/stdout** between Electron main an
 
 Protocol version is negotiated via `system.handshake`.
 
-## Transport later (not implemented)
+## Standalone server transport
 
 ```text
-React → HTTP client → Go cmd/server → same application services → Postgres
+Desktop sync client → HTTP/JSON → Go cmd/server → shared application services → SQLite
 ```
 
 Domain, RSS, scheduler, and repository interfaces stay. Only transport and storage adapters change.
+
+The server keeps canonical fetched data global and uses tenant overlay tables for
+subscriptions and personal state. See [server.md](server.md).
 
 ## Data flow (refresh)
 
@@ -57,16 +60,21 @@ Scheduler / manual refresh
 - Explicit preload API only
 - Article HTML is untrusted: sanitize before render; open originals in system browser
 - Never grant remote content Node/Electron privileges
+- Server passwords are salted PBKDF2 hashes; bearer tokens are stored only as SHA-256 hashes
+- Server URL fetches reject private, loopback, link-local, and carrier-grade NAT destinations
+- Cross-process database leases prevent duplicate feed, crawl, and sports fetches
 
 ## Storage location
 
 SQLite lives under the Electron userData directory (platform-aware), path passed to Go on startup.
+The standalone server uses a separately configured SQLite path (`RSS_SERVER_DB`).
 
 ## Key packages
 
 ```text
 apps/desktop/          Electron + React + Vite
 backend/cmd/desktop/   Desktop entrypoint
-backend/internal/      domain, application, rss, scheduler, storage, ipc
+backend/cmd/server/    Multi-tenant HTTP server entrypoint
+backend/internal/      domain, application, transports, fetchers, sync, storage
 packages/shared/       Shared TypeScript API types (optional mirror of Go contract)
 ```

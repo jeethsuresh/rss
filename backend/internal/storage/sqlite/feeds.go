@@ -21,7 +21,8 @@ const feedSelect = `
 		       f.last_success_at, f.last_attempt_at, f.last_error, f.etag, f.last_modified,
 		       f.poll_interval_seconds, f.enabled, f.created_at, f.updated_at,
 		       f.is_read_later, f.crawl_attempts, f.crawl_failures,
-		       COALESCE((SELECT COUNT(1) FROM articles a WHERE a.feed_id = f.id AND a.is_read = 0), 0)
+		       COALESCE((SELECT COUNT(1) FROM articles a
+		                 WHERE a.feed_id = f.id AND a.is_read = 0 AND a.archived_at IS NULL), 0)
 		FROM feeds f`
 
 func (r *FeedRepo) List(ctx context.Context) ([]domain.Feed, error) {

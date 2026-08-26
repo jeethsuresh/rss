@@ -7,7 +7,8 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       notify: (title: string, body: string) => Promise<boolean>;
       focusMainWindow: () => Promise<void>;
-      onDroppedText: (handler: (text: string) => void) => () => void;
+      onAddLinkRequested: (handler: (text: string) => void) => () => void;
+      onOpenInPane: (handler: (url: string) => void) => () => void;
     };
   }
 }

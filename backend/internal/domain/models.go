@@ -201,6 +201,15 @@ type AILogEntry struct {
 	Detail    string `json:"detail,omitempty"`
 }
 
+type ErrorLogEntry struct {
+	ID         string `json:"id"`
+	OccurredAt string `json:"occurredAt"`
+	Source     string `json:"source"`
+	Operation  string `json:"operation"`
+	Message    string `json:"message"`
+	Detail     string `json:"detail,omitempty"`
+}
+
 type AIQueueItem struct {
 	ArticleID  string `json:"articleId"`
 	Status     string `json:"status"`

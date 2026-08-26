@@ -25,27 +25,86 @@ type MlbTeam struct {
 	Abbreviation string `json:"abbreviation"`
 	ShortName    string `json:"shortName,omitempty"`
 	LogoURL      string `json:"logoUrl,omitempty"`
+	League       string `json:"league,omitempty"` // AL | NL
 }
 
 type MlbSeason struct {
-	SeasonID              int    `json:"seasonId"`
+	SeasonID               int    `json:"seasonId"`
 	RegularSeasonStartDate string `json:"regularSeasonStartDate,omitempty"`
 	RegularSeasonEndDate   string `json:"regularSeasonEndDate,omitempty"`
 }
 
 type MlbGame struct {
-	ID                int           `json:"id"` // gamePk
-	Season            int           `json:"season"`
-	GameDate          string        `json:"gameDate"`
-	OfficialDate      string        `json:"officialDate,omitempty"`
-	Status            MlbGameStatus `json:"status"`
-	StatusDetail      string        `json:"statusDetail,omitempty"`
-	AwayTeam          MlbTeam       `json:"awayTeam"`
-	HomeTeam          MlbTeam       `json:"homeTeam"`
-	AwayScore         *int          `json:"awayScore,omitempty"`
-	HomeScore         *int          `json:"homeScore,omitempty"`
-	CurrentInning     *int          `json:"currentInning,omitempty"`
-	CurrentInningHalf string        `json:"currentInningHalf,omitempty"` // top | bottom
+	ID                int              `json:"id"` // gamePk
+	Season            int              `json:"season"`
+	GameDate          string           `json:"gameDate"`
+	OfficialDate      string           `json:"officialDate,omitempty"`
+	Status            MlbGameStatus    `json:"status"`
+	StatusDetail      string           `json:"statusDetail,omitempty"`
+	AwayTeam          MlbTeam          `json:"awayTeam"`
+	HomeTeam          MlbTeam          `json:"homeTeam"`
+	AwayScore         *int             `json:"awayScore,omitempty"`
+	HomeScore         *int             `json:"homeScore,omitempty"`
+	CurrentInning     *int             `json:"currentInning,omitempty"`
+	CurrentInningHalf string           `json:"currentInningHalf,omitempty"` // top | bottom
+	League            string           `json:"league,omitempty"`            // home club's league: AL | NL
+	InningScores      []MlbInningScore `json:"inningScores,omitempty"`
+}
+
+type MlbInningScore struct {
+	Number   int  `json:"number"`
+	AwayRuns *int `json:"awayRuns,omitempty"`
+	HomeRuns *int `json:"homeRuns,omitempty"`
+}
+
+type MlbBattingStats struct {
+	Games            int    `json:"games"`
+	PlateAppearances int    `json:"plateAppearances"`
+	AtBats           int    `json:"atBats"`
+	Runs             int    `json:"runs"`
+	Hits             int    `json:"hits"`
+	Doubles          int    `json:"doubles"`
+	Triples          int    `json:"triples"`
+	HomeRuns         int    `json:"homeRuns"`
+	RBI              int    `json:"rbi"`
+	Walks            int    `json:"walks"`
+	StrikeOuts       int    `json:"strikeOuts"`
+	StolenBases      int    `json:"stolenBases"`
+	Average          string `json:"average"`
+	OnBasePercentage string `json:"onBasePercentage"`
+	Slugging         string `json:"slugging"`
+	OPS              string `json:"ops"`
+}
+
+type MlbPitchingStats struct {
+	Games          int    `json:"games"`
+	GamesStarted   int    `json:"gamesStarted"`
+	Wins           int    `json:"wins"`
+	Losses         int    `json:"losses"`
+	Saves          int    `json:"saves"`
+	InningsPitched string `json:"inningsPitched"`
+	ERA            string `json:"era"`
+	WHIP           string `json:"whip"`
+	StrikeOuts     int    `json:"strikeOuts"`
+	Walks          int    `json:"walks"`
+}
+
+type MlbRosterPlayer struct {
+	PlayerID          int               `json:"playerId"`
+	Name              string            `json:"name"`
+	JerseyNumber      string            `json:"jerseyNumber,omitempty"`
+	Position          string            `json:"position,omitempty"`
+	PositionType      string            `json:"positionType,omitempty"`
+	RosterStatus      string            `json:"rosterStatus"` // active | injured
+	StatusDescription string            `json:"statusDescription,omitempty"`
+	Batting           *MlbBattingStats  `json:"batting,omitempty"`
+	Pitching          *MlbPitchingStats `json:"pitching,omitempty"`
+}
+
+type MlbRoster struct {
+	TeamID  int               `json:"teamId"`
+	Season  int               `json:"season"`
+	Players []MlbRosterPlayer `json:"players"`
 }
 
 type MlbInning struct {
@@ -65,24 +124,26 @@ type MlbPlay struct {
 	Event         string `json:"event"`
 	Description   string `json:"description"`
 	IsScoringPlay bool   `json:"isScoringPlay"`
+	PitcherID     int    `json:"pitcherId,omitempty"`
+	PitcherName   string `json:"pitcherName,omitempty"`
 	AwayScore     *int   `json:"awayScore,omitempty"`
 	HomeScore     *int   `json:"homeScore,omitempty"`
 	AtBatIndex    *int   `json:"atBatIndex,omitempty"`
 }
 
 type MlbBatterLine struct {
-	PlayerID   int    `json:"playerId"`
-	Name       string `json:"name"`
-	Position   string `json:"position,omitempty"`
-	BattingOrder int  `json:"battingOrder,omitempty"`
-	AtBats     int    `json:"atBats"`
-	Runs       int    `json:"runs"`
-	Hits       int    `json:"hits"`
-	RBI        int    `json:"rbi"`
-	Walks      int    `json:"walks"`
-	StrikeOuts int    `json:"strikeOuts"`
-	HomeRuns   int    `json:"homeRuns"`
-	Summary    string `json:"summary,omitempty"`
+	PlayerID     int    `json:"playerId"`
+	Name         string `json:"name"`
+	Position     string `json:"position,omitempty"`
+	BattingOrder int    `json:"battingOrder,omitempty"`
+	AtBats       int    `json:"atBats"`
+	Runs         int    `json:"runs"`
+	Hits         int    `json:"hits"`
+	RBI          int    `json:"rbi"`
+	Walks        int    `json:"walks"`
+	StrikeOuts   int    `json:"strikeOuts"`
+	HomeRuns     int    `json:"homeRuns"`
+	Summary      string `json:"summary,omitempty"`
 }
 
 type MlbPitcherLine struct {
@@ -128,4 +189,12 @@ type SportsCacheRepository interface {
 	Get(ctx context.Context, key string) (payload []byte, fetchedAt time.Time, ok bool, err error)
 	Set(ctx context.Context, key string, payload []byte) error
 	Delete(ctx context.Context, key string) error
+}
+
+// SharedFetchLeaseRepository makes cache misses single-flight across server
+// processes. Desktop repositories may implement it too; callers fall back to
+// in-process coordination when it is unavailable.
+type SharedFetchLeaseRepository interface {
+	TryClaim(ctx context.Context, key, owner string, lease time.Duration) (bool, error)
+	Release(ctx context.Context, key, owner string) error
 }

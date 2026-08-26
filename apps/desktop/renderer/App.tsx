@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 import type {
   Article,
+  ArticleQuery,
   BackendEventName,
   Feed,
   Folder,
@@ -10,11 +11,7 @@ import type {
 } from "@rss-reader/shared";
 import { getBackend } from "./lib/backend";
 import { formatRelativeTime, sanitizeArticleHtml, stripHtml, decodeHtmlEntities } from "./lib/html";
-import {
-  extractDropText,
-  isEditableDropTarget,
-  normalizeDroppedUrl,
-} from "./lib/droppedUrl";
+import { normalizeDroppedUrl } from "./lib/droppedUrl";
 import {
   FEED_DRAG_MIME,
   feedIdFromDropData,
@@ -33,12 +30,17 @@ import {
   withFolderExpanded,
 } from "./lib/folders";
 import {
+  adjacentMetaStory,
   adjacentStoryListRow,
+  hasNoOtherUnreadStoryMembers,
   isListableStory,
   memberArticle,
   nextStoryVote,
   storyListRowKey,
   storyListRows,
+  storiesInSnapshot,
+  unreadStorySnapshotIds,
+  unreadStoryCount,
   upsertStoryInPlace,
 } from "./lib/stories";
 import { SettingsPage } from "./views/SettingsPage";
@@ -46,20 +48,24 @@ import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
 import { PageFrame } from "./components/PageFrame";
 import { ReaderBody } from "./components/ReaderBody";
+import { BrowserPane } from "./components/BrowserPane";
 import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
 import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
+import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
+import { browserPaneUrl } from "./lib/linkNavigation";
+import { GENERIC_ERROR_MESSAGE } from "./lib/errors";
+import { scrollListRowToTop } from "./lib/listScroll";
 
 type Selection =
-  | { type: "all" }
-  | { type: "unread" }
-  | { type: "starred" }
+  | { type: "items" }
   | { type: "stories" }
   | { type: "feed"; id: string }
   | { type: "folder"; id: string };
 
 type AppMode = "rss" | "readLater" | "sports";
 type View = "reader" | "settings";
-type SettingsSection = "general" | "feeds" | "ai" | "sports";
+type SettingsSection = "general" | "feeds" | "ai" | "sports" | "errors";
+type RssListFilter = "all" | "unread";
 
 function priorityBadgeLabel(priority: Priority): string | null {
   switch (priority) {
@@ -100,9 +106,7 @@ export function App() {
       <div className="app">
         <div className="empty">
           <h2>RSS Reader</h2>
-          <p className="error">
-            Desktop bridge failed to load. Rebuild with bun dev (preload must be CommonJS).
-          </p>
+          <p className="error">{GENERIC_ERROR_MESSAGE}</p>
         </div>
       </div>
     );
@@ -116,8 +120,11 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const [folders, setFolders] = useState<Folder[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
+  const [unreadStorySnapshot, setUnreadStorySnapshot] = useState<string[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Selection>({ type: "unread" });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [selected, setSelected] = useState<Selection>({ type: "items" });
+  const [rssListFilter, setRssListFilter] = useState<RssListFilter>("unread");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const [activeStory, setActiveStory] = useState<Story | null>(null);
@@ -138,20 +145,54 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   );
   const [toast, setToast] = useState<{ message: string; undoId: string } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const articleListRef = useRef<HTMLElement | null>(null);
+  const lastScrolledListRowKeyRef = useRef<string | null>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const paginationInFlightRef = useRef(false);
+  const articleListGenerationRef = useRef(0);
+  const pendingArticleDeepLinkRef = useRef<Article | null>(null);
   const [view, setView] = useState<View>("reader");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
-  const [appMode, setAppMode] = useState<AppMode>("rss");
+  const [appMode, setAppMode] = useState<AppMode>(() =>
+    mlbTeamRouteFromHash(window.location.hash) ? "sports" : "rss",
+  );
   const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
   const [storyMemberId, setStoryMemberId] = useState<string | null>(null);
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
   const [contentBusy, setContentBusy] = useState(false);
+  const [markAllBusy, setMarkAllBusy] = useState(false);
+  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const foldersRef = useRef<Folder[]>([]);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
 
+  useEffect(() => {
+    const openSportsDeepLink = () => {
+      if (mlbTeamRouteFromHash(window.location.hash)) setAppMode("sports");
+    };
+    window.addEventListener("hashchange", openSportsDeepLink);
+    return () => window.removeEventListener("hashchange", openSportsDeepLink);
+  }, []);
+
   const isStoriesMode = selected.type === "stories";
+  const effectiveRssListFilter = rssListFilter;
   const storyMember = isStoriesMode ? memberArticle(activeStory, storyMemberId) : null;
   const active = isStoriesMode ? storyMember : (articles.find((a) => a.id === activeId) ?? null);
-  const storyRows = isStoriesMode ? storyListRows(stories, activeStory) : [];
+  const storyUnread = unreadStoryCount(stories);
+  const visibleStories =
+    isStoriesMode && effectiveRssListFilter === "unread"
+      ? storiesInSnapshot(stories, unreadStorySnapshot ?? unreadStorySnapshotIds(stories))
+      : stories;
+  const storyRows = isStoriesMode ? storyListRows(visibleStories, activeStory) : [];
+
+  const articleScopeQuery = useMemo<ArticleQuery>(
+    () => ({
+      unreadOnly: effectiveRssListFilter === "unread" ? true : undefined,
+      feedId: selected.type === "feed" ? selected.id : undefined,
+      folderId: selected.type === "folder" ? selected.id : undefined,
+      search: search.trim() || undefined,
+    }),
+    [effectiveRssListFilter, selected, search],
+  );
 
   const applyTheme = useCallback((theme: Settings["theme"]) => {
     const root = document.documentElement;
@@ -195,32 +236,79 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const loadArticles = useCallback(
     async (append = false) => {
       if (selected.type === "stories") return;
+      const generation = append
+        ? articleListGenerationRef.current
+        : articleListGenerationRef.current + 1;
+      if (!append) {
+        articleListGenerationRef.current = generation;
+        paginationInFlightRef.current = false;
+        setLoadingMore(false);
+      }
       const query = {
-        unreadOnly: selected.type === "unread" ? true : undefined,
-        starredOnly: selected.type === "starred" ? true : undefined,
-        feedId: selected.type === "feed" ? selected.id : undefined,
-        folderId: selected.type === "folder" ? selected.id : undefined,
-        search: search.trim() || undefined,
+        ...articleScopeQuery,
         limit: 50,
         cursor: append ? nextCursor ?? undefined : undefined,
       };
       const res = await backend.articles.list(query);
-      const list = res.articles ?? [];
+      if (generation !== articleListGenerationRef.current) return;
+      let list = res.articles ?? [];
+      const pendingArticle = append ? null : pendingArticleDeepLinkRef.current;
+      if (pendingArticle && !list.some((article) => article.id === pendingArticle.id)) {
+        list = [pendingArticle, ...list];
+      }
       setArticles((prev) => (append ? [...prev, ...list] : list));
       setNextCursor(res.nextCursor);
       if (!append) {
         setActiveId((id) => {
+          if (pendingArticle) return pendingArticle.id;
           if (id && list.some((a) => a.id === id)) return id;
           return list[0]?.id ?? null;
         });
+        pendingArticleDeepLinkRef.current = null;
       }
     },
-    [backend, selected, search, nextCursor],
+    [backend, selected.type, articleScopeQuery, nextCursor],
   );
 
-  const loadStories = useCallback(async () => {
+  const loadNextArticlePage = useCallback(async () => {
+    if (selected.type === "stories" || !nextCursor || paginationInFlightRef.current) return;
+    const generation = articleListGenerationRef.current;
+    paginationInFlightRef.current = true;
+    setLoadingMore(true);
+    try {
+      await loadArticles(true);
+    } catch {
+      setError(GENERIC_ERROR_MESSAGE);
+    } finally {
+      if (generation === articleListGenerationRef.current) {
+        paginationInFlightRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [selected.type, nextCursor, loadArticles]);
+
+  useEffect(() => {
+    const root = articleListRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!root || !sentinel || isStoriesMode || !nextCursor) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadNextArticlePage();
+        }
+      },
+      { root, rootMargin: "0px 0px 80px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [isStoriesMode, nextCursor, loadNextArticlePage]);
+
+  const loadStories = useCallback(async (resetUnreadSnapshot = false) => {
     const list = (await backend.stories.list() ?? []).filter(isListableStory);
     setStories(list);
+    if (resetUnreadSnapshot) {
+      setUnreadStorySnapshot(unreadStorySnapshotIds(list));
+    }
     setActiveStoryId((id) => {
       if (id && list.some((s) => s.id === id)) return id;
       return list[0]?.id ?? null;
@@ -245,42 +333,51 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       await backend.feeds.refreshAll();
       await loadFeeds();
       if (selected.type === "stories") {
-        await loadStories();
+        await loadStories(effectiveRssListFilter === "unread");
       } else {
         await loadArticles(false);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Refresh failed");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
-  }, [backend, loadFeeds, loadArticles, loadStories, selected.type]);
+  }, [backend, loadFeeds, loadArticles, loadStories, selected.type, effectiveRssListFilter]);
 
   useEffect(() => {
     void (async () => {
       try {
         await backend.system.ping();
-        await loadFeeds();
+        await Promise.all([loadFeeds(), loadStories()]);
         void drainPendingExtracts(backend);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to start");
+        setError(GENERIC_ERROR_MESSAGE);
       }
     })();
   }, []);
 
   useEffect(() => {
     if (selected.type === "stories") {
-      void loadStories();
+      void loadStories(rssListFilter === "unread");
     } else {
+      setUnreadStorySnapshot(null);
       void loadArticles(false);
     }
-  }, [selected]);
+  }, [selected, rssListFilter]);
 
   useEffect(() => {
     if (selected.type !== "stories") {
       void loadArticles(false);
     }
   }, [search]);
+
+  useEffect(() => {
+    if (!isStoriesMode) return;
+    setActiveStoryId((id) => {
+      if (id && visibleStories.some((story) => story.id === id)) return id;
+      return visibleStories[0]?.id ?? null;
+    });
+  }, [isStoriesMode, effectiveRssListFilter, stories, unreadStorySnapshot]);
 
   useEffect(() => {
     if (!isStoriesMode || !activeStoryId) {
@@ -312,7 +409,9 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         case "feed.updated":
         case "feed.error":
           void loadFeeds();
-          reloadContent(false);
+          if (effectiveRssListFilter !== "unread") {
+            reloadContent(false);
+          }
           break;
         case "article.updated": {
           void loadFeeds();
@@ -321,9 +420,13 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             priority?: Priority;
             isRead?: boolean;
             isStarred?: boolean;
+            all?: boolean;
             extractStatus?: string;
             crawlStatus?: string;
           };
+          if (payload.isRead !== undefined || payload.all) {
+            void loadStories();
+          }
           if (payload.articleId) {
             if (payload.extractStatus === "js") {
               void runFrontendExtract(backend, payload.articleId);
@@ -348,24 +451,29 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             );
             setActiveStory((prev) => {
               if (!prev?.articles) return prev;
+              const nextArticles = prev.articles.map((a) =>
+                a.id === payload.articleId
+                  ? {
+                      ...a,
+                      ...(payload.priority !== undefined ? { priority: payload.priority } : {}),
+                      ...(payload.isRead !== undefined ? { isRead: payload.isRead } : {}),
+                      ...(payload.isStarred !== undefined ? { isStarred: payload.isStarred } : {}),
+                    }
+                  : a,
+              );
               return {
                 ...prev,
-                articles: prev.articles.map((a) =>
-                  a.id === payload.articleId
-                    ? {
-                        ...a,
-                        ...(payload.priority !== undefined ? { priority: payload.priority } : {}),
-                        ...(payload.isRead !== undefined ? { isRead: payload.isRead } : {}),
-                        ...(payload.isStarred !== undefined ? { isStarred: payload.isStarred } : {}),
-                      }
-                    : a,
-                ),
+                ...(payload.isRead !== undefined
+                  ? { isRead: nextArticles.every((article) => article.isRead) }
+                  : {}),
+                articles: nextArticles,
               };
             });
           }
           break;
         }
         case "article.removed": {
+          void loadFeeds();
           const payload = event.payload as { articleId?: string };
           if (payload.articleId) {
             setArticles((prev) => prev.filter((a) => a.id !== payload.articleId));
@@ -432,7 +540,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         );
       }
     });
-  }, [backend, loadFeeds, reloadContent, loadStories, activeStoryId, settings]);
+  }, [backend, loadFeeds, reloadContent, loadStories, activeStoryId, settings, effectiveRssListFilter]);
 
   const patchArticle = useCallback((updated: Article) => {
     setArticles((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
@@ -481,7 +589,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         const updated = await backend.stories.voteArticle(storyId, articleId, nextStoryVote(current, clicked));
         await refreshStoriesAfterVote(updated);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to vote");
+        setError(GENERIC_ERROR_MESSAGE);
       }
     },
     [backend, activeStory, refreshStoriesAfterVote],
@@ -494,7 +602,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         const updated = await backend.stories.voteStory(activeStory.id, nextStoryVote(activeStory.vote, clicked));
         patchStory(updated);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to vote");
+        setError(GENERIC_ERROR_MESSAGE);
       }
     },
     [backend, activeStory, patchStory],
@@ -510,7 +618,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         setStoryMemberId(null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to split story");
+      setError(GENERIC_ERROR_MESSAGE);
     }
   }, [backend, activeStory, loadStories]);
 
@@ -523,7 +631,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           patchArticle(updated);
           void loadFeeds();
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Failed to mark read");
+          setError(GENERIC_ERROR_MESSAGE);
         }
       }
     },
@@ -543,7 +651,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           patchStory(updated);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load story");
+        setError(GENERIC_ERROR_MESSAGE);
       }
     },
     [backend, settings?.markReadOnOpen, patchStory],
@@ -559,7 +667,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           patchArticle(updated);
           void loadFeeds();
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Failed to mark read");
+          setError(GENERIC_ERROR_MESSAGE);
         }
       }
     },
@@ -569,6 +677,17 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   const moveSelection = useCallback(
     (delta: number) => {
       if (isStoriesMode) {
+        if (
+          delta > 0 &&
+          storyMemberId &&
+          hasNoOtherUnreadStoryMembers(activeStory, storyMemberId)
+        ) {
+          const nextStory = adjacentMetaStory(visibleStories, activeStoryId, 1);
+          if (nextStory && nextStory.id !== activeStoryId) {
+            void selectStory(nextStory);
+          }
+          return;
+        }
         const currentKey = storyMemberId
           ? storyListRowKey({ kind: "member", storyId: activeStoryId ?? "", articleId: storyMemberId })
           : activeStoryId
@@ -614,6 +733,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       activeStoryId,
       stories,
       activeStory,
+      visibleStories,
       selectStory,
       selectStoryMember,
       articles,
@@ -622,9 +742,58 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     ],
   );
 
+  const moveMetaStory = useCallback(
+    (delta: number) => {
+      if (!isStoriesMode) return;
+      const next = adjacentMetaStory(visibleStories, activeStoryId, delta);
+      if (!next || next.id === activeStoryId) return;
+      void selectStory(next);
+    },
+    [isStoriesMode, visibleStories, activeStoryId, selectStory],
+  );
+
+  useEffect(() => {
+    const key = isStoriesMode
+      ? storyMemberId
+        ? storyListRowKey({ kind: "member", storyId: activeStoryId ?? "", articleId: storyMemberId })
+        : activeStoryId
+          ? storyListRowKey({ kind: "story", storyId: activeStoryId })
+          : null
+      : activeId
+        ? `article:${activeId}`
+        : null;
+    if (!key || lastScrolledListRowKeyRef.current === key) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (scrollListRowToTop(articleListRef.current, key)) {
+        lastScrolledListRowKeyRef.current = key;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isStoriesMode, activeStoryId, storyMemberId, activeId, storyRows]);
+
   useEffect(() => {
     setContentTab("primary");
+    setBrowserUrl(null);
   }, [activeId]);
+
+  useEffect(() => window.desktop.onOpenInPane(setBrowserUrl), []);
+
+  useEffect(() => {
+    const openLinksInPane = (event: MouseEvent) => {
+      const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const url = browserPaneUrl(
+        anchor.getAttribute("href"),
+        active?.url || window.location.href,
+      );
+      if (!url) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setBrowserUrl(url);
+    };
+    document.addEventListener("click", openLinksInPane, true);
+    return () => document.removeEventListener("click", openLinksInPane, true);
+  }, [active?.url]);
 
   const addReadLaterFromActive = async () => {
     if (!active || active.isReadLater || !active.url) return;
@@ -636,25 +805,28 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       setAppMode("readLater");
       setView("reader");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send to Read Later");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
   };
 
   const addReadLaterUrl = async () => {
-    const url = rlAddUrl.trim();
-    if (!url) return;
+    const result = normalizeDroppedUrl(rlAddUrl);
+    if (!result.ok) {
+      setError("Enter a valid http(s) URL");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const saved = await backend.readLater.add(url);
+      const saved = await backend.readLater.add(result.url);
       setRlAddUrl("");
       setRlSearch("");
       setReadLaterFocusId(saved.id);
       setAppMode("readLater");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save link");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
@@ -688,7 +860,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     [backend, showSavedToast],
   );
 
-  const openInvalidDropModal = useCallback(async (attempted: string) => {
+  const openAddLinkModal = useCallback(async (attempted: string) => {
     try {
       await window.desktop.focusMainWindow();
     } catch {
@@ -697,18 +869,11 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     setDropModal({ attempted, draft: attempted, error: null });
   }, []);
 
-  const handleDroppedText = useCallback(
+  const handleAddLinkRequested = useCallback(
     (raw: string) => {
-      const result = normalizeDroppedUrl(raw);
-      if (result.ok) {
-        void saveDroppedUrl(result.url).catch((e) => {
-          setError(e instanceof Error ? e.message : "Could not save link");
-        });
-        return;
-      }
-      void openInvalidDropModal(result.attempted || raw.trim());
+      void openAddLinkModal(raw.trim());
     },
-    [openInvalidDropModal, saveDroppedUrl],
+    [openAddLinkModal],
   );
 
   const undoDroppedSave = useCallback(async () => {
@@ -719,7 +884,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     try {
       await backend.readLater.remove(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not undo");
+      setError(GENERIC_ERROR_MESSAGE);
     }
   }, [backend, clearToastTimer, toast]);
 
@@ -739,7 +904,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     } catch (e) {
       setDropModal((prev) =>
         prev
-          ? { ...prev, error: e instanceof Error ? e.message : "Could not save link" }
+          ? { ...prev, error: GENERIC_ERROR_MESSAGE }
           : prev,
       );
     } finally {
@@ -748,35 +913,15 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   }, [dropModal, saveDroppedUrl]);
 
   useEffect(() => {
-    const onDragOver = (e: DragEvent) => {
-      if (!e.dataTransfer) return;
-      if (isFeedDragTypes(e.dataTransfer.types)) return;
-      if (isEditableDropTarget(e.target)) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    };
-    const onDrop = (e: DragEvent) => {
-      if (!e.dataTransfer) return;
-      if (isFeedDragTypes(e.dataTransfer.types)) return;
-      if (isEditableDropTarget(e.target)) return;
-      const text = extractDropText(e.dataTransfer);
-      if (!text.trim()) return;
-      e.preventDefault();
-      handleDroppedText(text);
-    };
-    window.addEventListener("dragover", onDragOver);
-    window.addEventListener("drop", onDrop);
     const unsub =
-      typeof window.desktop?.onDroppedText === "function"
-        ? window.desktop.onDroppedText(handleDroppedText)
+      typeof window.desktop?.onAddLinkRequested === "function"
+        ? window.desktop.onAddLinkRequested(handleAddLinkRequested)
         : () => undefined;
     return () => {
-      window.removeEventListener("dragover", onDragOver);
-      window.removeEventListener("drop", onDrop);
       unsub();
       clearToastTimer();
     };
-  }, [clearToastTimer, handleDroppedText]);
+  }, [clearToastTimer, handleAddLinkRequested]);
 
   const handleContentTab = useCallback(
     async (tab: ContentTab) => {
@@ -789,7 +934,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         const updated = await backend.articles.fetchLive(active.id);
         patchArticle(updated);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to fetch live content");
+        setError(GENERIC_ERROR_MESSAGE);
       } finally {
         setContentBusy(false);
       }
@@ -805,7 +950,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       const updated = await backend.articles.recrawl(active.id);
       patchArticle(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Recrawl failed");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setContentBusy(false);
     }
@@ -818,7 +963,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       .fetchLive(active.id)
       .then((updated) => patchArticle(updated))
       .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : "Failed to fetch live content"),
+        setError(GENERIC_ERROR_MESSAGE),
       )
       .finally(() => setContentBusy(false));
   }, [active?.id, active?.isReadLater, active?.liveContent, contentTab, backend, patchArticle]);
@@ -860,6 +1005,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           article={article}
           contentBusy={contentBusy}
           onRecrawl={() => void recrawlActive()}
+          onNavigate={setBrowserUrl}
         />
       );
     }
@@ -885,7 +1031,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     } else if (article.crawlStatus === "pending") {
       statusMessage = "Crawl in progress…";
     } else if (article.crawlStatus === "failed" && !article.crawledContent) {
-      statusMessage = article.crawlError || "Crawl failed.";
+      statusMessage = "Crawl failed.";
     } else if (article.crawledContent) {
       bodyHtml = article.crawledContent;
       asFullPage = true;
@@ -910,6 +1056,14 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     return bodyHtml ? (
       <div
         className="reader-body"
+        onClick={(event) => {
+          const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
+          if (!anchor) return;
+          const url = browserPaneUrl(anchor.getAttribute("href"), article.url);
+          if (!url) return;
+          event.preventDefault();
+          setBrowserUrl(url);
+        }}
         dangerouslySetInnerHTML={{
           __html: sanitizeArticleHtml(bodyHtml),
         }}
@@ -953,11 +1107,19 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       }
       if (appMode === "sports") return;
 
+      if (e.shiftKey && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        moveMetaStory(1);
+        return;
+      }
+
       switch (e.key) {
         case "j":
+          e.preventDefault();
           moveSelection(1);
           break;
         case "k":
+          e.preventDefault();
           moveSelection(-1);
           break;
         case "o":
@@ -987,17 +1149,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             });
           }
           break;
-        case "s":
-          if (isStoriesMode && !storyMemberId && activeStory) {
-            void backend.stories.toggleStar(activeStory.id).then((updated) => {
-              patchStory(updated);
-            });
-          } else if (active) {
-            void backend.articles.toggleStar(active.id).then((updated) => {
-              patchArticle(updated);
-            });
-          }
-          break;
         case "f":
           void refreshAll();
           break;
@@ -1023,6 +1174,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
     patchArticle,
     patchStory,
     moveSelection,
+    moveMetaStory,
     storyMemberId,
   ]);
 
@@ -1036,7 +1188,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       await loadFeeds();
       reloadContent(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add feed");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
@@ -1055,7 +1207,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       setSelected({ type: "folder", id: created.id });
       setCollapsedFolderIds((prev) => withFolderExpanded(prev, created.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not create folder");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
@@ -1071,7 +1223,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       setCollapsedFolderIds((prev) => withFolderExpanded(prev, folderId));
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add feed to folder");
+      setError(GENERIC_ERROR_MESSAGE);
       return false;
     } finally {
       setBusy(false);
@@ -1085,7 +1237,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       await backend.folders.unassignFeed(folderId, feedId);
       await loadFeeds({ type: "unassign", folderId, feedId });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not remove feed from folder");
+      setError(GENERIC_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
@@ -1123,15 +1275,67 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
   };
 
   const totalUnread = visibleFeeds.reduce((n, f) => n + f.unreadCount, 0);
-  const densityClass = settings?.articleDensity === "compact" ? "density-compact" : "";
+  const readLaterUnread = feeds.find((feed) => feed.isReadLater)?.unreadCount ?? 0;
+  const densityClass = `density-${settings?.articleDensity ?? "comfortable"}`;
+
+  const changeRssListFilter = (next: RssListFilter) => {
+    setRssListFilter(next);
+  };
+
+  const markCurrentListRead = async () => {
+    setMarkAllBusy(true);
+    setError(null);
+    try {
+      if (isStoriesMode) {
+        const unreadStories = stories.filter((story) => !story.isRead);
+        await Promise.all(unreadStories.map((story) => backend.stories.markRead(story.id)));
+        await loadStories();
+      } else {
+        await backend.articles.markAllRead(articleScopeQuery);
+        await Promise.all([loadArticles(false), loadFeeds()]);
+      }
+    } catch (e) {
+      setError(GENERIC_ERROR_MESSAGE);
+    } finally {
+      setMarkAllBusy(false);
+    }
+  };
+
+  const openArticleFromSettings = useCallback(async (articleId: string) => {
+    const article = await backend.articles.get(articleId);
+    setBrowserUrl(null);
+    setSettingsSection("general");
+    if (article.isReadLater) {
+      setReadLaterFocusId(article.id);
+      setAppMode("readLater");
+      setView("reader");
+      return;
+    }
+
+    const listWillReload =
+      selected.type !== "items" || rssListFilter !== "all" || search.trim() !== "";
+    pendingArticleDeepLinkRef.current = article;
+    setArticles((prev) => [article, ...prev.filter((item) => item.id !== article.id)]);
+    setActiveId(article.id);
+    if (selected.type !== "items") {
+      setSelected({ type: "items" });
+    }
+    setRssListFilter("all");
+    setSearch("");
+    setAppMode("rss");
+    setView("reader");
+    if (!listWillReload) {
+      pendingArticleDeepLinkRef.current = null;
+    }
+  }, [backend, selected.type, rssListFilter, search]);
 
   const dropFixModal = dropModal ? (
     <div className="modal-backdrop" onClick={() => setDropModal(null)}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Fix link for Read Later</h2>
-        <p className="modal-hint">That drop wasn’t a valid URL. Edit it and try again.</p>
+        <h2>Add link to Read Later</h2>
+        <p className="modal-hint">Paste or edit a web link, then add it to your saved reading list.</p>
         <label className="modal-label" htmlFor="drop-attempted">
-          Attempted
+          Clipboard text
         </label>
         <pre id="drop-attempted" className="modal-attempted">
           {dropModal.attempted || "(empty)"}
@@ -1191,6 +1395,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             setView("reader");
             setSettingsSection("general");
           }}
+          onOpenArticle={openArticleFromSettings}
           applyTheme={applyTheme}
           initialSection={settingsSection}
         />
@@ -1210,7 +1415,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             aria-selected={appMode === "rss"}
             onClick={() => setAppMode("rss")}
           >
-            RSS Reader
+            RSS Reader ({totalUnread})
           </button>
           <button
             type="button"
@@ -1219,7 +1424,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             aria-selected={appMode === "readLater"}
             onClick={() => setAppMode("readLater")}
           >
-            Read Later
+            Read Later ({readLaterUnread})
           </button>
           <button
             type="button"
@@ -1267,8 +1472,12 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
               className="search rl-url-input"
               placeholder="https://… paste a URL"
               value={rlAddUrl}
-              onChange={(e) => setRlAddUrl(e.target.value)}
+              onChange={(e) => {
+                setRlAddUrl(e.target.value);
+                if (error === "Enter a valid http(s) URL") setError(null);
+              }}
               disabled={busy}
+              aria-invalid={error === "Enter a valid http(s) URL"}
             />
             <button className="btn primary" type="submit" disabled={busy || !rlAddUrl.trim()}>
               {busy ? "Adding…" : "Add"}
@@ -1284,11 +1493,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         >
           Settings
         </button>
-        {appMode === "rss" && (
-          <button className="btn primary" onClick={() => setShowAdd(true)}>
-            Add feed
-          </button>
-        )}
       </header>
 
       {error && <p className="error toolbar-error">{error}</p>}
@@ -1297,6 +1501,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         <ReadLaterView
           backend={backend}
           search={rlSearch}
+          unreadCount={readLaterUnread}
           focusArticleId={readLaterFocusId}
           onFocusConsumed={() => setReadLaterFocusId(null)}
         />
@@ -1310,35 +1515,25 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
         />
       ) : (
       <div className="layout">
-        <aside className="pane sidebar">
+        <aside className="pane sidebar rss-sidebar">
+          <div className="rss-sidebar-content">
           <button
-            className={`nav-item ${selected.type === "all" ? "active" : ""}`}
-            onClick={() => setSelected({ type: "all" })}
+            className={`nav-item ${selected.type === "items" ? "active" : ""}`}
+            onClick={() => setSelected({ type: "items" })}
           >
-            <span>All</span>
-          </button>
-          <button
-            className={`nav-item ${selected.type === "unread" ? "active" : ""}`}
-            onClick={() => setSelected({ type: "unread" })}
-          >
-            <span>Unread</span>
+            <span>Items</span>
             <span className="count">{totalUnread || ""}</span>
-          </button>
-          <button
-            className={`nav-item ${selected.type === "starred" ? "active" : ""}`}
-            onClick={() => setSelected({ type: "starred" })}
-          >
-            <span>Starred</span>
           </button>
           <button
             className={`nav-item ${selected.type === "stories" ? "active" : ""}`}
             onClick={() => setSelected({ type: "stories" })}
           >
             <span>Stories</span>
+            <span className="count">{storyUnread || ""}</span>
           </button>
 
           <div className="section-label-row">
-            <div className="section-label">Folders</div>
+            <div className="section-label">Feeds</div>
             <button
               type="button"
               className="section-add"
@@ -1409,7 +1604,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                           e.preventDefault();
                           void unassignFeedFromFolder(folder.id, feed.id);
                         }}
-                        title={feed.lastError || feed.url}
+                        title={feed.lastError ? "Feed refresh failed" : feed.url}
                       >
                         <span>
                           {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
@@ -1423,10 +1618,9 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             );
           })}
 
-          <div className="section-label">Feeds</div>
-          {sidebarFeeds.length === 0 && (
+          {visibleFeeds.length === 0 && (
             <div className="empty" style={{ height: "auto", padding: 12 }}>
-              {visibleFeeds.length === 0 ? "No feeds yet" : "All feeds are in folders"}
+              No feeds yet
             </div>
           )}
           {sidebarFeeds.map((feed) => (
@@ -1440,7 +1634,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                 type="button"
                 className={`feed-item ${selected.type === "feed" && selected.id === feed.id ? "active" : ""}`}
                 onClick={() => setSelected({ type: "feed", id: feed.id })}
-                title={feed.lastError || feed.url}
+                title={feed.lastError ? "Feed refresh failed" : feed.url}
               >
                 <span>
                   {!feed.enabled ? "⏸ " : feed.lastError ? "⚠ " : ""}
@@ -1450,25 +1644,64 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
               </button>
             </div>
           ))}
+          </div>
+          <div className="rss-sidebar-footer">
+            <button type="button" className="btn primary rss-sidebar-add-feed" onClick={() => setShowAdd(true)}>
+              Add feed
+            </button>
+          </div>
         </aside>
 
-        <section className="pane article-list">
+        <section ref={articleListRef} className="pane article-list">
+          <div className="article-list-toolbar">
+            <div className="article-list-filter" role="group" aria-label="Filter RSS list">
+              <button
+                type="button"
+                className={effectiveRssListFilter === "all" ? "active" : ""}
+                aria-pressed={effectiveRssListFilter === "all"}
+                onClick={() => changeRssListFilter("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={effectiveRssListFilter === "unread" ? "active" : ""}
+                aria-pressed={effectiveRssListFilter === "unread"}
+                onClick={() => changeRssListFilter("unread")}
+              >
+                Unread
+              </button>
+            </div>
+            <button
+              type="button"
+              className="btn article-list-mark-read"
+              disabled={markAllBusy}
+              onClick={() => void markCurrentListRead()}
+            >
+              {markAllBusy ? "Marking…" : "Mark All as Read"}
+            </button>
+          </div>
           {isStoriesMode ? (
-            stories.length === 0 ? (
+            visibleStories.length === 0 ? (
               <div className="empty">
-                <h2>No stories yet</h2>
-                <p>Related RSS articles group here after feeds refresh. AI triage can still override groups when enabled.</p>
+                <h2>{effectiveRssListFilter === "unread" ? "No unread stories" : "No stories yet"}</h2>
+                <p>
+                  {effectiveRssListFilter === "unread"
+                    ? "Everything in this list has been read."
+                    : "Related RSS articles group here after feeds refresh. AI triage can still override groups when enabled."}
+                </p>
               </div>
             ) : (
               storyRows.map((row) => {
                 switch (row.kind) {
                   case "story": {
-                    const story = stories.find((s) => s.id === row.storyId);
+                    const story = visibleStories.find((s) => s.id === row.storyId);
                     if (!story) return null;
                     const isActive = story.id === activeStoryId && !storyMemberId;
                     return (
                       <button
                         key={storyListRowKey(row)}
+                        data-list-row-key={storyListRowKey(row)}
                         className={`article-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
                         onClick={() => void selectStory(story)}
                       >
@@ -1477,7 +1710,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                             {story.memberCount} article{story.memberCount === 1 ? "" : "s"}
                           </span>
                           <span>{formatRelativeTime(story.updatedAt ?? story.createdAt)}</span>
-                          {story.isStarred ? <span>★</span> : null}
                         </div>
                         <h3 className="article-title">{decodeHtmlEntities(story.title || "(untitled story)")}</h3>
                         <p className="article-summary">{story.summary || ""}</p>
@@ -1491,6 +1723,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     return (
                       <div
                         key={storyListRowKey(row)}
+                        data-list-row-key={storyListRowKey(row)}
                         className={`article-row story-member-row ${member.id === storyMemberId ? "active" : ""} ${member.isRead ? "" : "unread"}`}
                       >
                         <button
@@ -1501,7 +1734,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                           <div className="article-meta">
                             <span>{member.feedTitle}</span>
                             <span>{formatRelativeTime(member.publishedAt ?? member.discoveredAt)}</span>
-                            {member.isStarred ? <span>★</span> : null}
                           </div>
                           <h3 className="article-title">
                             <PriorityBadge priority={member.priority} />
@@ -1552,13 +1784,13 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             articles.map((article) => (
               <button
                 key={article.id}
+                data-list-row-key={`article:${article.id}`}
                 className={`article-row ${article.id === activeId ? "active" : ""} ${article.isRead ? "" : "unread"}`}
                 onClick={() => void selectArticle(article)}
               >
                 <div className="article-meta">
                   <span>{article.feedTitle}</span>
                   <span>{formatRelativeTime(article.publishedAt ?? article.discoveredAt)}</span>
-                  {article.isStarred ? <span>★</span> : null}
                 </div>
                   <h3 className="article-title">
                     <PriorityBadge priority={article.priority} />
@@ -1569,18 +1801,24 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             ))
           )}
           {!isStoriesMode && nextCursor && (
-            <button className="btn" style={{ width: "100%", marginTop: 8 }} onClick={() => void loadArticles(true)}>
-              Load more
-            </button>
+            <div ref={loadMoreSentinelRef} className="article-list-pagination" role="status">
+              {loadingMore ? "Loading more…" : null}
+            </div>
           )}
         </section>
 
         <section className="pane reader-pane">
-          {isStoriesMode && !storyMemberId ? (
+          {browserUrl ? (
+            <BrowserPane
+              initialUrl={browserUrl}
+              onClose={() => setBrowserUrl(null)}
+              onSave={async (url) => { await saveDroppedUrl(url); }}
+            />
+          ) : isStoriesMode && !storyMemberId ? (
             !activeStory ? (
               <div className="empty">
                 <h2>Stories</h2>
-                <p>Select a story to read grouped coverage. Shortcuts: j/k, r, u, s, f</p>
+                <p>Select a story to read grouped coverage. Shortcuts: j/k, r, u, f</p>
               </div>
             ) : (
               <article className="reader">
@@ -1604,16 +1842,6 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                     }
                   >
                     {activeStory.isRead ? "Mark unread" : "Mark read"}
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() =>
-                      void backend.stories.toggleStar(activeStory.id).then((updated) => {
-                        patchStory(updated);
-                      })
-                    }
-                  >
-                    {activeStory.isStarred ? "Unstar" : "Star"}
                   </button>
                   <button type="button" className="btn" onClick={() => void splitActiveStory()}>
                     Split
@@ -1642,7 +1870,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
           ) : !active ? (
             <div className="empty">
               <h2>RSS Reader</h2>
-              <p>Select an article to read. Shortcuts: j/k, o, r, u, s, f, /</p>
+              <p>Select an article to read. Shortcuts: j/k, o, r, u, f, /</p>
             </div>
           ) : (
             <article
@@ -1664,23 +1892,13 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
                   >
                     {active.isRead ? "Mark unread" : "Mark read"}
                   </button>
-                  <button
-                    className="btn"
-                    onClick={() =>
-                      void backend.articles.toggleStar(active.id).then((updated) => {
-                        patchArticle(updated);
-                      })
-                    }
-                  >
-                    {active.isStarred ? "Unstar" : "Star"}
-                  </button>
                   {!active.isReadLater && active.url ? (
                     <button className="btn" disabled={busy} onClick={() => void addReadLaterFromActive()}>
                       Send to Read Later
                     </button>
                   ) : null}
                   {active.url && (
-                    <button className="btn primary" onClick={() => void window.desktop.openExternal(active.url)}>
+                    <button className="btn primary" onClick={() => setBrowserUrl(active.url)}>
                       Open original
                     </button>
                   )}

@@ -215,6 +215,30 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.MarkRead(ctx, p.ID, false)
+	case "articles.markAllRead":
+		var p domain.ArticleQuery
+		var raw map[string]any
+		_ = json.Unmarshal(req.Params, &raw)
+		if v, ok := raw["feedId"].(string); ok {
+			p.FeedID = v
+		}
+		if v, ok := raw["folderId"].(string); ok {
+			p.FolderID = v
+		}
+		if v, ok := raw["unreadOnly"].(bool); ok {
+			p.UnreadOnly = v
+		}
+		if v, ok := raw["starredOnly"].(bool); ok {
+			p.StarredOnly = v
+		}
+		if v, ok := raw["search"].(string); ok {
+			p.Search = v
+		}
+		updated, err := s.svc.MarkAllRead(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"updated": updated}, nil
 	case "articles.toggleStar":
 		var p struct {
 			ID string `json:"id"`
@@ -267,6 +291,25 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.UpdateSettings(ctx, raw)
+	case "errors.record":
+		var p struct {
+			Source    string `json:"source"`
+			Operation string `json:"operation"`
+			Message   string `json:"message"`
+			Detail    string `json:"detail"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.Operation == "" || p.Message == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return map[string]any{"ok": true}, s.svc.RecordError(ctx, domain.ErrorLogEntry{
+			Source: p.Source, Operation: p.Operation, Message: p.Message, Detail: p.Detail,
+		})
+	case "errors.list":
+		var p struct {
+			Limit int `json:"limit"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		return s.svc.ListErrors(ctx, p.Limit)
 	case "feeds.exportUrls":
 		text, err := s.svc.ExportFeedURLs(ctx)
 		if err != nil {
@@ -473,6 +516,14 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return s.svc.SportsSchedule(ctx, p.TeamID, p.Season)
+	case "sports.schedule.daily":
+		var p struct {
+			Date string `json:"date"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.Date == "" {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsDailySchedule(ctx, p.Date)
 	case "sports.game.get":
 		var p struct {
 			GamePk int `json:"gamePk"`
@@ -506,6 +557,15 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		return s.svc.SportsStandings(ctx, p.Season)
+	case "sports.roster.get":
+		var p struct {
+			TeamID int `json:"teamId"`
+			Season int `json:"season"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.TeamID <= 0 {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.svc.SportsRoster(ctx, p.TeamID, p.Season)
 	case "sports.f1.years.list":
 		return s.svc.SportsF1Years(ctx)
 	case "sports.f1.races.list":
