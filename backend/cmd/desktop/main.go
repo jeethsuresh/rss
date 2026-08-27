@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -112,9 +113,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	sched := scheduler.New(svc, feeds, log)
-	go sched.Run(ctx)
-
 	server := ipc.NewServer(svc, log, os.Stdout)
 	aiSvc.Emit = server.Emit
 	crawlSvc.Emit = server.Emit
@@ -128,8 +126,47 @@ func main() {
 	}
 	syncManager := syncclient.NewManager(db, log, interval)
 	syncManager.Emit = server.Emit
+	var localWorkersMu sync.Mutex
+	var localWorkersCancel context.CancelFunc
+	localWorkersRunning := false
+	startLocalWorkers := func() {
+		localWorkersMu.Lock()
+		defer localWorkersMu.Unlock()
+		if localWorkersRunning || ctx.Err() != nil {
+			return
+		}
+		localCtx, localCancel := context.WithCancel(ctx)
+		localWorkersCancel = localCancel
+		localWorkersRunning = true
+		sched := scheduler.New(svc, feeds, log)
+		go sched.Run(localCtx)
+		aiSvc.Resume(localCtx)
+		crawlSvc.EnqueueAndKick(localCtx)
+		go crawlSvc.BackfillExtracts(localCtx)
+		log.Info("local data workers started")
+	}
+	stopLocalWorkers := func() {
+		localWorkersMu.Lock()
+		defer localWorkersMu.Unlock()
+		if !localWorkersRunning {
+			return
+		}
+		localWorkersCancel()
+		localWorkersCancel = nil
+		localWorkersRunning = false
+		sportsSvc.StopWatching()
+		log.Info("local data workers stopped; server is authoritative")
+	}
+	syncManager.OnConnectionChange = func(connected bool) {
+		if connected {
+			stopLocalWorkers()
+			return
+		}
+		startLocalWorkers()
+	}
 	syncManager.Start(ctx)
 	server.Sync = syncManager
+	startLocalWorkers()
 	if syncURL := strings.TrimSpace(os.Getenv("RSS_SERVER_URL")); syncURL != "" {
 		autoRegister, _ := strconv.ParseBool(os.Getenv("RSS_SERVER_AUTO_REGISTER"))
 		go func() {
@@ -144,10 +181,6 @@ func main() {
 			}
 		}()
 	}
-	aiSvc.Resume(ctx)
-	crawlSvc.EnqueueAndKick(ctx)
-	go crawlSvc.BackfillExtracts(ctx)
-
 	log.Info("backend started", "version", version, "db", *dbPath)
 
 	errCh := make(chan error, 1)

@@ -29,6 +29,7 @@ type Service struct {
 
 	mu      sync.Mutex
 	running bool
+	runCtx  context.Context
 }
 
 var ErrSharedDocumentPending = errors.New("shared document fetch is in progress")
@@ -67,6 +68,7 @@ func New(articles domain.ArticleRepository, feeds domain.FeedRepository, log *sl
 
 func (s *Service) EnqueueAndKick(ctx context.Context) {
 	s.mu.Lock()
+	s.runCtx = ctx
 	if s.running {
 		s.mu.Unlock()
 		return
@@ -80,7 +82,12 @@ func (s *Service) loop(ctx context.Context) {
 	defer func() {
 		s.mu.Lock()
 		s.running = false
+		nextCtx := s.runCtx
+		restart := nextCtx != nil && nextCtx != ctx && nextCtx.Err() == nil
 		s.mu.Unlock()
+		if restart {
+			s.EnqueueAndKick(nextCtx)
+		}
 	}()
 	seen := map[string]bool{}
 	pendingAttempts := map[string]int{}

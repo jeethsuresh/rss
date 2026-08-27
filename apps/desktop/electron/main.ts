@@ -8,6 +8,7 @@ import {
   Menu,
   clipboard,
   nativeImage,
+  safeStorage,
 } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +27,86 @@ let tray: Tray | null = null;
 let pendingAddLinkText: string | null = null;
 let backendEventsSubscribed = false;
 const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
+
+type StoredServerSession = {
+  serverUrl: string;
+  username: string;
+  token: string;
+  expiresAt: string;
+};
+
+function serverSessionPath(): string {
+  return path.join(app.getPath("userData"), "server-session.bin");
+}
+
+function isStoredServerSession(value: unknown): value is StoredServerSession {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Partial<StoredServerSession>;
+  return (
+    typeof session.serverUrl === "string" && /^https?:\/\//i.test(session.serverUrl) &&
+    typeof session.username === "string" && session.username.length > 0 &&
+    typeof session.token === "string" && session.token.length > 0 &&
+    typeof session.expiresAt === "string" && Number.isFinite(Date.parse(session.expiresAt))
+  );
+}
+
+async function loadServerSession(): Promise<StoredServerSession | null> {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    const encrypted = await fs.promises.readFile(serverSessionPath());
+    const parsed: unknown = JSON.parse(safeStorage.decryptString(encrypted));
+    return isStoredServerSession(parsed) ? parsed : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error("Unable to read saved server session", error);
+    }
+    return null;
+  }
+}
+
+async function saveServerSession(session: StoredServerSession): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("OS credential encryption is unavailable");
+  }
+  const target = serverSessionPath();
+  const temporary = `${target}.tmp`;
+  const encrypted = safeStorage.encryptString(JSON.stringify(session));
+  await fs.promises.writeFile(temporary, encrypted, { mode: 0o600 });
+  await fs.promises.rename(temporary, target);
+}
+
+async function clearServerSession(): Promise<void> {
+  try {
+    await fs.promises.unlink(serverSessionPath());
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+async function restoreServerSession(bridge: BackendBridge): Promise<void> {
+  const session = await loadServerSession();
+  if (!session) return;
+  if (Date.parse(session.expiresAt) <= Date.now() + 60_000) {
+    await clearServerSession();
+    return;
+  }
+  try {
+    await bridge.request("sync.connect", {
+      serverUrl: session.serverUrl,
+      username: session.username,
+      password: "",
+      register: false,
+      sessionToken: session.token,
+      sessionExpiresAt: session.expiresAt,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Unable to restore saved server session", message);
+    if (/expired|invalid session|unauthorized/i.test(message)) {
+      await clearServerSession();
+    }
+  }
+}
 
 function backendBinaryPath(): string {
   const resources = isDev
@@ -57,6 +138,7 @@ async function startBackend(): Promise<BackendBridge> {
   });
   const bridge = new BackendBridge(backendProc.stdin, backendProc.stdout);
   await bridge.request("system.handshake", {});
+  void restoreServerSession(bridge);
   return bridge;
 }
 
@@ -250,7 +332,22 @@ function setupIpc() {
       throw new Error(GENERIC_ERROR_MESSAGE);
     }
     try {
-      return await backend.request(method, params ?? {});
+      const result = await backend.request(method, params ?? {});
+      if (method === "sync.connect") {
+        try {
+          const session = (await backend.request("sync.session.get", {})) as StoredServerSession;
+          if (isStoredServerSession(session)) await saveServerSession(session);
+        } catch (sessionError) {
+          console.error("Unable to save server session", sessionError);
+        }
+      } else if (method === "sync.disconnect") {
+        try {
+          await clearServerSession();
+        } catch (sessionError) {
+          console.error("Unable to clear saved server session", sessionError);
+        }
+      }
+      return result;
     } catch (error) {
       if (method !== "errors.record") {
         await recordError("renderer", method, error);

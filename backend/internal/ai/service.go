@@ -34,6 +34,7 @@ type Service struct {
 
 	mu      sync.Mutex
 	running bool
+	runCtx  context.Context
 	client  *http.Client
 }
 
@@ -113,18 +114,31 @@ func (s *Service) Resume(ctx context.Context) {
 	_ = s.Queue.ResetRunning(ctx)
 	s.SyncFailedQueueLogs(ctx)
 	s.appendLog(ctx, "info", "", "AI queue resumed", "")
+	s.mu.Lock()
+	s.runCtx = ctx
+	s.mu.Unlock()
 	s.Kick(ctx)
 }
 
 func (s *Service) Kick(ctx context.Context) {
 	s.mu.Lock()
+	if ctx == nil {
+		ctx = s.runCtx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		s.mu.Unlock()
+		return
+	}
 	if s.running {
 		s.mu.Unlock()
 		return
 	}
 	s.running = true
 	s.mu.Unlock()
-	go s.worker()
+	go s.worker(ctx)
 }
 
 func (s *Service) Enqueue(ids ...string) {
@@ -140,7 +154,7 @@ func (s *Service) Enqueue(ids ...string) {
 		s.appendLog(ctx, "info", id, "queued for AI triage", "")
 	}
 	s.emitStatus(ctx)
-	s.Kick(ctx)
+	s.Kick(nil)
 }
 
 func (s *Service) ScanWindow(ctx context.Context, window string) error {
@@ -266,16 +280,23 @@ func (s *Service) Test(ctx context.Context) (*domain.AITestResult, error) {
 	return &domain.AITestResult{OK: true, Message: "connected", Models: models}, nil
 }
 
-func (s *Service) worker() {
-	ctx := context.Background()
+func (s *Service) worker(ctx context.Context) {
 	defer func() {
 		s.mu.Lock()
 		s.running = false
+		nextCtx := s.runCtx
+		restart := nextCtx != nil && nextCtx != ctx && nextCtx.Err() == nil
 		s.mu.Unlock()
 		s.emitStatus(ctx)
+		if restart {
+			s.Kick(nextCtx)
+		}
 	}()
 
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		id, ok, err := s.Queue.ClaimNext(ctx)
 		if err != nil {
 			s.appendLog(ctx, "error", "", "claim next failed", err.Error())
@@ -289,6 +310,9 @@ func (s *Service) worker() {
 		jobCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 		err = s.processArticle(jobCtx, id)
 		cancel()
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
 			_ = s.Queue.MarkFailed(ctx, id, err.Error())
 			s.appendLog(ctx, "error", id, "processing failed", err.Error())

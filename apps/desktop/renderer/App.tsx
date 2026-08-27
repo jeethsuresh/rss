@@ -109,6 +109,26 @@ export function App({
     }
   }, [providedBackend]);
 
+  const [connectedAuthority, setConnectedAuthority] = useState(serverAuthoritative);
+  useEffect(() => {
+    if (serverAuthoritative) {
+      setConnectedAuthority(true);
+      return;
+    }
+    if (!backend?.sync) {
+      setConnectedAuthority(false);
+      return;
+    }
+    void backend.sync.status().then((status) => setConnectedAuthority(status.connected)).catch(() => undefined);
+    return backend.onEvent((event) => {
+      if (event.event !== "sync.status") return;
+      const payload = event.payload as { connected?: boolean; phase?: string };
+      if (typeof payload.connected === "boolean") setConnectedAuthority(payload.connected);
+      else if (payload.phase === "connected") setConnectedAuthority(true);
+      else if (payload.phase === "disconnected") setConnectedAuthority(false);
+    });
+  }, [backend, serverAuthoritative]);
+
   if (!backend) {
     return (
       <div className="app">
@@ -120,7 +140,7 @@ export function App({
     );
   }
 
-  return <AppMain backend={backend} serverAuthoritative={serverAuthoritative} />;
+  return <AppMain backend={backend} serverAuthoritative={serverAuthoritative || connectedAuthority} />;
 }
 
 function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; serverAuthoritative: boolean }) {
@@ -131,6 +151,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
   const [unreadStorySnapshot, setUnreadStorySnapshot] = useState<string[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [articleListRevision, setArticleListRevision] = useState(0);
   const [selected, setSelected] = useState<Selection>({ type: "items" });
   const [rssListFilter, setRssListFilter] = useState<RssListFilter>("unread");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -267,6 +288,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
       setArticles((prev) => (append ? [...prev, ...list] : list));
       setNextCursor(res.nextCursor);
       if (!append) {
+        setArticleListRevision((revision) => revision + 1);
         setActiveId((id) => {
           if (pendingArticle) return pendingArticle.id;
           if (id && list.some((a) => a.id === id)) return id;
@@ -362,7 +384,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         setError(GENERIC_ERROR_MESSAGE);
       }
     })();
-  }, []);
+  }, [backend, loadFeeds, loadStories, serverAuthoritative]);
 
   useEffect(() => {
     if (selected.type === "stories") {
@@ -525,6 +547,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         case "ai.log":
           break;
         case "sync.status":
+          void Promise.all([loadFeeds(), loadStories()]).then(() => reloadContent(false));
           break;
         case "sports.game.updated":
           break;
@@ -560,6 +583,22 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
       };
     });
   }, []);
+
+  useEffect(() => {
+    if (!serverAuthoritative || isStoriesMode || !activeId) return;
+    let cancelled = false;
+    void backend.articles
+      .get(activeId)
+      .then((article) => {
+        if (!cancelled) patchArticle(article);
+      })
+      .catch(() => {
+        if (!cancelled) setError(GENERIC_ERROR_MESSAGE);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, serverAuthoritative, isStoriesMode, activeId, articleListRevision, patchArticle]);
 
   const patchStory = useCallback((updated: Story) => {
     setStories((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));

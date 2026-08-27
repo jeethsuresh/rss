@@ -61,3 +61,30 @@ func TestSportsCacheMissIsSingleFlight(t *testing.T) {
 		t.Fatalf("want one upstream fetch, got %d", calls.Load())
 	}
 }
+
+func TestStopWatchingCancelsBackgroundSportsRefreshes(t *testing.T) {
+	service := &SportsService{
+		refreshing: map[string]bool{},
+		refreshes:  map[string]context.CancelFunc{},
+		watching:   map[int]context.CancelFunc{},
+		f1Watching: map[int]context.CancelFunc{},
+		cacheOwner: "test",
+	}
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	if !service.queueRefresh("test-key", func(ctx context.Context) error {
+		close(started)
+		<-ctx.Done()
+		close(canceled)
+		return ctx.Err()
+	}) {
+		t.Fatal("expected background refresh to start")
+	}
+	<-started
+	service.StopWatching()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("background refresh was not canceled")
+	}
+}

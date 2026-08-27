@@ -17,10 +17,12 @@ import (
 var ErrNotConnected = errors.New("not connected to a sync server")
 
 type ConnectRequest struct {
-	ServerURL string `json:"serverUrl"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-	Register  bool   `json:"register"`
+	ServerURL        string `json:"serverUrl"`
+	Username         string `json:"username"`
+	Password         string `json:"password"`
+	Register         bool   `json:"register"`
+	SessionToken     string `json:"sessionToken,omitempty"`
+	SessionExpiresAt string `json:"sessionExpiresAt,omitempty"`
 }
 
 type Status struct {
@@ -31,15 +33,25 @@ type Status struct {
 	LastError  string `json:"lastError,omitempty"`
 }
 
+// SessionSnapshot is passed only to Electron's main process, which encrypts
+// it with safeStorage before writing it to the desktop profile.
+type SessionSnapshot struct {
+	ServerURL string `json:"serverUrl"`
+	Username  string `json:"username"`
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
 // Manager owns the desktop's runtime sync session. Credentials remain in
 // process memory; only non-secret account and synchronization metadata is kept
 // in the local database.
 type Manager struct {
-	DB       *sqlite.DB
-	Log      *slog.Logger
-	Interval time.Duration
-	Emit     func(name string, payload any)
-	HTTP     *http.Client
+	DB                 *sqlite.DB
+	Log                *slog.Logger
+	Interval           time.Duration
+	Emit               func(name string, payload any)
+	HTTP               *http.Client
+	OnConnectionChange func(connected bool)
 
 	mu        sync.Mutex
 	syncMu    sync.Mutex
@@ -69,13 +81,22 @@ func (m *Manager) Connect(ctx context.Context, request ConnectRequest) (*Status,
 		return nil, err
 	}
 	username := strings.TrimSpace(request.Username)
-	if username == "" || request.Password == "" {
+	var sessionExpires time.Time
+	if request.SessionExpiresAt != "" {
+		sessionExpires, err = time.Parse(time.RFC3339Nano, request.SessionExpiresAt)
+		if err != nil {
+			return nil, errors.New("saved server session is invalid")
+		}
+	}
+	usingSession := request.SessionToken != "" && sessionExpires.After(time.Now().Add(time.Minute))
+	if username == "" || (!usingSession && request.Password == "") {
 		return nil, errors.New("server URL, username, and password are required")
 	}
 
 	client := New(m.DB, Config{
 		ServerURL: serverURL, Username: username, Password: request.Password,
 		AutoRegister: request.Register, Interval: m.Interval,
+		SessionToken: request.SessionToken, SessionExpiresAt: sessionExpires,
 	}, m.Log)
 	if m.HTTP != nil {
 		client.HTTP = m.HTTP
@@ -97,7 +118,35 @@ func (m *Manager) Connect(ctx context.Context, request ConnectRequest) (*Status,
 	m.mu.Unlock()
 
 	go m.run(runCtx, client)
+	go m.runEvents(runCtx, client)
+	if m.OnConnectionChange != nil {
+		m.OnConnectionChange(true)
+	}
+	if m.Emit != nil {
+		m.Emit("sync.status", map[string]any{"phase": "connected", "connected": true})
+	}
 	return m.Status(ctx)
+}
+
+func (m *Manager) Session() (*SessionSnapshot, error) {
+	m.mu.Lock()
+	client := m.client
+	serverURL := m.serverURL
+	username := m.username
+	m.mu.Unlock()
+	if client == nil {
+		return nil, ErrNotConnected
+	}
+	token, expires := client.sessionToken()
+	if token == "" || !expires.After(time.Now()) {
+		return nil, errors.New("server session is unavailable")
+	}
+	return &SessionSnapshot{
+		ServerURL: serverURL,
+		Username:  username,
+		Token:     token,
+		ExpiresAt: expires.UTC().Format(time.RFC3339Nano),
+	}, nil
 }
 
 func (m *Manager) run(ctx context.Context, client *Client) {
@@ -113,6 +162,29 @@ func (m *Manager) run(ctx context.Context, client *Client) {
 	}
 }
 
+func (m *Manager) runEvents(ctx context.Context, client *Client) {
+	for {
+		err := client.StreamEvents(ctx, func(name string, payload any) {
+			if m.Emit != nil {
+				m.Emit(name, payload)
+			}
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil && m.Log != nil {
+			m.Log.Warn("server event stream", "err", err)
+		}
+		timer := time.NewTimer(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
 func (m *Manager) Disconnect(ctx context.Context) (*Status, error) {
 	m.mu.Lock()
 	if m.cancelRun != nil {
@@ -121,7 +193,19 @@ func (m *Manager) Disconnect(ctx context.Context) (*Status, error) {
 	m.client = nil
 	m.cancelRun = nil
 	m.mu.Unlock()
+	if m.OnConnectionChange != nil {
+		m.OnConnectionChange(false)
+	}
+	if m.Emit != nil {
+		m.Emit("sync.status", map[string]any{"phase": "disconnected", "connected": false})
+	}
 	return m.Status(ctx)
+}
+
+func (m *Manager) IsConnected() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.client != nil
 }
 
 func (m *Manager) SyncNow(ctx context.Context) (*Status, error) {

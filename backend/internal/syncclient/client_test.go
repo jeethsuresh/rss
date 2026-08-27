@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +176,24 @@ func TestClientPushesAndPullsFeedOps(t *testing.T) {
 	var theme string
 	if err := localDB.SQL.QueryRow(`SELECT theme FROM settings WHERE id=1`).Scan(&theme); err != nil || theme != "light" {
 		t.Fatalf("settings did not materialize: theme=%q err=%v", theme, err)
+	}
+}
+
+func TestDoJSONAcceptsMultiMegabyteArticleDetails(t *testing.T) {
+	want := strings.Repeat("document", 400_000)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"content":%q}`, want)
+	})
+	client := &Client{HTTP: &http.Client{Transport: handlerTransport{handler: handler}}}
+	var response struct {
+		Content string `json:"content"`
+	}
+	if _, err := client.doJSON(context.Background(), http.MethodPost, "http://rss.test/v1/rpc", "", map[string]any{}, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Content != want {
+		t.Fatalf("decoded content length=%d want=%d", len(response.Content), len(want))
 	}
 }
 

@@ -21,11 +21,13 @@ import (
 )
 
 type Config struct {
-	ServerURL    string
-	Username     string
-	Password     string
-	AutoRegister bool
-	Interval     time.Duration
+	ServerURL        string
+	Username         string
+	Password         string
+	AutoRegister     bool
+	Interval         time.Duration
+	SessionToken     string
+	SessionExpiresAt time.Time
 }
 
 type Client struct {
@@ -44,10 +46,15 @@ func New(db *sqlite.DB, config Config, log *slog.Logger) *Client {
 	if config.Interval <= 0 {
 		config.Interval = 5 * time.Minute
 	}
-	return &Client{
+	client := &Client{
 		DB: db, Config: config, Log: log,
 		HTTP: &http.Client{Timeout: 90 * time.Second},
 	}
+	if config.SessionToken != "" {
+		client.token = config.SessionToken
+		client.tokenExpires = config.SessionExpiresAt
+	}
+	return client
 }
 
 func (c *Client) Run(ctx context.Context) {
@@ -90,8 +97,8 @@ type Result struct {
 
 func (c *Client) SyncOnce(ctx context.Context) (*Result, error) {
 	serverURL := strings.TrimRight(strings.TrimSpace(c.Config.ServerURL), "/")
-	if serverURL == "" || strings.TrimSpace(c.Config.Username) == "" || c.Config.Password == "" {
-		return nil, errors.New("sync requires server URL, username, and password")
+	if serverURL == "" || strings.TrimSpace(c.Config.Username) == "" {
+		return nil, errors.New("sync requires server URL and username")
 	}
 	token, err := c.login(ctx, serverURL)
 	if err != nil {
@@ -152,6 +159,9 @@ func (c *Client) login(ctx context.Context, serverURL string) (string, error) {
 		return token, nil
 	}
 	c.mu.Unlock()
+	if c.Config.Password == "" {
+		return "", errors.New("saved server session expired; log in again")
+	}
 	body := map[string]string{"username": c.Config.Username, "password": c.Config.Password}
 	var auth authResponse
 	status, err := c.doJSON(ctx, http.MethodPost, serverURL+"/v1/auth/login", "", body, &auth)
@@ -204,6 +214,12 @@ func (c *Client) clearToken() {
 	c.mu.Unlock()
 }
 
+func (c *Client) sessionToken() (string, time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.token, c.tokenExpires
+}
+
 func (c *Client) exchange(ctx context.Context, serverURL, token string, request serverstore.SyncRequest) (*serverstore.SyncResponse, error) {
 	var response serverstore.SyncResponse
 	status, err := c.doJSON(ctx, http.MethodPost, serverURL+"/v1/sync/feeds", token, request, &response)
@@ -226,6 +242,7 @@ func (c *Client) doJSON(ctx context.Context, method, url, token string, input, o
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-RSS-CSRF", "1")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -239,7 +256,14 @@ func (c *Client) doJSON(ctx context.Context, method, url, token string, input, o
 		return res.StatusCode, &remoteStatusError{Status: res.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}
 	if output != nil {
-		if err := json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(output); err != nil {
+		// Article details can legitimately contain multi-megabyte crawled pages.
+		// Keep a finite ceiling, but do not truncate ordinary server responses.
+		const maxResponseBytes = 64 << 20
+		limited := &io.LimitedReader{R: res.Body, N: maxResponseBytes + 1}
+		if err := json.NewDecoder(limited).Decode(output); err != nil {
+			if limited.N == 0 {
+				return res.StatusCode, fmt.Errorf("server response exceeds %d MiB", maxResponseBytes>>20)
+			}
 			return res.StatusCode, err
 		}
 	}

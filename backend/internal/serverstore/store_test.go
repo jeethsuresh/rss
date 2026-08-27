@@ -2,12 +2,15 @@ package serverstore
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/jeeth/rss-reader/backend/internal/domain"
 	"github.com/jeeth/rss-reader/backend/internal/storage/sqlite"
 )
 
@@ -139,6 +142,63 @@ func TestAdaptiveDelayRespondsToVolumeAndFailures(t *testing.T) {
 	}
 	if failed < 4*time.Hour || failures != 3 {
 		t.Fatalf("failure backoff not applied: delay=%s failures=%d", failed, failures)
+	}
+}
+
+func TestArticleListsExcludeLargeCrawledDocuments(t *testing.T) {
+	store, db := openTestStore(t)
+	ctx := context.Background()
+	userID := insertTestUser(t, db, "compact-list-user")
+	_, err := store.SyncFeeds(ctx, userID, SyncRequest{Ops: []FeedOp{{
+		OpID: "feed-op", FeedURL: "https://example.com/feed.xml", Present: true,
+		LogicalClock: 1, DeviceID: "test",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var feedID string
+	if err := db.SQL.QueryRow(`SELECT id FROM feeds WHERE url='https://example.com/feed.xml'`).Scan(&feedID); err != nil {
+		t.Fatal(err)
+	}
+	large := strings.Repeat("full page ", 300_000)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	articleID := uuid.NewString()
+	if _, err := db.SQL.Exec(`
+		INSERT INTO articles(
+		  id, feed_id, title, url, fingerprint, discovered_at, rss_content,
+		  crawled_content, live_content, reader_content
+		) VALUES (?, ?, 'Large article', 'https://example.com/large', 'large', ?,
+		          '<p>feed body</p>', ?, ?, ?)`, articleID, feedID, now, large, large, large); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := store.ListArticlesPage(ctx, userID, domain.ArticleQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Articles) != 1 {
+		t.Fatalf("articles=%d", len(page.Articles))
+	}
+	compact := page.Articles[0]
+	if compact.CrawledContent != "" || compact.LiveContent != "" || compact.ReaderContent != "" {
+		t.Fatal("list response included large document content")
+	}
+	if compact.RSSContent != "" {
+		t.Fatalf("list response included RSS document content: %q", compact.RSSContent)
+	}
+	encoded, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > 64<<10 {
+		t.Fatalf("compact article page is unexpectedly large: %d bytes", len(encoded))
+	}
+	full, err := store.GetArticle(ctx, userID, articleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.RSSContent != "<p>feed body</p>" || full.CrawledContent != large || full.ReaderContent != large {
+		t.Fatal("article detail did not preserve full content")
 	}
 }
 

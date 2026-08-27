@@ -310,6 +310,7 @@ func (s *Store) ListArticlesPage(ctx context.Context, userID string, q domain.Ar
 		}
 		article.IsRead = state.Read == 1
 		article.IsStarred = state.Starred == 1
+		compactListArticle(article)
 		articles = append(articles, *article)
 	}
 	return domain.ArticleListResult{Articles: articles, NextCursor: next}, nil
@@ -402,9 +403,26 @@ func (s *Store) ListReadLaterArticles(ctx context.Context, userID, filter, searc
 	}
 	out := make([]domain.Article, 0, len(items))
 	for i := range items {
-		out = append(out, *readLaterArticle(&items[i]))
+		article := readLaterArticle(&items[i])
+		compactListArticle(article)
+		out = append(out, *article)
 	}
 	return out, nil
+}
+
+// List responses stay compact so a page of crawled documents cannot exhaust
+// the desktop RPC transport. Full content is available from articles.get (or
+// articles.fetchLive for read-later entries) when the item becomes active.
+func compactListArticle(article *domain.Article) {
+	article.Content = ""
+	article.RSSContent = ""
+	article.CrawledContent = ""
+	article.LiveContent = ""
+	article.ReaderContent = ""
+	const maxSummaryBytes = 4 << 10
+	if len(article.Summary) > maxSummaryBytes {
+		article.Summary = article.Summary[:maxSummaryBytes]
+	}
 }
 
 func readLaterArticle(item *ReadLaterItem) *domain.Article {

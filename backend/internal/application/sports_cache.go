@@ -73,10 +73,16 @@ func (ss *SportsService) queueRefresh(key string, run func(context.Context) erro
 		return false
 	}
 	ss.emitRefresh(key, "started", "")
+	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ss.refreshMu.Lock()
+	if ss.refreshes == nil {
+		ss.refreshes = map[string]context.CancelFunc{}
+	}
+	ss.refreshes[key] = refreshCancel
+	ss.refreshMu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		defer cancel()
-		err := run(ctx)
+		defer refreshCancel()
+		err := run(refreshCtx)
 		ss.finishRefresh(context.Background(), key)
 		if err != nil {
 			ss.emitRefresh(key, "error", err.Error())
@@ -116,6 +122,7 @@ func (ss *SportsService) finishRefresh(ctx context.Context, key string) {
 	}
 	ss.refreshMu.Lock()
 	delete(ss.refreshing, key)
+	delete(ss.refreshes, key)
 	ss.refreshMu.Unlock()
 }
 

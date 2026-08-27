@@ -96,6 +96,9 @@ func (s *Server) Serve(ctx context.Context, in io.Reader) error {
 func (s *Server) Done() <-chan struct{} { return s.done }
 
 func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
+	if s.Sync != nil && s.Sync.IsConnected() && syncclient.IsAuthorityMethod(req.Method) {
+		return s.Sync.RPC(ctx, req.Method, req.Params)
+	}
 	switch req.Method {
 	case "system.ping":
 		return map[string]any{"ok": true, "version": s.svc.Version}, nil
@@ -298,6 +301,11 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, errSyncUnavailable
 		}
 		return s.Sync.Status(ctx)
+	case "sync.session.get":
+		if s.Sync == nil {
+			return nil, errSyncUnavailable
+		}
+		return s.Sync.Session()
 	case "sync.connect":
 		if s.Sync == nil {
 			return nil, errSyncUnavailable

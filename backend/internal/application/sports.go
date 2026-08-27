@@ -25,6 +25,7 @@ type SportsService struct {
 
 	refreshMu  sync.Mutex
 	refreshing map[string]bool
+	refreshes  map[string]context.CancelFunc
 	cacheOwner string
 }
 
@@ -42,6 +43,7 @@ func NewSportsService(
 		watching:   map[int]context.CancelFunc{},
 		f1Watching: map[int]context.CancelFunc{},
 		refreshing: map[string]bool{},
+		refreshes:  map[string]context.CancelFunc{},
 		cacheOwner: uuid.NewString(),
 	}
 }
@@ -323,6 +325,27 @@ func (ss *SportsService) stopWatch(gamePk int) {
 		cancel()
 		delete(ss.watching, gamePk)
 	}
+}
+
+// StopWatching cancels every desktop-owned live sports poller. Connected
+// desktop clients receive live data from the authority server instead.
+func (ss *SportsService) StopWatching() {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	for gamePk, cancel := range ss.watching {
+		cancel()
+		delete(ss.watching, gamePk)
+	}
+	for sessionKey, cancel := range ss.f1Watching {
+		cancel()
+		delete(ss.f1Watching, sessionKey)
+	}
+	ss.refreshMu.Lock()
+	for key, cancel := range ss.refreshes {
+		cancel()
+		delete(ss.refreshes, key)
+	}
+	ss.refreshMu.Unlock()
 }
 
 func (ss *SportsService) pollLoop(ctx context.Context, gamePk int) {
