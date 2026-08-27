@@ -1,6 +1,9 @@
 package serverstore
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type User struct {
 	ID       string    `json:"id"`
@@ -35,6 +38,29 @@ type SyncResponse struct {
 	Cursor  int64    `json:"cursor"`
 	HasMore bool     `json:"hasMore"`
 	Ops     []FeedOp `json:"ops"`
+}
+
+type StateOp struct {
+	Sequence        int64           `json:"sequence,omitempty"`
+	OpID            string          `json:"opId"`
+	Kind            string          `json:"kind"`
+	ObjectKey       string          `json:"objectKey"`
+	Payload         json.RawMessage `json:"payload"`
+	Present         bool            `json:"present"`
+	LogicalClock    int64           `json:"logicalClock"`
+	DeviceID        string          `json:"deviceId"`
+	ClientCreatedAt string          `json:"clientCreatedAt,omitempty"`
+}
+
+type StateSyncRequest struct {
+	Cursor int64     `json:"cursor"`
+	Ops    []StateOp `json:"ops"`
+}
+
+type StateSyncResponse struct {
+	Cursor  int64     `json:"cursor"`
+	HasMore bool      `json:"hasMore"`
+	Ops     []StateOp `json:"ops"`
 }
 
 type ArticleStatePatch struct {

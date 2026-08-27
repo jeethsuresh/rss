@@ -68,6 +68,9 @@ func (s *Store) CreateFolder(ctx context.Context, userID, name string) (*domain.
 	if err != nil {
 		return nil, err
 	}
+	if err := s.AppendState(ctx, userID, "folder", folder.ID, map[string]any{"name": folder.Name}, true); err != nil {
+		return nil, err
+	}
 	return folder, nil
 }
 
@@ -80,7 +83,7 @@ func (s *Store) DeleteFolder(ctx context.Context, userID, folderID string) error
 	if n == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	return s.AppendState(ctx, userID, "folder", folderID, map[string]any{}, false)
 }
 
 func (s *Store) AssignFolder(ctx context.Context, userID, folderID, feedID string, assigned bool) error {
@@ -104,7 +107,16 @@ func (s *Store) AssignFolder(ctx context.Context, userID, folderID, feedID strin
 			DELETE FROM user_feed_folders WHERE user_id=? AND folder_id=? AND feed_id=?`,
 			userID, folderID, feedID)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	var feedURL string
+	if err := s.db.SQL.QueryRowContext(ctx, `SELECT url FROM feeds WHERE id=?`, feedID).Scan(&feedURL); err != nil {
+		return err
+	}
+	return s.AppendState(ctx, userID, "folder_feed", folderID+"\n"+feedURL, map[string]any{
+		"folderId": folderID, "feedUrl": feedURL,
+	}, assigned)
 }
 
 func (s *Store) GetSettings(ctx context.Context, userID string) (*domain.Settings, error) {
@@ -117,10 +129,10 @@ func (s *Store) GetSettings(ctx context.Context, userID string) (*domain.Setting
 	settings := &domain.Settings{DefaultPollIntervalSeconds: 3600}
 	var markRead, notifications int
 	err = s.db.SQL.QueryRowContext(ctx, `
-		SELECT theme, article_density, default_sort, mark_read_on_open,
+		SELECT default_poll_interval_seconds, theme, article_density, default_sort, mark_read_on_open,
 		       notifications_enabled, read_later_chrome
 		FROM user_settings WHERE user_id=?`, userID).
-		Scan(&settings.Theme, &settings.ArticleDensity, &settings.DefaultSort, &markRead,
+		Scan(&settings.DefaultPollIntervalSeconds, &settings.Theme, &settings.ArticleDensity, &settings.DefaultSort, &markRead,
 			&notifications, &settings.ReadLaterChrome)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -156,14 +168,27 @@ func (s *Store) UpdateSettings(ctx context.Context, userID string, patch map[str
 	if value, ok := patch["readLaterChrome"].(string); ok && (value == "tabs" || value == "brandControl") {
 		settings.ReadLaterChrome = value
 	}
+	if value, ok := patch["defaultPollIntervalSeconds"].(float64); ok && value >= 60 && value <= 86400 {
+		settings.DefaultPollIntervalSeconds = int(value)
+	}
+	if value, ok := patch["defaultPollIntervalSeconds"].(int); ok && value >= 60 && value <= 86400 {
+		settings.DefaultPollIntervalSeconds = value
+	}
 	_, err = s.db.SQL.ExecContext(ctx, `
-		UPDATE user_settings SET theme=?, article_density=?, default_sort=?,
+		UPDATE user_settings SET default_poll_interval_seconds=?, theme=?, article_density=?, default_sort=?,
 			mark_read_on_open=?, notifications_enabled=?, read_later_chrome=?, updated_at=?
-		WHERE user_id=?`, settings.Theme, settings.ArticleDensity, settings.DefaultSort,
+		WHERE user_id=?`, settings.DefaultPollIntervalSeconds, settings.Theme, settings.ArticleDensity, settings.DefaultSort,
 		boolInt(settings.MarkReadOnOpen), boolInt(settings.NotificationsEnabled), settings.ReadLaterChrome,
 		formatTime(s.now()), userID)
 	if err != nil {
 		return nil, err
 	}
-	return s.GetSettings(ctx, userID)
+	result, err := s.GetSettings(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.AppendState(ctx, userID, "settings", "singleton", result, true); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

@@ -13,6 +13,11 @@ The server defaults to `127.0.0.1:8787` and `rss-server.db` in the current direc
 RSS_SERVER_REGISTRATION_ENABLED=true bun run server:dev
 ```
 
+Then open `http://127.0.0.1:8787`. The browser app redirects unauthenticated
+visitors to `/login`; while registration is enabled, the login screen can also
+create an account. The browser holds only an HttpOnly, SameSite session cookie.
+It uses the authenticated server RPC and event stream for every operation.
+
 Create an account while registration is enabled:
 
 ```bash
@@ -33,11 +38,40 @@ bun run server:build
 ./apps/desktop/resources/bin/rss-server -db ./rss-server.db -addr 127.0.0.1:8787
 ```
 
+## Run with Docker Compose
+
+The included Compose service builds the Go server, persists SQLite in a named
+volume, bundles the production web app, runs as an unprivileged user with all
+Linux capabilities dropped, and publishes only to host loopback by default:
+
+```bash
+docker compose up --build -d
+docker compose ps
+curl http://127.0.0.1:8787/healthz
+```
+
+Registration defaults to enabled in Compose so a new database can create its
+first account. After registering the intended users, set
+`RSS_SERVER_REGISTRATION_ENABLED=false` in a local `.env` file and recreate the
+container. Set `RSS_SERVER_BIND=0.0.0.0` only when a TLS reverse proxy or a
+trusted private network is protecting the port. When TLS terminates at a reverse
+proxy, also set `RSS_SERVER_COOKIE_SECURE=true`.
+
+Back up the database with SQLite's online backup mechanism from inside the
+volume; do not copy a live WAL database as independent files. To use a host
+directory instead, replace `rss-server-data:/data` with an absolute bind mount
+whose directory is writable by the container's `rss` user.
+
 ## Configuration
 
 - `RSS_SERVER_DB`: SQLite database path. Default: `rss-server.db`.
 - `RSS_SERVER_ADDR`: listen address. Default: `127.0.0.1:8787`.
 - `RSS_SERVER_REGISTRATION_ENABLED`: permit `POST /v1/auth/register`. Default: `false`.
+- `RSS_SERVER_WEB_DIR`: directory containing the built browser app. Docker sets
+  this to `/app/web`; local commands discover `apps/desktop/dist-renderer`
+  automatically.
+- `RSS_SERVER_COOKIE_SECURE`: mark browser session cookies HTTPS-only. Enable
+  this for TLS deployments.
 - `RSS_SERVER_AI_ENABLED`: enable server-wide AI triage and AI meta-story actions.
 - `RSS_SERVER_AI_BASE_URL`: OpenAI-compatible API base, such as `https://api.example.com/v1`.
 - `RSS_SERVER_AI_MODEL`: model identifier sent to the compatible API.
@@ -47,7 +81,26 @@ Deterministic meta-story clustering runs whether AI is enabled or not. When AI i
 enabled, every newly stored canonical article is queued once for the existing AI
 triage/meta-story workflow.
 
-## Desktop feed synchronization
+## Browser authority model
+
+The hosted web app reuses the desktop React interface but replaces Electron IPC
+with same-origin `POST /v1/rpc` calls. It never downloads upstream RSS or sports
+data directly, runs page extraction, or performs deterministic/AI grouping in
+the browser. Feed refreshes and recrawls only enqueue canonical server work;
+sports reads use the shared server cache; AI settings and actions remain
+server-wide. Server-sent events are reduced to tenant-safe invalidations, after
+which each browser reloads only data authorized for its account.
+
+The web endpoints are:
+
+- `GET /v1/web/config` and authenticated `GET /v1/web/session`
+- `POST /v1/web/login`, optionally `POST /v1/web/register`, and authenticated `POST /v1/web/logout`
+- Authenticated `POST /v1/rpc` and `GET /v1/events`
+
+Mutating browser requests require `X-RSS-CSRF: 1`; the server does not enable
+cross-origin access. Browser session tokens are never returned in response JSON.
+
+## Desktop synchronization
 
 The desktop remains local-first. Set these variables when launching it:
 
@@ -63,11 +116,16 @@ Optional client variables:
 - `RSS_SERVER_AUTO_REGISTER=true` attempts registration if login fails. The server must have registration enabled.
 - `RSS_SYNC_INTERVAL_SECONDS=300` changes the periodic sync interval; the minimum is 30 seconds.
 
-On migration, every existing local feed becomes a `present=true` event. Normal
-local feed creates and deletes are then captured by SQLite triggers. The client
-pushes unacknowledged events, pulls events after its cursor, and applies the
-winning event for each URL. Pulled changes are guarded so they do not echo as new
-local operations.
+On migration, existing local feeds and tenant-owned state become append-only
+events. Normal local creates, updates, and deletes are then captured by SQLite
+triggers. The client pushes unacknowledged events, pulls events after separate
+feed and state cursors, and applies the winning event for each object. Pulled
+changes are guarded so they do not echo as new local operations.
+
+Synchronized state includes feed membership, article read/star flags, Read Later
+links and flags, folders and folder assignments, reader settings, and followed
+MLB teams. Canonical feed content, crawled documents, sports payloads, and
+meta-stories stay shared on the server; tenant state remains isolated.
 
 The CRDT winner is the lexicographically greatest tuple:
 
@@ -100,7 +158,7 @@ Passwords use PBKDF2-HMAC-SHA256 with a random per-user salt and 600,000
 iterations.
 
 - `POST /v1/auth/register`, `POST /v1/auth/login`, `GET /v1/me`
-- `POST /v1/sync/feeds`, `GET /v1/feeds`
+- `POST /v1/sync/feeds`, `POST /v1/sync/state`, `GET /v1/feeds`
 - `GET /v1/articles`, `GET|PATCH /v1/articles/{id}`
 - `GET /v1/stories`, `PATCH /v1/stories/{id}`
 - Tenant folders under `/v1/folders` and preferences under `/v1/settings`
@@ -109,8 +167,3 @@ iterations.
 - Cached MLB routes under `/v1/sports/mlb/*`
 - Cached Formula 1 routes under `/v1/sports/f1/*`
 - `GET /v1/ai/status` and unauthenticated `GET /healthz`
-
-The current desktop sync intentionally covers feed membership only. The server
-already owns APIs and tenant storage for article state, Read Later, stories, and
-sports tracking, leaving those client sync adapters as follow-on work without a
-schema redesign.

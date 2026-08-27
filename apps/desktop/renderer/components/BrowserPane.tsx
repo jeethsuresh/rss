@@ -28,6 +28,7 @@ function normalizedUrl(value: string): string | null {
 }
 
 export function BrowserPane({ initialUrl, onClose, onSave }: Props) {
+  const supportsWebview = navigator.userAgent.includes("Electron");
   const webviewRef = useRef<WebviewElement | null>(null);
   const [url, setUrl] = useState(initialUrl);
   const [draft, setDraft] = useState(initialUrl);
@@ -80,7 +81,13 @@ export function BrowserPane({ initialUrl, onClose, onSave }: Props) {
       return;
     }
     setError(null);
-    void webviewRef.current?.loadURL(next);
+    if (supportsWebview) {
+      void webviewRef.current?.loadURL(next);
+    } else {
+      setUrl(next);
+      setDraft(next);
+      setLoading(false);
+    }
   };
 
   const save = async () => {
@@ -109,12 +116,23 @@ export function BrowserPane({ initialUrl, onClose, onSave }: Props) {
       </div>
       {error ? <div className="browser-error">{error}</div> : null}
       <div className="browser-surface">
-        {createElement("webview", {
-          ref: (node: WebviewElement | null) => { webviewRef.current = node; },
-          className: "browser-webview",
-          src: initialUrl,
-          allowpopups: "true",
-        })}
+        {supportsWebview
+          ? createElement("webview", {
+              ref: (node: WebviewElement | null) => {
+                webviewRef.current = node;
+              },
+              className: "browser-webview",
+              src: initialUrl,
+              allowpopups: "true",
+            })
+          : (
+              <div className="browser-web-fallback">
+                <p>For security, websites open in a separate browser tab in the web app.</p>
+                <a className="btn primary" href={url} target="_blank" rel="noreferrer">
+                  Open article
+                </a>
+              </div>
+            )}
       </div>
     </div>
   );

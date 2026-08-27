@@ -118,6 +118,149 @@ func TestReadLaterRemoveDeletesArticle(t *testing.T) {
 	}
 }
 
+func TestFeedDeleteCapturesFolderAssignmentTombstone(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feed := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/delete.xml", Title: "Delete",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	feeds := sqlite.NewFeedRepo(db)
+	if err := feeds.Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+	folder := &domain.Folder{ID: uuid.NewString(), Name: "Delete folder", CreatedAt: now}
+	folders := sqlite.NewFolderRepo(db)
+	if err := folders.Create(ctx, folder); err != nil {
+		t.Fatal(err)
+	}
+	if err := folders.AssignFeed(ctx, folder.ID, feed.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := feeds.Delete(ctx, feed.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var present int
+	err = db.SQL.QueryRowContext(ctx, `
+		SELECT present FROM local_state_sync_ops
+		WHERE kind='folder_feed' AND object_key=?
+		ORDER BY sequence DESC LIMIT 1`, folder.ID+"\n"+feed.URL).Scan(&present)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present != 0 {
+		t.Fatalf("expected folder assignment tombstone after feed delete, got present=%d", present)
+	}
+}
+
+func TestLocalStateClockOrdersRapidWrites(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.SQL.ExecContext(ctx, `INSERT INTO sports_followed_teams(team_id, created_at) VALUES (147, ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL.ExecContext(ctx, `DELETE FROM sports_followed_teams WHERE team_id=147`); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := db.SQL.QueryContext(ctx, `
+		SELECT logical_clock FROM local_state_sync_ops
+		WHERE kind='sports_team' AND object_key=?
+		ORDER BY sequence ASC`, "mlb\n147")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	clocks := []int64{}
+	for rows.Next() {
+		var clock int64
+		if err := rows.Scan(&clock); err != nil {
+			t.Fatal(err)
+		}
+		clocks = append(clocks, clock)
+	}
+	if len(clocks) != 2 || clocks[1] <= clocks[0] {
+		t.Fatalf("expected strictly increasing logical clocks, got %v", clocks)
+	}
+	var present int
+	if err := db.SQL.QueryRowContext(ctx, `
+		SELECT present FROM local_state_versions
+		WHERE kind='sports_team' AND object_key=?`, "mlb\n147").Scan(&present); err != nil {
+		t.Fatal(err)
+	}
+	if present != 0 {
+		t.Fatalf("expected the later delete to win, got present=%d", present)
+	}
+}
+
+func TestLocalFeedClockOrdersRapidRecreate(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feedURL := "https://example.com/recreate.xml"
+	feeds := sqlite.NewFeedRepo(db)
+	first := &domain.Feed{
+		ID: uuid.NewString(), URL: feedURL, Title: "First", PollIntervalSeconds: 3600,
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := feeds.Create(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := feeds.Delete(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	second := *first
+	second.ID = uuid.NewString()
+	second.Title = "Second"
+	if err := feeds.Create(ctx, &second); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := db.SQL.QueryContext(ctx, `
+		SELECT logical_clock FROM local_feed_sync_ops
+		WHERE feed_url=? ORDER BY sequence ASC`, feedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	clocks := []int64{}
+	for rows.Next() {
+		var clock int64
+		if err := rows.Scan(&clock); err != nil {
+			t.Fatal(err)
+		}
+		clocks = append(clocks, clock)
+	}
+	if len(clocks) != 3 || clocks[1] <= clocks[0] || clocks[2] <= clocks[1] {
+		t.Fatalf("expected strictly increasing feed clocks, got %v", clocks)
+	}
+	var present int
+	if err := db.SQL.QueryRowContext(ctx, `SELECT present FROM local_feed_versions WHERE feed_url=?`, feedURL).Scan(&present); err != nil {
+		t.Fatal(err)
+	}
+	if present != 1 {
+		t.Fatalf("expected rapid re-add to win, got present=%d", present)
+	}
+}
+
 func TestReadLaterUnreadCountExcludesArchivedArticles(t *testing.T) {
 	dir := t.TempDir()
 	db, err := sqlite.Open(filepath.Join(dir, "test.db"))

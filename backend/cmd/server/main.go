@@ -36,6 +36,7 @@ func main() {
 	dbPath := flag.String("db", defaultDB, "path to the server SQLite database")
 	addr := flag.String("addr", defaultAddr, "HTTP listen address")
 	registration := flag.Bool("registration", envBool("RSS_SERVER_REGISTRATION_ENABLED", false), "allow account registration")
+	webDir := flag.String("web-dir", env("RSS_SERVER_WEB_DIR", ""), "path to built web application assets")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -87,6 +88,11 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	events := httpapi.NewEventHub()
+	svc.Emit = events.Emit
+	crawlSvc.Emit = events.Emit
+	clusterSvc.Emit = events.Emit
+	sportsSvc.Emit = events.Emit
 	store := serverstore.New(db)
 	crawlSvc.Shared = store
 	crawlSvc.SharedOwner = "rss-server-" + strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -99,22 +105,31 @@ func main() {
 	crawlSvc.EnqueueAndKick(ctx)
 	go crawlSvc.BackfillExtracts(ctx)
 
+	resolvedWebDir := resolveWebDir(*webDir)
+	if resolvedWebDir == "" {
+		log.Warn("web application assets not found; API-only mode enabled")
+	}
 	handler := httpapi.New(store, svc, log, httpapi.Config{
 		RegistrationEnabled: *registration,
 		Version:             version,
+		Context:             ctx,
+		WebDir:              resolvedWebDir,
+		CookieSecure:        envBool("RSS_SERVER_COOKIE_SECURE", false),
+		Events:              events,
 	})
 	httpServer := &http.Server{
 		Addr:              *addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      2 * time.Minute,
-		IdleTimeout:       2 * time.Minute,
+		// Streaming browser events intentionally keep responses open.
+		WriteTimeout: 0,
+		IdleTimeout:  2 * time.Minute,
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("rss server started", "version", version, "addr", *addr, "db", *dbPath, "registration", *registration)
+		log.Info("rss server started", "version", version, "addr", *addr, "db", *dbPath, "registration", *registration, "webDir", resolvedWebDir)
 		errCh <- httpServer.ListenAndServe()
 	}()
 	select {
@@ -180,4 +195,31 @@ func envBool(name string, fallback bool) bool {
 		return fallback
 	}
 	return value
+}
+
+func resolveWebDir(configured string) string {
+	candidates := []string{}
+	if strings.TrimSpace(configured) != "" {
+		candidates = append(candidates, configured)
+	}
+	if executable, err := os.Executable(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(filepath.Dir(executable), "web"),
+			filepath.Join(filepath.Dir(executable), "..", "web"),
+		)
+	}
+	candidates = append(candidates,
+		filepath.Join("apps", "desktop", "dist-renderer"),
+		filepath.Join("..", "apps", "desktop", "dist-renderer"),
+	)
+	for _, candidate := range candidates {
+		absolute, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(absolute, "index.html")); err == nil && !info.IsDir() {
+			return absolute
+		}
+	}
+	return ""
 }

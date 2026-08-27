@@ -112,7 +112,22 @@ func (s *Store) SetArticleState(ctx context.Context, userID, articleID string, p
 	if err != nil {
 		return nil, err
 	}
-	return s.GetArticle(ctx, userID, articleID)
+	result, err := s.GetArticle(ctx, userID, articleID)
+	if err != nil {
+		return nil, err
+	}
+	var feedURL, fingerprint string
+	if err := s.db.SQL.QueryRowContext(ctx, `
+		SELECT f.url, a.fingerprint FROM articles a JOIN feeds f ON f.id=a.feed_id
+		WHERE a.id=?`, articleID).Scan(&feedURL, &fingerprint); err != nil {
+		return nil, err
+	}
+	if err := s.AppendState(ctx, userID, "article_state", articleStateKey(feedURL, fingerprint), map[string]any{
+		"isRead": result.IsRead, "isStarred": result.IsStarred,
+	}, true); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (s *Store) ListStories(ctx context.Context, userID string) ([]domain.Story, error) {

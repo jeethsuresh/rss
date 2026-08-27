@@ -120,23 +120,29 @@ func main() {
 	crawlSvc.Emit = server.Emit
 	clusterSvc.Emit = server.Emit
 	sportsSvc.Emit = server.Emit
-	if syncURL := strings.TrimSpace(os.Getenv("RSS_SERVER_URL")); syncURL != "" {
-		interval := 5 * time.Minute
-		if raw := strings.TrimSpace(os.Getenv("RSS_SYNC_INTERVAL_SECONDS")); raw != "" {
-			if seconds, err := strconv.Atoi(raw); err == nil && seconds >= 30 {
-				interval = time.Duration(seconds) * time.Second
-			}
+	interval := 5 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("RSS_SYNC_INTERVAL_SECONDS")); raw != "" {
+		if seconds, err := strconv.Atoi(raw); err == nil && seconds >= 30 {
+			interval = time.Duration(seconds) * time.Second
 		}
+	}
+	syncManager := syncclient.NewManager(db, log, interval)
+	syncManager.Emit = server.Emit
+	syncManager.Start(ctx)
+	server.Sync = syncManager
+	if syncURL := strings.TrimSpace(os.Getenv("RSS_SERVER_URL")); syncURL != "" {
 		autoRegister, _ := strconv.ParseBool(os.Getenv("RSS_SERVER_AUTO_REGISTER"))
-		syncer := syncclient.New(db, syncclient.Config{
-			ServerURL:    syncURL,
-			Username:     strings.TrimSpace(os.Getenv("RSS_SERVER_USERNAME")),
-			Password:     os.Getenv("RSS_SERVER_PASSWORD"),
-			AutoRegister: autoRegister,
-			Interval:     interval,
-		}, log)
-		syncer.Emit = server.Emit
-		go syncer.Run(ctx)
+		go func() {
+			_, err := syncManager.Connect(ctx, syncclient.ConnectRequest{
+				ServerURL: syncURL,
+				Username:  strings.TrimSpace(os.Getenv("RSS_SERVER_USERNAME")),
+				Password:  os.Getenv("RSS_SERVER_PASSWORD"),
+				Register:  autoRegister,
+			})
+			if err != nil {
+				log.Warn("initial server sync", "err", err)
+			}
+		}()
 	}
 	aiSvc.Resume(ctx)
 	crawlSvc.EnqueueAndKick(ctx)

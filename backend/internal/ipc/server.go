@@ -12,6 +12,7 @@ import (
 
 	"github.com/jeeth/rss-reader/backend/internal/application"
 	"github.com/jeeth/rss-reader/backend/internal/domain"
+	"github.com/jeeth/rss-reader/backend/internal/syncclient"
 )
 
 const ProtocolVersion = 1
@@ -41,6 +42,7 @@ type Server struct {
 	out  io.Writer
 	mu   sync.Mutex
 	done chan struct{}
+	Sync *syncclient.Manager
 }
 
 func NewServer(svc *application.Service, log *slog.Logger, out io.Writer) *Server {
@@ -291,6 +293,30 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 			return nil, domain.ErrInvalidParams
 		}
 		return s.svc.UpdateSettings(ctx, raw)
+	case "sync.status":
+		if s.Sync == nil {
+			return nil, errSyncUnavailable
+		}
+		return s.Sync.Status(ctx)
+	case "sync.connect":
+		if s.Sync == nil {
+			return nil, errSyncUnavailable
+		}
+		var p syncclient.ConnectRequest
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return nil, domain.ErrInvalidParams
+		}
+		return s.Sync.Connect(ctx, p)
+	case "sync.disconnect":
+		if s.Sync == nil {
+			return nil, errSyncUnavailable
+		}
+		return s.Sync.Disconnect(ctx)
+	case "sync.now":
+		if s.Sync == nil {
+			return nil, errSyncUnavailable
+		}
+		return s.Sync.SyncNow(ctx)
 	case "errors.record":
 		var p struct {
 			Source    string `json:"source"`
@@ -647,6 +673,7 @@ func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 }
 
 var errUnsupported = errors.New("unsupported method")
+var errSyncUnavailable = errors.New("sync is unavailable")
 
 func mapError(err error) *Error {
 	switch {
@@ -664,6 +691,10 @@ func mapError(err error) *Error {
 		return &Error{Code: "PARSE_ERROR", Message: err.Error()}
 	case errors.Is(err, errUnsupported):
 		return &Error{Code: "UNSUPPORTED_METHOD", Message: err.Error()}
+	case errors.Is(err, syncclient.ErrNotConnected):
+		return &Error{Code: "NOT_CONNECTED", Message: err.Error()}
+	case errors.Is(err, errSyncUnavailable):
+		return &Error{Code: "SYNC_UNAVAILABLE", Message: err.Error()}
 	default:
 		return &Error{Code: "INTERNAL", Message: err.Error()}
 	}

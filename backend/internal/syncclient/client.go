@@ -51,7 +51,7 @@ func New(db *sqlite.DB, config Config, log *slog.Logger) *Client {
 }
 
 func (c *Client) Run(ctx context.Context) {
-	c.syncAndReport(ctx)
+	_, _ = c.SyncAndReport(ctx)
 	ticker := time.NewTicker(c.Config.Interval)
 	defer ticker.Stop()
 	for {
@@ -59,28 +59,33 @@ func (c *Client) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.syncAndReport(ctx)
+			_, _ = c.SyncAndReport(ctx)
 		}
 	}
 }
 
-func (c *Client) syncAndReport(ctx context.Context) {
+func (c *Client) SyncAndReport(ctx context.Context) (*Result, error) {
 	c.emit("started", "")
 	result, err := c.SyncOnce(ctx)
 	if err != nil {
 		c.Log.Warn("feed sync", "err", err)
 		c.recordStatus(ctx, err)
 		c.emit("error", err.Error())
-		return
+		return nil, err
 	}
 	c.recordStatus(ctx, nil)
-	c.emit("finished", "", "pushed", result.Pushed, "pulled", result.Pulled, "cursor", result.Cursor)
+	c.emit("finished", "", "pushed", result.Pushed, "pulled", result.Pulled, "cursor", result.Cursor,
+		"statePushed", result.StatePushed, "statePulled", result.StatePulled, "stateCursor", result.StateCursor)
+	return result, nil
 }
 
 type Result struct {
-	Pushed int
-	Pulled int
-	Cursor int64
+	Pushed      int
+	Pulled      int
+	Cursor      int64
+	StatePushed int
+	StatePulled int
+	StateCursor int64
 }
 
 func (c *Client) SyncOnce(ctx context.Context) (*Result, error) {
@@ -96,20 +101,19 @@ func (c *Client) SyncOnce(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	pending, err := c.pendingOps(ctx, 1000)
-	if err != nil {
-		return nil, err
-	}
-	result := &Result{Pushed: len(pending), Cursor: cursor}
-	requestOps := pending
+	result := &Result{Cursor: cursor}
 	for {
-		response, err := c.exchange(ctx, serverURL, token, serverstore.SyncRequest{Cursor: result.Cursor, Ops: requestOps})
+		pending, err := c.pendingOps(ctx, 1000)
+		if err != nil {
+			return nil, err
+		}
+		response, err := c.exchange(ctx, serverURL, token, serverstore.SyncRequest{Cursor: result.Cursor, Ops: pending})
 		var statusErr *remoteStatusError
 		if errors.As(err, &statusErr) && statusErr.Status == http.StatusUnauthorized {
 			c.clearToken()
 			token, err = c.login(ctx, serverURL)
 			if err == nil {
-				response, err = c.exchange(ctx, serverURL, token, serverstore.SyncRequest{Cursor: result.Cursor, Ops: requestOps})
+				response, err = c.exchange(ctx, serverURL, token, serverstore.SyncRequest{Cursor: result.Cursor, Ops: pending})
 			}
 		}
 		if err != nil {
@@ -118,14 +122,20 @@ func (c *Client) SyncOnce(ctx context.Context) (*Result, error) {
 		if err := c.applyResponse(ctx, serverURL, pending, response); err != nil {
 			return nil, err
 		}
+		result.Pushed += len(pending)
 		result.Pulled += len(response.Ops)
 		result.Cursor = response.Cursor
-		pending = nil
-		requestOps = nil
-		if !response.HasMore {
+		if len(pending) == 0 && !response.HasMore {
 			break
 		}
 	}
+	stateResult, err := c.syncState(ctx, serverURL, token)
+	if err != nil {
+		return nil, err
+	}
+	result.StatePushed = stateResult.Pushed
+	result.StatePulled = stateResult.Pulled
+	result.StateCursor = stateResult.Cursor
 	return result, nil
 }
 
@@ -150,6 +160,9 @@ func (c *Client) login(ctx context.Context, serverURL string) (string, error) {
 		return auth.Token, nil
 	}
 	if !c.Config.AutoRegister || status != http.StatusUnauthorized {
+		if status == http.StatusUnauthorized {
+			return "", errors.New("invalid username or password")
+		}
 		if err != nil {
 			return "", err
 		}
@@ -158,6 +171,12 @@ func (c *Client) login(ctx context.Context, serverURL string) (string, error) {
 	auth = authResponse{}
 	status, err = c.doJSON(ctx, http.MethodPost, serverURL+"/v1/auth/register", "", body, &auth)
 	if err != nil {
+		if status == http.StatusConflict {
+			return "", errors.New("that username already exists")
+		}
+		if status == http.StatusForbidden {
+			return "", errors.New("account registration is disabled on this server")
+		}
 		return "", err
 	}
 	if status >= 300 || auth.Token == "" {

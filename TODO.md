@@ -94,7 +94,9 @@ Track phase completion and follow-ups. Check items as they land.
 - [x] Cross-process fetch leases and adaptive feed polling
 - [x] Append-only LWW feed-list sync on desktop startup and interval
 - [x] Server-wide deterministic clustering and environment-configured AI
-- [ ] Desktop sync adapters for article state, Read Later, folders/settings, and sports teams
+- [x] Desktop sync adapters for article state, Read Later, folders/settings, and sports teams
+- [x] Docker image and hardened Compose deployment
+- [x] Login-gated hosted web app with server-authoritative feeds, crawls, stories/AI, Read Later, and sports
 
 
 

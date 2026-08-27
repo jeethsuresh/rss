@@ -10,6 +10,7 @@ import type {
   MlbTeam,
   ReaderBackend,
   Settings,
+  SyncStatus,
 } from "@rss-reader/shared";
 import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 
@@ -20,10 +21,10 @@ type Props = {
   onClose: () => void;
   onOpenArticle: (articleId: string) => Promise<void>;
   applyTheme: (theme: Settings["theme"]) => void;
-  initialSection?: "general" | "feeds" | "ai" | "sports" | "errors";
+  initialSection?: "server" | "general" | "feeds" | "ai" | "sports" | "errors";
 };
 
-type SettingsSection = "general" | "feeds" | "ai" | "sports" | "errors";
+type SettingsSection = "server" | "general" | "feeds" | "ai" | "sports" | "errors";
 
 export function SettingsPage({
   backend,
@@ -54,6 +55,12 @@ export function SettingsPage({
   const [mlbTeams, setMlbTeams] = useState<MlbTeam[]>([]);
   const [followedIds, setFollowedIds] = useState<number[]>([]);
   const [teamFilter, setTeamFilter] = useState("");
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [serverUrl, setServerUrl] = useState("http://127.0.0.1:8787");
+  const [serverUsername, setServerUsername] = useState("");
+  const [serverPassword, setServerPassword] = useState("");
+  const [serverBusy, setServerBusy] = useState<"login" | "register" | "sync" | "disconnect" | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const [pollDraft, setPollDraft] = useState(String(settings.defaultPollIntervalSeconds));
   const [aiBaseUrlDraft, setAiBaseUrlDraft] = useState(settings.aiBaseUrl);
@@ -82,6 +89,11 @@ export function SettingsPage({
     void reloadFeeds();
     void backend.ai.status().then(setAiStatus).catch(() => undefined);
     void backend.ai.logs(200).then(setAiLogs).catch(() => undefined);
+    void backend.sync?.status().then((status) => {
+      setSyncStatus(status);
+      if (status.serverUrl) setServerUrl(status.serverUrl);
+      if (status.username) setServerUsername(status.username);
+    }).catch(() => undefined);
   }, [backend, reloadFeeds]);
 
   useEffect(() => {
@@ -134,11 +146,13 @@ export function SettingsPage({
         case "article.updated":
         case "article.removed":
         case "story.updated":
-        case "sync.status":
         case "sports.game.updated":
         case "sports.f1.race.updated":
         case "sports.refresh":
         case "sports.cache.updated":
+          break;
+        case "sync.status":
+          void backend.sync?.status().then(setSyncStatus).catch(() => undefined);
           break;
         default: {
           const _exhaustive: never = name;
@@ -223,6 +237,57 @@ export function SettingsPage({
     }
   };
 
+  const connectServer = async (register: boolean) => {
+    if (!backend.sync) return;
+    setServerError(null);
+    setServerBusy(register ? "register" : "login");
+    try {
+      const status = await backend.sync.connect({
+        serverUrl: serverUrl.trim(),
+        username: serverUsername.trim(),
+        password: serverPassword,
+        register,
+      });
+      setSyncStatus(status);
+      setServerPassword("");
+      await reloadFeeds();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message.replace(/^[A-Z_]+:\s*/, "") : "Unable to connect";
+      setServerError(message || "Unable to connect");
+    } finally {
+      setServerBusy(null);
+    }
+  };
+
+  const syncNow = async () => {
+    if (!backend.sync) return;
+    setServerError(null);
+    setServerBusy("sync");
+    try {
+      setSyncStatus(await backend.sync.now());
+      await reloadFeeds();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message.replace(/^[A-Z_]+:\s*/, "") : "Unable to sync";
+      setServerError(message || "Unable to sync");
+    } finally {
+      setServerBusy(null);
+    }
+  };
+
+  const disconnectServer = async () => {
+    if (!backend.sync) return;
+    setServerError(null);
+    setServerBusy("disconnect");
+    try {
+      setSyncStatus(await backend.sync.disconnect());
+      setServerPassword("");
+    } catch {
+      setServerError("Unable to disconnect");
+    } finally {
+      setServerBusy(null);
+    }
+  };
+
 
   const filtered = feeds.filter((f) => {
     if (f.isReadLater) return false;
@@ -245,12 +310,13 @@ export function SettingsPage({
         <nav className="settings-nav">
           {(
             [
+              ...(backend.sync ? [["server", "Server"]] : []),
               ["general", "General"],
               ["feeds", "Feeds"],
               ["sports", "Sports"],
               ["ai", "AI"],
               ["errors", "Errors"],
-            ] as const
+            ] as Array<[SettingsSection, string]>
           ).map(([id, label]) => (
             <button
               key={id}
@@ -265,6 +331,104 @@ export function SettingsPage({
 
         <div className="settings-body">
           {error && <p className="error">{error}</p>}
+
+          {section === "server" && backend.sync && (
+            <section className="settings-section">
+              <h2>Server sync</h2>
+              <p className="muted">
+                Connect this desktop to your RSS server. Feeds, read-later items, preferences, and
+                tracked sports teams synchronize after sign-in.
+              </p>
+
+              <div className={`server-connection-status ${syncStatus?.connected ? "connected" : ""}`}>
+                <span className="status-dot" aria-hidden />
+                <div>
+                  <strong>{syncStatus?.connected ? "Connected" : "Not connected"}</strong>
+                  {syncStatus?.connected ? (
+                    <div className="muted">
+                      {syncStatus.username} · {syncStatus.serverUrl}
+                    </div>
+                  ) : null}
+                  {syncStatus?.lastSyncAt ? (
+                    <div className="muted">Last synced {new Date(syncStatus.lastSyncAt).toLocaleString()}</div>
+                  ) : null}
+                </div>
+              </div>
+
+              {!syncStatus?.connected ? (
+                <form
+                  className="server-login-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void connectServer(false);
+                  }}
+                >
+                  <label className="field field-wide">
+                    Server URL
+                    <input
+                      type="url"
+                      inputMode="url"
+                      autoComplete="url"
+                      spellCheck={false}
+                      value={serverUrl}
+                      onChange={(event) => setServerUrl(event.target.value)}
+                      placeholder="https://reader.example.com"
+                      required
+                    />
+                  </label>
+                  <label className="field field-wide">
+                    Username
+                    <input
+                      autoComplete="username"
+                      value={serverUsername}
+                      onChange={(event) => setServerUsername(event.target.value)}
+                      minLength={3}
+                      required
+                    />
+                  </label>
+                  <label className="field field-wide">
+                    Password
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={serverPassword}
+                      onChange={(event) => setServerPassword(event.target.value)}
+                      minLength={10}
+                      required
+                    />
+                  </label>
+                  {serverError ? <p className="error" role="alert">{serverError}</p> : null}
+                  <div className="settings-row">
+                    <button type="submit" className="btn primary" disabled={serverBusy !== null}>
+                      {serverBusy === "login" ? "Signing in…" : "Sign in"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={serverBusy !== null}
+                      onClick={() => void connectServer(true)}
+                    >
+                      {serverBusy === "register" ? "Creating account…" : "Create account"}
+                    </button>
+                  </div>
+                  <p className="muted">The password stays in memory while the desktop app is running.</p>
+                </form>
+              ) : (
+                <div>
+                  {serverError ? <p className="error" role="alert">{serverError}</p> : null}
+                  {syncStatus.lastError ? <p className="error">Last sync failed: {syncStatus.lastError}</p> : null}
+                  <div className="settings-row">
+                    <button type="button" className="btn primary" disabled={serverBusy !== null} onClick={() => void syncNow()}>
+                      {serverBusy === "sync" ? "Syncing…" : "Sync now"}
+                    </button>
+                    <button type="button" className="btn" disabled={serverBusy !== null} onClick={() => void disconnectServer()}>
+                      {serverBusy === "disconnect" ? "Disconnecting…" : "Disconnect"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
           {section === "general" && (
             <section className="settings-section">

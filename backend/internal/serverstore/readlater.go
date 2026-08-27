@@ -43,7 +43,14 @@ func (s *Store) AddReadLater(ctx context.Context, userID, rawURL string) (*ReadL
 	if err := s.db.SQL.QueryRowContext(ctx, `SELECT id FROM user_read_later WHERE user_id=? AND document_id=?`, userID, documentID).Scan(&entryID); err != nil {
 		return nil, err
 	}
-	return s.GetReadLater(ctx, userID, entryID)
+	item, err := s.GetReadLater(ctx, userID, entryID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.appendReadLaterState(ctx, userID, item, true); err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (s *Store) ListReadLater(ctx context.Context, userID, filter, search string, limit int) ([]ReadLaterItem, error) {
@@ -144,10 +151,21 @@ func (s *Store) SetReadLaterState(ctx context.Context, userID, entryID string, p
 	if n == 0 {
 		return nil, domain.ErrNotFound
 	}
-	return s.GetReadLater(ctx, userID, entryID)
+	result, err := s.GetReadLater(ctx, userID, entryID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.appendReadLaterState(ctx, userID, result, true); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (s *Store) DeleteReadLater(ctx context.Context, userID, entryID string) error {
+	item, err := s.GetReadLater(ctx, userID, entryID)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.SQL.ExecContext(ctx, `DELETE FROM user_read_later WHERE id=? AND user_id=?`, entryID, userID)
 	if err != nil {
 		return err
@@ -156,7 +174,18 @@ func (s *Store) DeleteReadLater(ctx context.Context, userID, entryID string) err
 	if n == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	return s.appendReadLaterState(ctx, userID, item, false)
+}
+
+func (s *Store) appendReadLaterState(ctx context.Context, userID string, item *ReadLaterItem, present bool) error {
+	archivedAt := ""
+	if item.ArchivedAt != nil {
+		archivedAt = formatTime(*item.ArchivedAt)
+	}
+	return s.AppendState(ctx, userID, "read_later", item.URL, map[string]any{
+		"title": item.Title, "isRead": item.IsRead, "isStarred": item.IsStarred,
+		"archivedAt": archivedAt,
+	}, present)
 }
 
 func scanReadLater(row interface{ Scan(...any) error }) (ReadLaterItem, error) {

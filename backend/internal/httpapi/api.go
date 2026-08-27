@@ -21,6 +21,10 @@ import (
 type Config struct {
 	RegistrationEnabled bool
 	Version             string
+	Context             context.Context
+	WebDir              string
+	CookieSecure        bool
+	Events              *EventHub
 }
 
 type API struct {
@@ -28,6 +32,8 @@ type API struct {
 	svc      *application.Service
 	log      *slog.Logger
 	cfg      Config
+	ctx      context.Context
+	events   *EventHub
 	start    time.Time
 	limitMu  sync.Mutex
 	attempts map[string]authAttempts
@@ -41,14 +47,28 @@ type authAttempts struct {
 type userContextKey struct{}
 
 func New(store *serverstore.Store, svc *application.Service, log *slog.Logger, cfg Config) http.Handler {
-	a := &API{store: store, svc: svc, log: log, cfg: cfg, start: time.Now().UTC(), attempts: map[string]authAttempts{}}
+	if cfg.Context == nil {
+		cfg.Context = context.Background()
+	}
+	if cfg.Events == nil {
+		cfg.Events = NewEventHub()
+	}
+	a := &API{store: store, svc: svc, log: log, cfg: cfg, ctx: cfg.Context, events: cfg.Events, start: time.Now().UTC(), attempts: map[string]authAttempts{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("POST /v1/auth/register", a.register)
 	mux.HandleFunc("POST /v1/auth/login", a.login)
+	mux.HandleFunc("GET /v1/web/config", a.webConfig)
+	mux.HandleFunc("POST /v1/web/register", a.webRegister)
+	mux.HandleFunc("POST /v1/web/login", a.webLogin)
 
 	mux.Handle("GET /v1/me", a.auth(http.HandlerFunc(a.me)))
+	mux.Handle("GET /v1/web/session", a.auth(http.HandlerFunc(a.webSession)))
+	mux.Handle("POST /v1/web/logout", a.auth(a.requireCSRF(http.HandlerFunc(a.webLogout))))
+	mux.Handle("POST /v1/rpc", a.auth(a.requireCSRF(http.HandlerFunc(a.rpc))))
+	mux.Handle("GET /v1/events", a.auth(http.HandlerFunc(a.eventStream)))
 	mux.Handle("POST /v1/sync/feeds", a.auth(http.HandlerFunc(a.syncFeeds)))
+	mux.Handle("POST /v1/sync/state", a.auth(http.HandlerFunc(a.syncState)))
 	mux.Handle("GET /v1/feeds", a.auth(http.HandlerFunc(a.listFeeds)))
 	mux.Handle("GET /v1/articles", a.auth(http.HandlerFunc(a.listArticles)))
 	mux.Handle("GET /v1/articles/{id}", a.auth(http.HandlerFunc(a.getArticle)))
@@ -83,6 +103,9 @@ func New(store *serverstore.Store, svc *application.Service, log *slog.Logger, c
 	mux.Handle("GET /v1/sports/f1/races/{id}", a.auth(http.HandlerFunc(a.f1Race)))
 	mux.Handle("GET /v1/sports/f1/standings", a.auth(http.HandlerFunc(a.f1Standings)))
 	mux.Handle("GET /v1/ai/status", a.auth(http.HandlerFunc(a.aiStatus)))
+	if cfg.WebDir != "" {
+		mux.Handle("GET /", a.webApp())
+	}
 
 	return requestLogger(log, securityHeaders(mux))
 }
@@ -160,19 +183,32 @@ type credentials struct {
 
 func (a *API) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		header := strings.TrimSpace(r.Header.Get("Authorization"))
-		parts := strings.SplitN(header, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", errors.New("bearer token required"))
+		token := bearerToken(r)
+		if token == "" {
+			if cookie, err := r.Cookie(webSessionCookie); err == nil {
+				token = strings.TrimSpace(cookie.Value)
+			}
+		}
+		if token == "" {
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", errors.New("session required"))
 			return
 		}
-		user, err := a.store.Authenticate(r.Context(), strings.TrimSpace(parts[1]))
+		user, err := a.store.Authenticate(r.Context(), token)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", err)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, user)))
 	})
+}
+
+func bearerToken(r *http.Request) string {
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		return strings.TrimSpace(parts[1])
+	}
+	return ""
 }
 
 func currentUser(ctx context.Context) *serverstore.User {
@@ -191,6 +227,20 @@ func (a *API) syncFeeds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := a.store.SyncFeeds(r.Context(), currentUser(r.Context()).ID, body)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) syncState(w http.ResponseWriter, r *http.Request) {
+	var body serverstore.StateSyncRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", err)
+		return
+	}
+	result, err := a.store.SyncState(r.Context(), currentUser(r.Context()).ID, body)
 	if err != nil {
 		writeDomainError(w, err)
 		return
@@ -454,7 +504,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		if strings.HasPrefix(r.URL.Path, "/v1/auth/") {
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+		if strings.HasPrefix(r.URL.Path, "/v1/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)

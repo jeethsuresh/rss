@@ -85,6 +85,12 @@ const api: ReaderBackend = {
     get: () => request("settings.get"),
     update: (patch) => request("settings.update", patch),
   },
+  sync: {
+    status: () => request("sync.status"),
+    connect: (params) => request("sync.connect", params),
+    disconnect: () => request("sync.disconnect"),
+    now: () => request("sync.now"),
+  },
   ai: {
     test: () => request("ai.test"),
     scan: (window) => request("ai.scan", { window }),

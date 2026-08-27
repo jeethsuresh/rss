@@ -143,19 +143,19 @@ type Settings struct {
 }
 
 type ArticleQuery struct {
-	FeedID           string
-	FolderID         string
-	UnreadOnly       bool
-	StarredOnly      bool
-	Search           string
-	Limit            int
-	Cursor           string
-	DefaultSort      string
-	Since            *time.Time
-	ReadLaterOnly    bool
-	ArchivedOnly     bool
-	ExcludeArchived  bool
-	ExcludeReadLater bool
+	FeedID           string     `json:"feedId"`
+	FolderID         string     `json:"folderId"`
+	UnreadOnly       bool       `json:"unreadOnly"`
+	StarredOnly      bool       `json:"starredOnly"`
+	Search           string     `json:"search"`
+	Limit            int        `json:"limit"`
+	Cursor           string     `json:"cursor"`
+	DefaultSort      string     `json:"defaultSort"`
+	Since            *time.Time `json:"since"`
+	ReadLaterOnly    bool       `json:"readLaterOnly"`
+	ArchivedOnly     bool       `json:"archivedOnly"`
+	ExcludeArchived  bool       `json:"excludeArchived"`
+	ExcludeReadLater bool       `json:"excludeReadLater"`
 }
 
 type ArticleListResult struct {

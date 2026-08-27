@@ -2,7 +2,7 @@ import type { BackendEvent, ReaderBackend } from "@rss-reader/shared";
 
 declare global {
   interface Window {
-    rss: ReaderBackend;
+    rss?: ReaderBackend;
     desktop: {
       openExternal: (url: string) => Promise<void>;
       notify: (title: string, body: string) => Promise<boolean>;

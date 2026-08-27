@@ -3,13 +3,14 @@ import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared
 import { PageFrame } from "../components/PageFrame";
 import { ReaderBody } from "../components/ReaderBody";
 import { BrowserPane } from "../components/BrowserPane";
-import { formatRelativeTime, stripHtml, decodeHtmlEntities } from "../lib/html";
+import { formatRelativeTime, stripHtml, decodeHtmlEntities, sanitizeArticleHtml } from "../lib/html";
 import { isFullBleedTab, type ContentTab } from "../lib/readerMode";
 import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 import { scrollListRowToTop } from "../lib/listScroll";
 
 type Props = {
   backend: ReaderBackend;
+  serverAuthoritative?: boolean;
   search: string;
   unreadCount: number;
   focusArticleId?: string | null;
@@ -31,7 +32,14 @@ const FILTERS: { id: ReadLaterFilter; label: string }[] = [
   { id: "archived", label: "Archived" },
 ];
 
-export function ReadLaterView({ backend, search, unreadCount, focusArticleId, onFocusConsumed }: Props) {
+export function ReadLaterView({
+  backend,
+  serverAuthoritative = false,
+  search,
+  unreadCount,
+  focusArticleId,
+  onFocusConsumed,
+}: Props) {
   const [filter, setFilter] = useState<ReadLaterFilter>("all");
   const [articles, setArticles] = useState<Article[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -164,7 +172,7 @@ export function ReadLaterView({ backend, search, unreadCount, focusArticleId, on
       statusMessage = "No crawled page yet.";
     }
 
-    if (bodyHtml) {
+    if (bodyHtml && !serverAuthoritative) {
       return (
         <div className="reader-page-wrap">
           <PageFrame
@@ -173,6 +181,23 @@ export function ReadLaterView({ backend, search, unreadCount, focusArticleId, on
             title={decodeHtmlEntities(article.title || "Article page")}
           />
         </div>
+      );
+    }
+
+    if (bodyHtml) {
+      return (
+        <div
+          className="reader-body"
+          onClick={(event) => {
+            const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
+            if (!anchor) return;
+            const url = new URL(anchor.getAttribute("href") || "", article.url).href;
+            if (!/^https?:\/\//i.test(url)) return;
+            event.preventDefault();
+            setBrowserUrl(url);
+          }}
+          dangerouslySetInnerHTML={{ __html: sanitizeArticleHtml(bodyHtml) }}
+        />
       );
     }
 

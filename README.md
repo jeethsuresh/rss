@@ -10,6 +10,7 @@ See [docs/architecture.md](docs/architecture.md) and [docs/future-server.md](doc
 
 ```text
 React UI → preload API → Electron main → stdin/stdout JSON-RPC → Go → SQLite
+Hosted React UI → cookie-authenticated same-origin RPC → Go server → SQLite
 ```
 
 ## Prerequisites
@@ -62,8 +63,19 @@ RSS_SERVER_REGISTRATION_ENABLED=true bun run server:dev
 bun run server:build
 ```
 
+Or build and run the deployable container:
+
+```bash
+docker compose up --build -d
+curl http://127.0.0.1:8787/healthz
+```
+
+Open `http://127.0.0.1:8787` for the login-gated web app. It uses the server as
+the sole authority for feeds, crawls, story grouping/AI, Read Later, and sports.
+
 See [docs/server.md](docs/server.md) for authentication, fetch deduplication,
-adaptive scheduling, AI environment variables, APIs, and desktop feed sync.
+adaptive scheduling, AI environment variables, APIs, container hardening, and
+desktop synchronization.
 
 ## Packaging
 

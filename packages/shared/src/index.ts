@@ -145,6 +145,21 @@ export interface Settings {
   readLaterChrome?: "tabs" | "brandControl";
 }
 
+export interface SyncStatus {
+  connected: boolean;
+  serverUrl: string;
+  username: string;
+  lastSyncAt?: string;
+  lastError?: string;
+}
+
+export interface SyncConnectRequest {
+  serverUrl: string;
+  username: string;
+  password: string;
+  register?: boolean;
+}
+
 export type ReadLaterFilter = "all" | "unread" | "starred" | "archived";
 
 export interface AIStatus {
@@ -597,6 +612,12 @@ export interface ReaderBackend {
     get(): Promise<Settings>;
     update(patch: Partial<Settings>): Promise<Settings>;
   };
+  sync?: {
+    status(): Promise<SyncStatus>;
+    connect(request: SyncConnectRequest): Promise<SyncStatus>;
+    disconnect(): Promise<SyncStatus>;
+    now(): Promise<SyncStatus>;
+  };
   ai: {
     test(): Promise<AITestResult>;
     scan(window: "24h" | "7d" | "missed"): Promise<{ queued: boolean; status: AIStatus }>;
@@ -679,6 +700,10 @@ export const RPC_METHODS = [
   "folders.unassignFeed",
   "settings.get",
   "settings.update",
+  "sync.status",
+  "sync.connect",
+  "sync.disconnect",
+  "sync.now",
   "ai.test",
   "ai.scan",
   "ai.status",

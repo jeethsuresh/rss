@@ -179,6 +179,15 @@ func (s *Store) ListFeeds(ctx context.Context, userID string) ([]domain.Feed, er
 		if err != nil {
 			return nil, err
 		}
+		var enabled int
+		err = s.db.SQL.QueryRowContext(ctx, `
+			SELECT enabled, poll_interval_seconds FROM user_feeds
+			WHERE user_id=? AND feed_id=? AND present=1`, userID, id).
+			Scan(&enabled, &feed.PollIntervalSeconds)
+		if err != nil {
+			return nil, err
+		}
+		feed.Enabled = enabled == 1
 		err = s.db.SQL.QueryRowContext(ctx, `
 			SELECT COUNT(1)
 			FROM articles a

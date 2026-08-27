@@ -24,7 +24,8 @@ func (s *Store) ClaimDueFeed(ctx context.Context, owner string, lease time.Durat
 		  AND fs.next_fetch_at <= ?
 		  AND (fs.lease_until IS NULL OR fs.lease_until <= ?)
 		  AND EXISTS (
-		    SELECT 1 FROM user_feeds uf WHERE uf.feed_id=fs.feed_id AND uf.present=1
+		    SELECT 1 FROM user_feeds uf
+		    WHERE uf.feed_id=fs.feed_id AND uf.present=1 AND uf.enabled=1
 		  )
 		ORDER BY fs.next_fetch_at ASC
 		LIMIT 1`, formatTime(now), formatTime(now)).Scan(&feedID)

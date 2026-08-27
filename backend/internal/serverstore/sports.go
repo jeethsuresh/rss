@@ -46,6 +46,10 @@ func (s *Store) SetFollowedTeams(ctx context.Context, userID, sport string, team
 		seen[id] = true
 		clean = append(clean, id)
 	}
+	previous, err := s.FollowedTeams(ctx, userID, sport)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.db.SQL.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -65,5 +69,27 @@ func (s *Store) SetFollowedTeams(ctx context.Context, userID, sport string, team
 		return nil, err
 	}
 	sort.Strings(clean)
+	for _, id := range previous {
+		if !seen[id] {
+			if err := s.AppendState(ctx, userID, "sports_team", sportsTeamKey(sport, id), map[string]any{
+				"sport": sport, "teamId": id,
+			}, false); err != nil {
+				return nil, err
+			}
+		}
+	}
+	previousSet := map[string]bool{}
+	for _, id := range previous {
+		previousSet[id] = true
+	}
+	for _, id := range clean {
+		if !previousSet[id] {
+			if err := s.AppendState(ctx, userID, "sports_team", sportsTeamKey(sport, id), map[string]any{
+				"sport": sport, "teamId": id,
+			}, true); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return clean, nil
 }

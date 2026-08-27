@@ -6,6 +6,7 @@ import type {
   Feed,
   Folder,
   Priority,
+  ReaderBackend,
   Settings,
   Story,
 } from "@rss-reader/shared";
@@ -64,7 +65,7 @@ type Selection =
 
 type AppMode = "rss" | "readLater" | "sports";
 type View = "reader" | "settings";
-type SettingsSection = "general" | "feeds" | "ai" | "sports" | "errors";
+type SettingsSection = "server" | "general" | "feeds" | "ai" | "sports" | "errors";
 type RssListFilter = "all" | "unread";
 
 function priorityBadgeLabel(priority: Priority): string | null {
@@ -92,14 +93,21 @@ function PriorityBadge({ priority }: { priority: Priority }) {
   return <span className={cls}>{label}</span>;
 }
 
-export function App() {
+export function App({
+  backend: providedBackend,
+  serverAuthoritative = false,
+}: {
+  backend?: ReaderBackend;
+  serverAuthoritative?: boolean;
+} = {}) {
   const backend = useMemo(() => {
+    if (providedBackend) return providedBackend;
     try {
       return getBackend();
     } catch {
       return null;
     }
-  }, []);
+  }, [providedBackend]);
 
   if (!backend) {
     return (
@@ -112,10 +120,10 @@ export function App() {
     );
   }
 
-  return <AppMain backend={backend} />;
+  return <AppMain backend={backend} serverAuthoritative={serverAuthoritative} />;
 }
 
-function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBackend>> }) {
+function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; serverAuthoritative: boolean }) {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
@@ -349,7 +357,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       try {
         await backend.system.ping();
         await Promise.all([loadFeeds(), loadStories()]);
-        void drainPendingExtracts(backend);
+        if (!serverAuthoritative) void drainPendingExtracts(backend);
       } catch (e) {
         setError(GENERIC_ERROR_MESSAGE);
       }
@@ -428,7 +436,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
             void loadStories();
           }
           if (payload.articleId) {
-            if (payload.extractStatus === "js") {
+            if (payload.extractStatus === "js" && !serverAuthoritative) {
               void runFrontendExtract(backend, payload.articleId);
             }
             setArticles((prev) =>
@@ -1041,7 +1049,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       statusMessage = "No crawled page available.";
     }
 
-    if (bodyHtml && asFullPage) {
+    if (bodyHtml && asFullPage && !serverAuthoritative) {
       return (
         <div className="reader-page-wrap">
           <PageFrame
@@ -1500,6 +1508,7 @@ function AppMain({ backend }: { backend: NonNullable<ReturnType<typeof getBacken
       {appMode === "readLater" ? (
         <ReadLaterView
           backend={backend}
+          serverAuthoritative={serverAuthoritative}
           search={rlSearch}
           unreadCount={readLaterUnread}
           focusArticleId={readLaterFocusId}

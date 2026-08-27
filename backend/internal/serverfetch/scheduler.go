@@ -64,4 +64,9 @@ func (s *FeedScheduler) runOne(ctx context.Context, owner string) {
 	if completeErr != nil {
 		s.Log.Error("complete feed fetch", "feedId", claim.FeedID, "err", completeErr)
 	}
+	if fetchErr == nil {
+		if err := s.Store.MaterializeAllState(ctx); err != nil {
+			s.Log.Error("materialize synchronized article state", "feedId", claim.FeedID, "err", err)
+		}
+	}
 }

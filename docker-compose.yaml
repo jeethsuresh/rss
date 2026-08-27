@@ -1,0 +1,37 @@
+services:
+  rss-server:
+    image: rss-reader-server:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${RSS_SERVER_BIND:-127.0.0.1}:${RSS_SERVER_PORT:-8787}:8787"
+    environment:
+      RSS_SERVER_ADDR: 0.0.0.0:8787
+      RSS_SERVER_DB: /data/rss-server.db
+      RSS_SERVER_REGISTRATION_ENABLED: "${RSS_SERVER_REGISTRATION_ENABLED:-true}"
+      RSS_SERVER_COOKIE_SECURE: "${RSS_SERVER_COOKIE_SECURE:-false}"
+      RSS_SERVER_AI_ENABLED: "${RSS_SERVER_AI_ENABLED:-false}"
+      RSS_SERVER_AI_BASE_URL: "${RSS_SERVER_AI_BASE_URL:-}"
+      RSS_SERVER_AI_MODEL: "${RSS_SERVER_AI_MODEL:-}"
+      RSS_SERVER_AI_API_KEY: "${RSS_SERVER_AI_API_KEY:-}"
+    volumes:
+      - rss-server-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8787/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  rss-server-data:
