@@ -24,8 +24,16 @@ func TestListRacesSmoke(t *testing.T) {
 		t.Fatalf("unexpected race: %+v", races[0])
 	}
 
-	// Prefer a known completed race (Bahrain 2024) to avoid flake if newest lacks results yet.
-	sessionKey := 9472
+	sessionKey := 0
+	for _, race := range races {
+		if race.Status == "completed" {
+			sessionKey = race.SessionKey
+			break
+		}
+	}
+	if sessionKey == 0 {
+		sessionKey = races[len(races)-1].SessionKey
+	}
 	detail, err := c.RaceDetail(ctx, sessionKey)
 	if err != nil {
 		t.Fatalf("RaceDetail: %v", err)
@@ -36,7 +44,15 @@ func TestListRacesSmoke(t *testing.T) {
 	if len(detail.Results) == 0 {
 		t.Fatalf("expected results for completed race")
 	}
-	if len(detail.Events) == 0 {
+	if sessionKey < 1_000_000_000 && len(detail.Events) == 0 {
 		t.Fatalf("expected race-control events")
+	}
+
+	current, err := c.ListRaces(ctx, time.Now().UTC().Year())
+	if err != nil {
+		t.Fatalf("ListRaces current: %v", err)
+	}
+	if len(current) == 0 {
+		t.Fatal("expected current-season races during OpenF1 live lockout fallback")
 	}
 }

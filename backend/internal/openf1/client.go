@@ -3,10 +3,12 @@ package openf1
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,10 +18,25 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 )
 
-const baseURL = "https://api.openf1.org/v1"
+const (
+	baseURL        = "https://api.openf1.org/v1"
+	tokenURL       = "https://api.openf1.org/token"
+	jolpicaBaseURL = "https://api.jolpi.ca/ergast/f1"
+)
+
+// ErrLiveRestricted is returned when OpenF1 blocks anonymous access during a live session.
+var ErrLiveRestricted = errors.New("openf1 live session restricted")
+
+func IsLiveRestricted(err error) bool {
+	return errors.Is(err, ErrLiveRestricted)
+}
 
 type Client struct {
 	HTTP *http.Client
+
+	// Optional OAuth2 credentials for live-session access.
+	Username string
+	Password string
 
 	mu         sync.Mutex
 	yearsCache []int
@@ -27,10 +44,89 @@ type Client struct {
 
 	rateMu  sync.Mutex
 	lastReq time.Time
+
+	tokenMu  sync.Mutex
+	token    string
+	tokenAt  time.Time
+	tokenTTL time.Duration
 }
 
 func NewClient() *Client {
-	return &Client{HTTP: &http.Client{Timeout: 45 * time.Second}}
+	return &Client{
+		HTTP:     &http.Client{Timeout: 45 * time.Second},
+		Username: firstEnv("RSS_OPENF1_USERNAME", "OPENF1_USERNAME"),
+		Password: firstEnv("RSS_OPENF1_PASSWORD", "OPENF1_PASSWORD"),
+	}
+}
+
+func firstEnv(keys ...string) string {
+	for _, key := range keys {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func (c *Client) clearToken() {
+	c.tokenMu.Lock()
+	c.token = ""
+	c.tokenAt = time.Time{}
+	c.tokenTTL = 0
+	c.tokenMu.Unlock()
+}
+
+func (c *Client) ensureToken(ctx context.Context) (string, error) {
+	user := strings.TrimSpace(c.Username)
+	pass := c.Password
+	if user == "" || strings.TrimSpace(pass) == "" {
+		return "", nil
+	}
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	if c.token != "" && c.tokenTTL > 0 && time.Since(c.tokenAt) < c.tokenTTL {
+		return c.token, nil
+	}
+	form := url.Values{}
+	form.Set("username", user)
+	form.Set("password", pass)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "RSSReader/0.1 (+local desktop; OpenF1)")
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", domain.ErrNetwork, err)
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	res.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", fmt.Errorf("%w: openf1 token status %d", domain.ErrNetwork, res.StatusCode)
+	}
+	var raw struct {
+		AccessToken string          `json:"access_token"`
+		ExpiresIn   json.RawMessage `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(raw.AccessToken) == "" {
+		return "", fmt.Errorf("%w: openf1 token missing", domain.ErrNetwork)
+	}
+	ttl := 50 * time.Minute
+	if n, err := strconv.Atoi(strings.Trim(string(raw.ExpiresIn), `"`)); err == nil && n > 90 {
+		ttl = time.Duration(n-60) * time.Second
+	}
+	c.token = raw.AccessToken
+	c.tokenAt = time.Now()
+	c.tokenTTL = ttl
+	return c.token, nil
 }
 
 // OpenF1 allows ~3 requests/second; serialize and pace calls.
@@ -67,6 +163,10 @@ func (c *Client) getJSON(ctx context.Context, path string, q url.Values, dest an
 		}
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", "RSSReader/0.1 (+local desktop; OpenF1)")
+		token, err := c.ensureToken(ctx)
+		if err == nil && token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 		res, err := c.HTTP.Do(req)
 		if err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrNetwork, err)
@@ -84,6 +184,13 @@ func (c *Client) getJSON(ctx context.Context, path string, q url.Values, dest an
 			case <-time.After(time.Duration(attempt+1) * 400 * time.Millisecond):
 			}
 			continue
+		}
+		if res.StatusCode == http.StatusUnauthorized {
+			if token != "" && attempt == 0 {
+				c.clearToken()
+				continue
+			}
+			return fmt.Errorf("%w: %w", domain.ErrNetwork, ErrLiveRestricted)
 		}
 		if res.StatusCode < 200 || res.StatusCode >= 300 {
 			return fmt.Errorf("%w: openf1 status %d", domain.ErrNetwork, res.StatusCode)
@@ -115,23 +222,38 @@ func (c *Client) ListYears(ctx context.Context) ([]domain.F1Season, error) {
 	// OpenF1 has data roughly from 2023+. Probe a small year window.
 	yearsSet := map[int]bool{}
 	nowY := time.Now().UTC().Year()
+	var liveErr error
 	for y := nowY; y >= 2023; y-- {
 		q := url.Values{}
 		q.Set("year", strconv.Itoa(y))
 		meetings = meetings[:0]
 		if err := c.getJSON(ctx, "/meetings", q, &meetings); err != nil {
+			if IsLiveRestricted(err) {
+				liveErr = err
+				break
+			}
 			continue
 		}
 		if len(meetings) > 0 {
 			yearsSet[y] = true
 		}
 	}
-	{
+	if liveErr == nil {
 		y := nowY + 1
 		q := url.Values{}
 		q.Set("year", strconv.Itoa(y))
 		meetings = meetings[:0]
 		if err := c.getJSON(ctx, "/meetings", q, &meetings); err == nil && len(meetings) > 0 {
+			yearsSet[y] = true
+		}
+	}
+	if liveErr != nil && len(yearsSet) == 0 {
+		jolpicaYears, err := c.listYearsJolpica(ctx)
+		if err != nil {
+			return nil, liveErr
+		}
+		yearsSet = map[int]bool{}
+		for _, y := range jolpicaYears {
 			yearsSet[y] = true
 		}
 	}
@@ -152,17 +274,17 @@ func (c *Client) ListYears(ctx context.Context) ([]domain.F1Season, error) {
 }
 
 type meeting struct {
-	MeetingKey           int    `json:"meeting_key"`
-	MeetingName          string `json:"meeting_name"`
-	MeetingOfficialName  string `json:"meeting_official_name"`
-	Location             string `json:"location"`
-	CountryName          string `json:"country_name"`
-	CountryCode          string `json:"country_code"`
-	CircuitShortName     string `json:"circuit_short_name"`
-	DateStart            string `json:"date_start"`
-	DateEnd              string `json:"date_end"`
-	Year                 int    `json:"year"`
-	IsCancelled          bool   `json:"is_cancelled"`
+	MeetingKey          int    `json:"meeting_key"`
+	MeetingName         string `json:"meeting_name"`
+	MeetingOfficialName string `json:"meeting_official_name"`
+	Location            string `json:"location"`
+	CountryName         string `json:"country_name"`
+	CountryCode         string `json:"country_code"`
+	CircuitShortName    string `json:"circuit_short_name"`
+	DateStart           string `json:"date_start"`
+	DateEnd             string `json:"date_end"`
+	Year                int    `json:"year"`
+	IsCancelled         bool   `json:"is_cancelled"`
 }
 
 type session struct {
@@ -188,6 +310,9 @@ func (c *Client) ListRaces(ctx context.Context, year int) ([]domain.F1Race, erro
 	q.Set("year", strconv.Itoa(year))
 	var meetings []meeting
 	if err := c.getJSON(ctx, "/meetings", q, &meetings); err != nil {
+		if IsLiveRestricted(err) {
+			return c.listRacesJolpica(ctx, year)
+		}
 		return nil, err
 	}
 	byKey := map[int]meeting{}
@@ -199,6 +324,9 @@ func (c *Client) ListRaces(ctx context.Context, year int) ([]domain.F1Race, erro
 	sq.Set("year", strconv.Itoa(year))
 	var sessions []session
 	if err := c.getJSON(ctx, "/sessions", sq, &sessions); err != nil {
+		if IsLiveRestricted(err) {
+			return c.listRacesJolpica(ctx, year)
+		}
 		return nil, err
 	}
 
@@ -345,6 +473,9 @@ func (c *Client) RaceDetail(ctx context.Context, sessionKey int) (*domain.F1Race
 	if sessionKey <= 0 {
 		return nil, domain.ErrInvalidParams
 	}
+	if year, round, kind, ok := decodeJolpicaSession(sessionKey); ok {
+		return c.raceDetailJolpica(ctx, year, round, kind)
+	}
 	q := url.Values{}
 	q.Set("session_key", strconv.Itoa(sessionKey))
 	var sessions []session
@@ -382,15 +513,15 @@ func (c *Client) RaceDetail(ctx context.Context, sessionKey int) (*domain.F1Race
 	}
 
 	var resultsRaw []struct {
-		Position     int     `json:"position"`
-		DriverNumber int     `json:"driver_number"`
-		NumberOfLaps int     `json:"number_of_laps"`
-		Points       float64 `json:"points"`
-		DNF          bool    `json:"dnf"`
-		DNS          bool    `json:"dns"`
-		DSQ          bool    `json:"dsq"`
+		Position     int      `json:"position"`
+		DriverNumber int      `json:"driver_number"`
+		NumberOfLaps int      `json:"number_of_laps"`
+		Points       float64  `json:"points"`
+		DNF          bool     `json:"dnf"`
+		DNS          bool     `json:"dns"`
+		DSQ          bool     `json:"dsq"`
 		Duration     *float64 `json:"duration"`
-		GapToLeader  any     `json:"gap_to_leader"`
+		GapToLeader  any      `json:"gap_to_leader"`
 	}
 	_ = c.getJSON(ctx, "/session_result", q, &resultsRaw)
 
@@ -517,6 +648,11 @@ func (c *Client) Standings(ctx context.Context, year int) (*domain.F1Standings, 
 	if err != nil {
 		return nil, err
 	}
+	if len(races) > 0 {
+		if _, _, _, ok := decodeJolpicaSession(races[0].SessionKey); ok {
+			return c.standingsJolpica(ctx, year, races)
+		}
+	}
 	sessionKey := 0
 	meetingName := ""
 	for _, r := range races {
@@ -566,6 +702,9 @@ func (c *Client) standingsForSession(ctx context.Context, year, sessionKey int, 
 		PointsCurrent   float64 `json:"points_current"`
 	}
 	if err := c.getJSON(ctx, "/championship_drivers", q, &rawDrivers); err != nil {
+		if IsLiveRestricted(err) {
+			return c.standingsJolpica(ctx, year, nil)
+		}
 		return nil, err
 	}
 	wdc := make([]domain.F1DriverStanding, 0, len(rawDrivers))

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -89,6 +90,11 @@ func (s *Scheduler) refreshAsync(ctx context.Context, feedID string) {
 		}()
 		_, err := s.svc.RefreshFeed(ctx, feedID)
 		s.mu.Lock()
+		if err != nil && errors.Is(err, context.Canceled) && ctx.Err() != nil {
+			delete(s.failures, feedID)
+			s.mu.Unlock()
+			return
+		}
 		if err != nil {
 			s.failures[feedID]++
 			s.log.Warn("scheduled refresh failed", "feedId", feedID, "err", err)

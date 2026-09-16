@@ -2,6 +2,10 @@
 
 Local-first desktop RSS reader with an optional multi-tenant **Go** server. Electron is the desktop shell; Go owns feeds, polling, synchronization, and SQLite in both deployment modes.
 
+The SwiftUI iOS app is a server-only client: it keeps credentials in Keychain,
+streams invalidations, and delegates feeds, crawling, state, AI, and sports data
+to the Go server.
+
 **Product site / downloads:** [jeethsuresh.github.io/rss](https://jeethsuresh.github.io/rss/)
 
 ## Architecture
@@ -77,6 +81,20 @@ See [docs/server.md](docs/server.md) for authentication, fetch deduplication,
 adaptive scheduling, AI environment variables, APIs, container hardening, and
 desktop synchronization.
 
+## iOS app
+
+The iOS 18+ app uses Swift 6, SwiftUI, strict concurrency, bearer-token auth,
+and server-sent events. Generate and open its Xcode project with:
+
+```bash
+cd apps/ios
+xcodegen generate
+open RSSReader.xcodeproj
+```
+
+See [apps/ios/README.md](apps/ios/README.md) for its architecture and server
+requirements.
+
 ## Packaging
 
 ```bash
@@ -128,6 +146,7 @@ Under the Electron `userData` directory, file `rss.db` (path also available via 
 
 ```text
 apps/desktop/     Electron + React + Vite
+apps/ios/         Swift 6 + SwiftUI server client
 backend/          Go application (cmd/desktop and cmd/server)
 packages/shared/  Shared TypeScript API contract
 docs/             Architecture, phases, build spec

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -308,6 +309,15 @@ func TestSplitBreaksMixedMembership(t *testing.T) {
 	if gotA.StoryID == st.ID || gotC.StoryID == st.ID {
 		t.Fatal("original story should be emptied")
 	}
+	for _, id := range ids {
+		child, err := stories.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if math.Abs(child.SplitThreshold-(JoinThreshold+SplitThresholdStep)) > 1e-9 {
+			t.Fatalf("child threshold %.2f did not inherit split threshold", child.SplitThreshold)
+		}
+	}
 }
 
 func TestSplitNoOpWhenStillOneComponent(t *testing.T) {
@@ -332,6 +342,13 @@ func TestSplitNoOpWhenStillOneComponent(t *testing.T) {
 	if len(ids) != 1 || ids[0] != list[0].ID {
 		t.Fatalf("no-op should return original id, got %v", ids)
 	}
+	afterSplit, err := stories.Get(ctx, list[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(afterSplit.SplitThreshold-(JoinThreshold+SplitThresholdStep)) > 1e-9 {
+		t.Fatalf("no-op split threshold %.2f, want %.2f", afterSplit.SplitThreshold, JoinThreshold+SplitThresholdStep)
+	}
 	weights, err := stories.GetTokenWeights(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -343,6 +360,57 @@ func TestSplitNoOpWhenStillOneComponent(t *testing.T) {
 	if err != nil || len(again) != 1 || again[0].ID != list[0].ID || again[0].MemberCount != 2 {
 		t.Fatalf("membership should be unchanged, got %+v", again)
 	}
+}
+
+func TestRepeatedSplitClicksProgressivelySeparateAComposite(t *testing.T) {
+	ctx := context.Background()
+	svc, articles, stories, feedID, now := setupCluster(t)
+	a := rssArticle(feedID, "Biden in Kyiv", "President Biden meets Zelensky in Kyiv after the strike.", now)
+	b := rssArticle(feedID, "Talks in Kyiv", "Zelensky and Biden hold talks in Kyiv with NATO officials.", now)
+	if _, err := articles.UpsertMany(ctx, []domain.Article{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	st := &domain.Story{
+		ID: uuid.NewString(), Title: "Composite", Source: domain.StorySourceDeterministic,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := stories.Create(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if err := stories.SetMembers(ctx, st.ID, []string{a.ID, b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	titleA, bodyA := clusterText(a)
+	titleB, bodyB := clusterText(b)
+	score := Cosine(Tokenize(titleA, bodyA, nil), Tokenize(titleB, bodyB, nil))
+
+	previousThreshold := JoinThreshold
+	for click := 1; click <= 20; click++ {
+		ids, err := svc.Split(ctx, st.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := stories.Get(ctx, st.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantThreshold := previousThreshold + SplitThresholdStep
+		if math.Abs(current.SplitThreshold-wantThreshold) > 1e-9 {
+			t.Fatalf("click %d threshold %.2f, want %.2f", click, current.SplitThreshold, wantThreshold)
+		}
+		previousThreshold = current.SplitThreshold
+		if len(ids) == 1 && ids[0] == st.ID {
+			continue
+		}
+		if current.SplitThreshold <= score {
+			t.Fatalf("pair split at %.2f before exceeding similarity %.2f", current.SplitThreshold, score)
+		}
+		if len(ids) != 0 {
+			t.Fatalf("two separated singleton articles should not create a meta-story: %v", ids)
+		}
+		return
+	}
+	t.Fatalf("pair with similarity %.2f did not split after threshold reached %.2f", score, previousThreshold)
 }
 
 func TestSplitUngroupsAWeakPair(t *testing.T) {

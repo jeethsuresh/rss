@@ -1,7 +1,19 @@
-import type { MlbGame, MlbGameStatus, MlbPlay } from "@rss-reader/shared";
+import type {
+  MlbGame,
+  MlbGameStatus,
+  MlbPlay,
+  MlbStandingRow,
+  MlbStandings,
+} from "@rss-reader/shared";
 
 export type MlbLeague = "AL" | "NL";
 export type MlbGameResult = "win" | "loss";
+
+export interface MlbPlayoffOutlook {
+  kind: "division" | "wildcard" | "outside";
+  title: string;
+  detail: string;
+}
 
 export interface PitcherChange {
   playId: string;
@@ -71,6 +83,92 @@ export function teamGameResult(game: MlbGame, teamId: number): MlbGameResult | n
     return game.homeScore > game.awayScore ? "win" : "loss";
   }
   return null;
+}
+
+function gamesAhead(higher: MlbStandingRow, lower: MlbStandingRow): number {
+  return ((higher.wins - lower.wins) + (lower.losses - higher.losses)) / 2;
+}
+
+function gamesLabel(value: number): string {
+  const normalized = Math.max(0, value);
+  return `${normalized.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${normalized === 1 ? "game" : "games"}`;
+}
+
+function ordinal(value: number): string {
+  const mod100 = value % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${value}th`;
+  switch (value % 10) {
+    case 1: return `${value}st`;
+    case 2: return `${value}nd`;
+    case 3: return `${value}rd`;
+    default: return `${value}th`;
+  }
+}
+
+/**
+ * Describes the selected team's place in the current six-team league playoff field.
+ * Division winners take the first three spots; the best three remaining records are
+ * wild cards. Margins are calculated from W/L records so half-game leads stay exact.
+ */
+export function teamPlayoffOutlook(
+  standings: MlbStandings | null,
+  teamId: number,
+): MlbPlayoffOutlook | null {
+  if (!standings) return null;
+
+  const division = standings.sections.find(
+    (section) => section.kind === "division" && section.teams.some((row) => row.team.id === teamId),
+  );
+  const teamRow = division?.teams.find((row) => row.team.id === teamId);
+  if (!division || !teamRow) return null;
+
+  const divisionRows = [...division.teams].sort((a, b) => a.rank - b.rank);
+  const isDivisionLeader = teamRow.divisionLeader === true || divisionRows[0]?.team.id === teamId;
+  if (isDivisionLeader) {
+    const runnerUp = divisionRows.find((row) => row.team.id !== teamId);
+    const detail = runnerUp
+      ? `${division.league} ${division.name} leader · ${gamesLabel(gamesAhead(teamRow, runnerUp))} ahead`
+      : `${division.league} ${division.name} leader`;
+    return { kind: "division", title: "Projected playoff team", detail };
+  }
+
+  const leagueDivisions = standings.sections.filter(
+    (section) => section.kind === "division" && section.league === division.league,
+  );
+  const divisionLeaderIds = new Set(
+    leagueDivisions.flatMap((section) => {
+      const rows = [...section.teams].sort((a, b) => a.rank - b.rank);
+      const leader = rows.find((row) => row.divisionLeader) ?? rows[0];
+      return leader ? [leader.team.id] : [];
+    }),
+  );
+  const wildCardSection = standings.sections.find(
+    (section) => section.kind === "wildcard" && section.league === division.league,
+  );
+
+  const wildCardRows = (wildCardSection?.teams ?? leagueDivisions.flatMap((section) => section.teams))
+    .filter((row) => !divisionLeaderIds.has(row.team.id))
+    .sort((a, b) => {
+      if (wildCardSection) return a.rank - b.rank;
+      const percentageDifference = Number(b.winningPercentage) - Number(a.winningPercentage);
+      return percentageDifference || b.wins - a.wins || a.losses - b.losses;
+    });
+  const wildCardIndex = wildCardRows.findIndex((row) => row.team.id === teamId);
+  if (wildCardIndex < 0) return null;
+
+  const cutoff = wildCardRows[2];
+  if (wildCardIndex < 3) {
+    const firstTeamOut = wildCardRows[3];
+    const detail = firstTeamOut
+      ? `${ordinal(wildCardIndex + 1)} wild card · ${gamesLabel(gamesAhead(teamRow, firstTeamOut))} ahead of first team out`
+      : `${ordinal(wildCardIndex + 1)} wild card`;
+    return { kind: "wildcard", title: "Projected wild card", detail };
+  }
+
+  const detail = cutoff
+    ? `${gamesLabel(gamesAhead(cutoff, teamRow))} behind the final wild-card spot`
+    : "Behind the wild-card field";
+  return { kind: "outside", title: "Outside playoff field", detail };
 }
 
 function sameDayPriority(status: MlbGameStatus): number {

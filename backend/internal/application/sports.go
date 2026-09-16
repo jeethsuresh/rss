@@ -448,11 +448,49 @@ func (s *Service) SportsF1RaceGet(ctx context.Context, sessionKey int) (*domain.
 		return &cached, nil
 	}
 	detail, err := s.Sports.F1Client.RaceDetail(ctx, sessionKey)
+	if err != nil && openf1.IsLiveRestricted(err) {
+		if race, ok := s.Sports.findCachedF1Race(ctx, sessionKey); ok {
+			detail, err = s.Sports.F1Client.RaceDetailFromRace(ctx, race)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
 	s.Sports.writeCache(ctx, key, detail)
 	return detail, nil
+}
+
+func (ss *SportsService) findCachedF1Race(ctx context.Context, sessionKey int) (domain.F1Race, bool) {
+	years := []int{time.Now().UTC().Year()}
+	var seasons []domain.F1Season
+	if _, ok := ss.readCache(ctx, "f1.years", &seasons); ok {
+		for _, season := range seasons {
+			years = append(years, season.Year)
+		}
+	}
+	seen := map[int]bool{}
+	for _, year := range years {
+		if year <= 0 || seen[year] {
+			continue
+		}
+		seen[year] = true
+		var races []domain.F1Race
+		if _, ok := ss.readCache(ctx, f1RacesKey(year), &races); !ok {
+			continue
+		}
+		for _, race := range races {
+			if race.SessionKey == sessionKey {
+				return race, true
+			}
+			for _, sess := range race.Sessions {
+				if sess.SessionKey == sessionKey {
+					race.SessionKey = sessionKey
+					return race, true
+				}
+			}
+		}
+	}
+	return domain.F1Race{}, false
 }
 
 func (s *Service) SportsF1RaceWatch(ctx context.Context, sessionKey int) (*domain.F1RaceDetail, error) {

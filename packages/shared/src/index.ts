@@ -86,6 +86,7 @@ export interface Story {
   isRead: boolean;
   isStarred: boolean;
   memberCount: number;
+  splitThreshold?: number;
   createdAt: string;
   updatedAt: string;
   articleIds?: string[];
@@ -592,7 +593,7 @@ export interface ReaderBackend {
   };
   stories: {
     list(): Promise<Story[]>;
-    get(id: string): Promise<Story>;
+    get(id: string): Promise<Story | null>;
     markRead(id: string): Promise<Story>;
     markUnread(id: string): Promise<Story>;
     toggleStar(id: string): Promise<Story>;

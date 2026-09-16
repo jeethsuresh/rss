@@ -5,10 +5,12 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/jeeth/rss-reader/backend/internal/domain"
 )
 
 const (
-	JoinThreshold      = 0.50
+	JoinThreshold      = domain.DefaultStorySplitThreshold
 	StaleJoinThreshold = 0.70
 	StaleAge           = 72 * time.Hour
 	ArticleWindow      = 7 * 24 * time.Hour

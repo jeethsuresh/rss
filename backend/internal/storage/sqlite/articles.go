@@ -256,22 +256,43 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 			published_at, updated_at, external_id, fingerprint, is_read, is_starred,
 			discovered_at, priority, rss_content, crawl_status, is_read_later
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?)
-		ON CONFLICT(feed_id, fingerprint) DO UPDATE SET
+		ON CONFLICT DO UPDATE SET
 			title=excluded.title,
-			url=CASE WHEN excluded.url != '' THEN excluded.url ELSE articles.url END,
+			url=CASE
+				WHEN excluded.url != '' AND NOT EXISTS (
+					SELECT 1 FROM articles other
+					WHERE other.feed_id=articles.feed_id AND other.url=excluded.url AND other.id != articles.id
+				) THEN excluded.url
+				ELSE articles.url
+			END,
 			author=excluded.author,
 			content=CASE WHEN excluded.content != '' THEN excluded.content ELSE articles.content END,
 			summary=CASE WHEN excluded.summary != '' THEN excluded.summary ELSE articles.summary END,
 			rss_content=CASE WHEN excluded.rss_content != '' THEN excluded.rss_content ELSE articles.rss_content END,
 			published_at=COALESCE(excluded.published_at, articles.published_at),
 			updated_at=excluded.updated_at,
-			external_id=CASE WHEN excluded.external_id != '' THEN excluded.external_id ELSE articles.external_id END
+			external_id=CASE
+				WHEN excluded.external_id != '' AND NOT EXISTS (
+					SELECT 1 FROM articles other
+					WHERE other.feed_id=articles.feed_id AND other.external_id=excluded.external_id AND other.id != articles.id
+				) THEN excluded.external_id
+				ELSE articles.external_id
+			END
 	`)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	existsStmt, err := tx.PrepareContext(ctx, `SELECT 1 FROM articles WHERE feed_id = ? AND fingerprint = ?`)
+	existsStmt, err := tx.PrepareContext(ctx, `
+		SELECT 1 FROM articles
+		WHERE id = ? OR (
+			feed_id = ? AND (
+				fingerprint = ? OR
+				(? != '' AND external_id = ?) OR
+				(? != '' AND url = ?)
+			)
+		)
+		LIMIT 1`)
 	if err != nil {
 		return 0, err
 	}
@@ -291,7 +312,9 @@ func (r *ArticleRepo) UpsertMany(ctx context.Context, articles []domain.Article)
 		}
 		fingerprint := aFingerprint(a)
 		var exists int
-		existsErr := existsStmt.QueryRowContext(ctx, a.FeedID, fingerprint).Scan(&exists)
+		existsErr := existsStmt.QueryRowContext(ctx,
+			a.ID, a.FeedID, fingerprint, a.ExternalID, a.ExternalID, a.URL, a.URL,
+		).Scan(&exists)
 		isNew := errors.Is(existsErr, sql.ErrNoRows)
 		if existsErr != nil && !isNew {
 			return inserted, existsErr

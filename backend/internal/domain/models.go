@@ -84,8 +84,9 @@ type Article struct {
 }
 
 const (
-	StorySourceAI            = "ai"
-	StorySourceDeterministic = "deterministic"
+	StorySourceAI              = "ai"
+	StorySourceDeterministic   = "deterministic"
+	DefaultStorySplitThreshold = 0.50
 )
 
 type StoryVote string
@@ -107,19 +108,20 @@ type ArticleVoteRecord struct {
 }
 
 type Story struct {
-	ID           string               `json:"id"`
-	Title        string               `json:"title"`
-	Summary      string               `json:"summary"`
-	Source       string               `json:"source"`
-	Vote         StoryVote            `json:"vote,omitempty"`
-	ArticleVotes map[string]StoryVote `json:"articleVotes,omitempty"`
-	IsRead       bool                 `json:"isRead"`
-	IsStarred    bool                 `json:"isStarred"`
-	MemberCount  int                  `json:"memberCount"`
-	CreatedAt    time.Time            `json:"createdAt"`
-	UpdatedAt    time.Time            `json:"updatedAt"`
-	ArticleIDs   []string             `json:"articleIds,omitempty"`
-	Articles     []Article            `json:"articles,omitempty"`
+	ID             string               `json:"id"`
+	Title          string               `json:"title"`
+	Summary        string               `json:"summary"`
+	Source         string               `json:"source"`
+	Vote           StoryVote            `json:"vote,omitempty"`
+	ArticleVotes   map[string]StoryVote `json:"articleVotes,omitempty"`
+	IsRead         bool                 `json:"isRead"`
+	IsStarred      bool                 `json:"isStarred"`
+	MemberCount    int                  `json:"memberCount"`
+	SplitThreshold float64              `json:"splitThreshold"`
+	CreatedAt      time.Time            `json:"createdAt"`
+	UpdatedAt      time.Time            `json:"updatedAt"`
+	ArticleIDs     []string             `json:"articleIds,omitempty"`
+	Articles       []Article            `json:"articles,omitempty"`
 }
 
 type Folder struct {

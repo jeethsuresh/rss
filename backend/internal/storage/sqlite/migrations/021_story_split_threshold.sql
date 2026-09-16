@@ -1,0 +1,1 @@
+ALTER TABLE stories ADD COLUMN split_threshold REAL NOT NULL DEFAULT 0.50;

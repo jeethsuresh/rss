@@ -4,6 +4,7 @@ import type {
   MlbGameDetail,
   MlbRoster,
   MlbRosterPlayer,
+  MlbStandings,
   MlbTeam,
 } from "@rss-reader/shared";
 import {
@@ -14,6 +15,7 @@ import {
   pitcherStints,
   preferredGameId,
   teamGameResult,
+  teamPlayoffOutlook,
 } from "../lib/baseballDashboard";
 import { mlbTeamHref } from "../lib/sportsDeepLinks";
 import { SportsLoadingPane, SportsSpinner } from "./SportsSpinner";
@@ -25,6 +27,7 @@ type Props = {
   activeGameId: number | null;
   detail: MlbGameDetail | null;
   roster: MlbRoster | null;
+  standings: MlbStandings | null;
   scheduleLoading: boolean;
   detailLoading: boolean;
   rosterLoading: boolean;
@@ -118,15 +121,20 @@ function ScheduleRail({
   onSelectGame,
   season,
   onSelectTeam,
+  standings,
 }: Pick<
   Props,
-  "team" | "season" | "games" | "activeGameId" | "onSelectGame" | "onSelectTeam"
+  "team" | "season" | "games" | "activeGameId" | "onSelectGame" | "onSelectTeam" | "standings"
 > & { loading: boolean }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const centeredGameRef = useRef<number | null>(null);
   const orderedGames = useMemo(() => chronologicalGames(games), [games]);
   const today = localDateKey();
   const todayGameId = useMemo(() => preferredGameId(orderedGames), [orderedGames]);
+  const playoffOutlook = useMemo(
+    () => teamPlayoffOutlook(standings, team.id),
+    [standings, team.id],
+  );
 
   useEffect(() => {
     const scroller = scrollerRef.current;
@@ -165,6 +173,19 @@ function ScheduleRail({
             <TeamLink team={team} season={season} onSelectTeam={onSelectTeam}>
               {team.name}
             </TeamLink>
+            {playoffOutlook ? (
+              <span
+                className={`mlb-playoff-outlook ${playoffOutlook.kind}`}
+                aria-label={`${playoffOutlook.title}. ${playoffOutlook.detail}`}
+                title={playoffOutlook.detail}
+                tabIndex={0}
+              >
+                <strong>{playoffOutlook.title}</strong>
+                <span className="mlb-playoff-outlook-detail" aria-hidden="true">
+                  {playoffOutlook.detail}
+                </span>
+              </span>
+            ) : null}
           </h1>
         </div>
         <div className="mlb-schedule-controls">
@@ -608,7 +629,7 @@ export function BaseballTeamDashboard(props: Props) {
   return (
     <main className="mlb-dashboard pane">
       {props.error ? <p className="error mlb-dashboard-error">{props.error}</p> : null}
-      <ScheduleRail team={props.team} season={props.season} games={props.games} activeGameId={props.activeGameId} loading={props.scheduleLoading} onSelectGame={props.onSelectGame} onSelectTeam={props.onSelectTeam} />
+      <ScheduleRail team={props.team} season={props.season} games={props.games} activeGameId={props.activeGameId} standings={props.standings} loading={props.scheduleLoading} onSelectGame={props.onSelectGame} onSelectTeam={props.onSelectTeam} />
       <div className="mlb-dashboard-grid">
         <GamePane detail={props.detail} loading={props.detailLoading} season={props.season} onSelectTeam={props.onSelectTeam} />
         <RosterPane roster={props.roster} loading={props.rosterLoading} />

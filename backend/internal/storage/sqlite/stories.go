@@ -35,7 +35,7 @@ const rssStoryReadSQL = `CASE
 func (r *StoryRepo) List(ctx context.Context) ([]domain.Story, error) {
 	rows, err := r.db.SQL.QueryContext(ctx, `
 		SELECT s.id, s.title, s.summary, `+rssStoryReadSQL+`, s.is_starred, s.created_at, s.updated_at,
-		       `+rssMemberCountSQL+`, s.source
+		       `+rssMemberCountSQL+`, s.source, s.split_threshold
 		FROM stories s
 		WHERE `+rssMemberCountSQL+` >= 2
 		ORDER BY s.updated_at DESC`)
@@ -57,7 +57,7 @@ func (r *StoryRepo) List(ctx context.Context) ([]domain.Story, error) {
 func (r *StoryRepo) Get(ctx context.Context, id string) (*domain.Story, error) {
 	row := r.db.SQL.QueryRowContext(ctx, `
 		SELECT s.id, s.title, s.summary, `+rssStoryReadSQL+`, s.is_starred, s.created_at, s.updated_at,
-		       `+rssMemberCountSQL+`, s.source
+		       `+rssMemberCountSQL+`, s.source, s.split_threshold
 		FROM stories s WHERE s.id = ?`, id)
 	s, err := scanStory(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -120,12 +120,16 @@ func (r *StoryRepo) Create(ctx context.Context, story *domain.Story) error {
 	if source == "" {
 		source = domain.StorySourceAI
 	}
+	threshold := story.SplitThreshold
+	if threshold <= 0 {
+		threshold = domain.DefaultStorySplitThreshold
+	}
 	_, err := r.db.SQL.ExecContext(ctx, `
-		INSERT INTO stories(id, title, summary, is_read, is_starred, created_at, updated_at, source)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO stories(id, title, summary, is_read, is_starred, created_at, updated_at, source, split_threshold)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		story.ID, story.Title, story.Summary, boolToInt(story.IsRead), boolToInt(story.IsStarred),
 		story.CreatedAt.UTC().Format(time.RFC3339Nano), story.UpdatedAt.UTC().Format(time.RFC3339Nano),
-		source,
+		source, threshold,
 	)
 	return err
 }
@@ -291,7 +295,7 @@ func scanStory(row rowScanner) (domain.Story, error) {
 	var s domain.Story
 	var isRead, isStarred int
 	var created, updated, source string
-	err := row.Scan(&s.ID, &s.Title, &s.Summary, &isRead, &isStarred, &created, &updated, &s.MemberCount, &source)
+	err := row.Scan(&s.ID, &s.Title, &s.Summary, &isRead, &isStarred, &created, &updated, &s.MemberCount, &source, &s.SplitThreshold)
 	if err != nil {
 		return s, err
 	}
@@ -313,6 +317,33 @@ func (r *StoryRepo) SetSource(ctx context.Context, storyID, source string) error
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *StoryRepo) IncreaseSplitThreshold(ctx context.Context, storyID string, delta float64) (float64, error) {
+	if delta <= 0 {
+		return 0, domain.ErrInvalidParams
+	}
+	tx, err := r.db.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var threshold float64
+	if err := tx.QueryRowContext(ctx, `SELECT split_threshold FROM stories WHERE id=?`, storyID).Scan(&threshold); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, domain.ErrNotFound
+		}
+		return 0, err
+	}
+	threshold += delta
+	if _, err := tx.ExecContext(ctx, `UPDATE stories SET split_threshold=?, updated_at=? WHERE id=?`,
+		threshold, time.Now().UTC().Format(time.RFC3339Nano), storyID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return threshold, nil
 }
 
 func (r *StoryRepo) GetTokenWeights(ctx context.Context) (map[string]domain.TokenFeedback, error) {

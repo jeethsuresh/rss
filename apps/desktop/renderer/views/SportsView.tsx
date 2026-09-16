@@ -299,7 +299,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   ]);
 
   const reloadMlbStandings = useCallback(async () => {
-    if (season == null || activeSport !== "mlb" || mlbView !== "standings" || !mlbStandingsKey) return;
+    if (season == null || activeSport !== "mlb" || !mlbStandingsKey) return;
     beginFetch(mlbStandingsKey);
     setError(null);
     setMlbStandings(null);
@@ -311,7 +311,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     } finally {
       endFetchIfSync(mlbStandingsKey);
     }
-  }, [backend, season, activeSport, mlbView, mlbStandingsKey, beginFetch, endFetchIfSync]);
+  }, [backend, season, activeSport, mlbStandingsKey, beginFetch, endFetchIfSync]);
 
   const reloadMlbDailySchedule = useCallback(async () => {
     if (activeSport !== "mlb" || mlbView !== "standings") return;
@@ -882,6 +882,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
             activeGameId={activePk}
             detail={detail}
             roster={roster}
+            standings={mlbStandings}
             scheduleLoading={mlbScheduleRefreshing}
             detailLoading={mlbDetailRefreshing}
             rosterLoading={mlbRosterRefreshing}

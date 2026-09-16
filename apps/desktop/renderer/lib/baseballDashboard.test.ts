@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { MlbGame, MlbPlay, MlbTeam } from "@rss-reader/shared";
+import type { MlbGame, MlbPlay, MlbStandingRow, MlbStandings, MlbTeam } from "@rss-reader/shared";
 import {
   chronologicalGames,
   pitcherChanges,
@@ -7,6 +7,7 @@ import {
   preferredGameId,
   shiftLocalDateKey,
   teamGameResult,
+  teamPlayoffOutlook,
 } from "./baseballDashboard";
 
 const away: MlbTeam = { id: 1, name: "Away", abbreviation: "AWY" };
@@ -65,6 +66,102 @@ describe("baseball dashboard schedule", () => {
       homeScore: 8,
     };
     expect(teamGameResult(live, away.id)).toBeNull();
+  });
+});
+
+function standing(team: MlbTeam, rank: number, wins: number, losses: number, divisionLeader = false): MlbStandingRow {
+  return {
+    rank,
+    team,
+    wins,
+    losses,
+    winningPercentage: (wins / (wins + losses)).toFixed(3),
+    gamesBack: rank === 1 ? "-" : "1.0",
+    wildCardGamesBack: rank === 1 ? "-" : "1.0",
+    runDifferential: 0,
+    divisionLeader,
+  };
+}
+
+const eastLeader: MlbTeam = { id: 10, name: "East Leader", abbreviation: "EL" };
+const selected: MlbTeam = { id: 11, name: "Selected", abbreviation: "SEL" };
+const centralLeader: MlbTeam = { id: 20, name: "Central Leader", abbreviation: "CL" };
+const westLeader: MlbTeam = { id: 30, name: "West Leader", abbreviation: "WL" };
+const wildOne: MlbTeam = { id: 12, name: "Wild One", abbreviation: "W1" };
+const wildThree: MlbTeam = { id: 13, name: "Wild Three", abbreviation: "W3" };
+const wildFour: MlbTeam = { id: 14, name: "Wild Four", abbreviation: "W4" };
+
+function standingsFor(selectedRow: MlbStandingRow, wildCardRows: MlbStandingRow[]): MlbStandings {
+  return {
+    season: 2026,
+    sections: [
+      {
+        id: "div-1", league: "AL", name: "East", kind: "division",
+        teams: [standing(eastLeader, 1, 80, 50, true), selectedRow],
+      },
+      {
+        id: "div-2", league: "AL", name: "Central", kind: "division",
+        teams: [standing(centralLeader, 1, 78, 52, true), standing(wildOne, 2, 77, 53)],
+      },
+      {
+        id: "div-3", league: "AL", name: "West", kind: "division",
+        teams: [standing(westLeader, 1, 79, 51, true), standing(wildThree, 2, 74, 56), standing(wildFour, 3, 72, 58)],
+      },
+      { id: "wc-1", league: "AL", name: "Wild Card", kind: "wildcard", teams: wildCardRows },
+    ],
+  };
+}
+
+describe("baseball playoff outlook", () => {
+  test("reports a division leader's margin over second place", () => {
+    const data = standingsFor(
+      standing(selected, 2, 75, 55),
+      [standing(wildOne, 1, 77, 53), standing(selected, 2, 75, 55), standing(wildThree, 3, 74, 56), standing(wildFour, 4, 72, 58)],
+    );
+    data.sections[0].teams = [standing(selected, 1, 80, 50, true), standing(eastLeader, 2, 75, 55)];
+
+    expect(teamPlayoffOutlook(data, selected.id)).toEqual({
+      kind: "division",
+      title: "Projected playoff team",
+      detail: "AL East leader · 5 games ahead",
+    });
+  });
+
+  test("reports wild-card position and cushion over the first team out", () => {
+    const data = standingsFor(
+      standing(selected, 2, 75, 55),
+      [standing(wildOne, 1, 77, 53), standing(selected, 2, 75, 55), standing(wildThree, 3, 74, 56), standing(wildFour, 4, 72, 58)],
+    );
+
+    expect(teamPlayoffOutlook(data, selected.id)).toEqual({
+      kind: "wildcard",
+      title: "Projected wild card",
+      detail: "2nd wild card · 3 games ahead of first team out",
+    });
+  });
+
+  test("reports the gap to the final wild-card spot when outside the field", () => {
+    const outside = standing(selected, 2, 70, 60);
+    const data = standingsFor(
+      outside,
+      [standing(wildOne, 1, 77, 53), standing(wildThree, 2, 74, 56), standing(wildFour, 3, 72, 58), { ...outside, rank: 4 }],
+    );
+
+    expect(teamPlayoffOutlook(data, selected.id)).toEqual({
+      kind: "outside",
+      title: "Outside playoff field",
+      detail: "2 games behind the final wild-card spot",
+    });
+  });
+
+  test("keeps half-game cutoff margins", () => {
+    const halfGameBack = standing(selected, 2, 71, 57);
+    const data = standingsFor(
+      halfGameBack,
+      [standing(wildOne, 1, 77, 53), standing(wildThree, 2, 74, 56), standing(wildFour, 3, 72, 57), { ...halfGameBack, rank: 4 }],
+    );
+
+    expect(teamPlayoffOutlook(data, selected.id)?.detail).toBe("0.5 games behind the final wild-card spot");
   });
 });
 

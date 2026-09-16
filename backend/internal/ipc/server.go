@@ -36,6 +36,11 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+type queuedRequest struct {
+	request Request
+	ready   <-chan struct{}
+}
+
 type Server struct {
 	svc  *application.Service
 	log  *slog.Logger
@@ -63,6 +68,31 @@ func (s *Server) write(resp Response) {
 }
 
 func (s *Server) Serve(ctx context.Context, in io.Reader) error {
+	serveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var requests sync.WaitGroup
+	defer requests.Wait()
+	mutations := make(chan queuedRequest, 128)
+	defer close(mutations)
+	connectionReady := make(chan struct{})
+	close(connectionReady)
+	respond := func(queued queuedRequest) {
+		defer requests.Done()
+		<-queued.ready
+		request := queued.request
+		res, err := s.dispatch(serveCtx, request)
+		if err != nil {
+			s.write(Response{ID: request.ID, Error: mapError(err)})
+			return
+		}
+		s.write(Response{ID: request.ID, Result: res})
+	}
+	go func() {
+		for queued := range mutations {
+			respond(queued)
+		}
+	}()
+
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
@@ -78,14 +108,26 @@ func (s *Server) Serve(ctx context.Context, in io.Reader) error {
 		if req.Method == "system.shutdown" {
 			s.write(Response{ID: req.ID, Result: map[string]any{"ok": true}})
 			close(s.done)
+			cancel()
 			return nil
 		}
-		res, err := s.dispatch(ctx, req)
-		if err != nil {
-			s.write(Response{ID: req.ID, Error: mapError(err)})
+		requests.Add(1)
+		if req.Method == "sync.connect" || req.Method == "sync.disconnect" {
+			previous := connectionReady
+			next := make(chan struct{})
+			connectionReady = next
+			go func(queued queuedRequest) {
+				defer close(next)
+				respond(queued)
+			}(queuedRequest{request: req, ready: previous})
 			continue
 		}
-		s.write(Response{ID: req.ID, Result: res})
+		queued := queuedRequest{request: req, ready: connectionReady}
+		if syncclient.IsAuthorityMutation(req.Method) {
+			mutations <- queued
+			continue
+		}
+		go respond(queued)
 	}
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		return err

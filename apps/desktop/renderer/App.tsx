@@ -56,6 +56,7 @@ import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
 import { browserPaneUrl } from "./lib/linkNavigation";
 import { GENERIC_ERROR_MESSAGE } from "./lib/errors";
 import { scrollListRowToTop } from "./lib/listScroll";
+import { shouldReloadArticleListInBackground } from "./lib/listRefresh";
 
 type Selection =
   | { type: "items" }
@@ -420,7 +421,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
     void backend.stories
       .get(activeStoryId)
       .then((full) => {
-        if (!isListableStory(full)) {
+        if (!full || !isListableStory(full)) {
           setActiveStory(null);
           setStoryMemberId(null);
           void loadStories();
@@ -439,7 +440,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         case "feed.updated":
         case "feed.error":
           void loadFeeds();
-          if (effectiveRssListFilter !== "unread") {
+          if (shouldReloadArticleListInBackground(effectiveRssListFilter)) {
             reloadContent(false);
           }
           break;
@@ -547,7 +548,11 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         case "ai.log":
           break;
         case "sync.status":
-          void Promise.all([loadFeeds(), loadStories()]).then(() => reloadContent(false));
+          void Promise.all([loadFeeds(), loadStories()]).then(() => {
+            if (shouldReloadArticleListInBackground(effectiveRssListFilter)) {
+              reloadContent(false);
+            }
+          });
           break;
         case "sports.game.updated":
           break;
@@ -615,6 +620,10 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
       if (updated.memberCount >= 2) {
         try {
           const full = await backend.stories.get(updated.id);
+          if (!full) {
+            setActiveStory(null);
+            return;
+          }
           setActiveStoryId(updated.id);
           setActiveStory(full);
         } catch {
@@ -670,52 +679,61 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
   }, [backend, activeStory, loadStories]);
 
   const selectArticle = useCallback(
-    async (article: Article) => {
+    (article: Article) => {
       setActiveId(article.id);
       if (settings?.markReadOnOpen && !article.isRead) {
-        try {
-          const updated = await backend.articles.markRead(article.id);
-          patchArticle(updated);
-          void loadFeeds();
-        } catch (e) {
-          setError(GENERIC_ERROR_MESSAGE);
-        }
+        patchArticle({ ...article, isRead: true });
+        void backend.articles
+          .markRead(article.id)
+          .then((updated) => {
+            patchArticle(updated);
+            void loadFeeds();
+          })
+          .catch(() => {
+            patchArticle(article);
+            setError(GENERIC_ERROR_MESSAGE);
+          });
       }
     },
     [backend, settings?.markReadOnOpen, patchArticle, loadFeeds],
   );
 
   const selectStory = useCallback(
-    async (story: Story) => {
+    (story: Story) => {
       setActiveStoryId(story.id);
       setStoryMemberId(null);
       setActiveId(null);
-      try {
-        const full = await backend.stories.get(story.id);
-        setActiveStory(full);
-        if (settings?.markReadOnOpen && !full.isRead) {
-          const updated = await backend.stories.markRead(full.id);
-          patchStory(updated);
-        }
-      } catch (e) {
-        setError(GENERIC_ERROR_MESSAGE);
+      setActiveStory((current) => (current?.id === story.id ? current : story));
+      if (settings?.markReadOnOpen && !story.isRead) {
+        patchStory({ ...story, isRead: true });
+        void backend.stories
+          .markRead(story.id)
+          .then(patchStory)
+          .catch(() => {
+            patchStory(story);
+            setError(GENERIC_ERROR_MESSAGE);
+          });
       }
     },
     [backend, settings?.markReadOnOpen, patchStory],
   );
 
   const selectStoryMember = useCallback(
-    async (article: Article) => {
+    (article: Article) => {
       setStoryMemberId(article.id);
       setActiveId(article.id);
       if (settings?.markReadOnOpen && !article.isRead) {
-        try {
-          const updated = await backend.articles.markRead(article.id);
-          patchArticle(updated);
-          void loadFeeds();
-        } catch (e) {
-          setError(GENERIC_ERROR_MESSAGE);
-        }
+        patchArticle({ ...article, isRead: true });
+        void backend.articles
+          .markRead(article.id)
+          .then((updated) => {
+            patchArticle(updated);
+            void loadFeeds();
+          })
+          .catch(() => {
+            patchArticle(article);
+            setError(GENERIC_ERROR_MESSAGE);
+          });
       }
     },
     [backend, settings?.markReadOnOpen, patchArticle, loadFeeds],
@@ -1339,7 +1357,8 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         await loadStories();
       } else {
         await backend.articles.markAllRead(articleScopeQuery);
-        await Promise.all([loadArticles(false), loadFeeds()]);
+        setArticles((current) => current.map((article) => ({ ...article, isRead: true })));
+        await loadFeeds();
       }
     } catch (e) {
       setError(GENERIC_ERROR_MESSAGE);

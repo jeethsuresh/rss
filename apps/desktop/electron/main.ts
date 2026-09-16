@@ -349,6 +349,14 @@ function setupIpc() {
       }
       return result;
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      // Story groups are rebuilt in the background, so a selected story can
+      // legitimately disappear between stories.list and stories.get. Treat
+      // that stale selection as an empty optional result instead of surfacing
+      // an Electron handler exception.
+      if (method === "stories.get" && /(?:NOT_FOUND|remote status 404)/i.test(detail)) {
+        return null;
+      }
       if (method !== "errors.record") {
         await recordError("renderer", method, error);
       }

@@ -36,6 +36,15 @@ async function request<T>(method: string, params: unknown = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function requestOptional<T>(method: string, params: unknown = {}): Promise<T | null> {
+  try {
+    return await request<T>(method, params);
+  } catch (error) {
+    if (error instanceof WebBackendError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 export function createWebBackend(): ReaderBackend {
   let events: EventSource | null = null;
   const handlers = new Set<(event: BackendEvent) => void>();
@@ -110,7 +119,7 @@ export function createWebBackend(): ReaderBackend {
     },
     stories: {
       list: () => request("stories.list"),
-      get: (id) => request("stories.get", { id }),
+      get: (id) => requestOptional("stories.get", { id }),
       markRead: (id) => request("stories.markRead", { id }),
       markUnread: (id) => request("stories.markUnread", { id }),
       toggleStar: (id) => request("stories.toggleStar", { id }),

@@ -82,6 +82,54 @@ func TestMigrationsAndFeedCRUD(t *testing.T) {
 	}
 }
 
+func TestArticleUpsertDeduplicatesChangedGUIDByFeedURL(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	feed := &domain.Feed{
+		ID: uuid.NewString(), URL: "https://example.com/feed.xml", Title: "Example",
+		PollIntervalSeconds: 3600, Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := sqlite.NewFeedRepo(db).Create(ctx, feed); err != nil {
+		t.Fatal(err)
+	}
+	articles := sqlite.NewArticleRepo(db)
+	url := "https://example.com/stable-article"
+	original := domain.Article{
+		ID: uuid.NewString(), FeedID: feed.ID, Title: "Original", URL: url,
+		ExternalID: "old-guid", DiscoveredAt: now, IsRead: true,
+	}
+	if inserted, err := articles.UpsertMany(ctx, []domain.Article{original}); err != nil || inserted != 1 {
+		t.Fatalf("initial upsert: inserted=%d err=%v", inserted, err)
+	}
+	changedGUID := original
+	changedGUID.ID = uuid.NewString()
+	changedGUID.Title = "Updated"
+	changedGUID.ExternalID = "new-guid"
+	changedGUID.IsRead = false
+	if inserted, err := articles.UpsertMany(ctx, []domain.Article{changedGUID}); err != nil || inserted != 0 {
+		t.Fatalf("URL dedupe upsert: inserted=%d err=%v", inserted, err)
+	}
+	got, err := articles.List(ctx, domain.ArticleQuery{FeedID: feed.ID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Articles) != 1 {
+		t.Fatalf("articles=%d, want 1", len(got.Articles))
+	}
+	if got.Articles[0].Title != "Updated" {
+		t.Fatalf("title=%q, want Updated", got.Articles[0].Title)
+	}
+	if !got.Articles[0].IsRead {
+		t.Fatal("URL dedupe must preserve the existing read state")
+	}
+}
+
 func TestReadLaterRemoveDeletesArticle(t *testing.T) {
 	dir := t.TempDir()
 	db, err := sqlite.Open(filepath.Join(dir, "test.db"))

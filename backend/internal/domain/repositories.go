@@ -61,6 +61,7 @@ type StoryRepository interface {
 	FindStoryForArticle(ctx context.Context, articleID string) (*Story, error)
 	CascadeFlags(ctx context.Context, storyID string, isRead *bool, isStarred *bool) error
 	SetSource(ctx context.Context, storyID, source string) error
+	IncreaseSplitThreshold(ctx context.Context, storyID string, delta float64) (float64, error)
 	GetTokenWeights(ctx context.Context) (map[string]TokenFeedback, error)
 	AdjustTokenWeights(ctx context.Context, tokens []string, upDelta, downDelta int) error
 	GetArticleVote(ctx context.Context, storyID, articleID string) (ArticleVoteRecord, error)

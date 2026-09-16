@@ -129,6 +129,34 @@ func TestReadLaterSharesDocumentButNotUserState(t *testing.T) {
 	if unchanged.IsRead {
 		t.Fatal("read-later state leaked between users")
 	}
+
+	claim, err := store.ClaimDueDocument(ctx, "document-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claim == nil || claim.DocumentID != item1.SharedDocumentID {
+		t.Fatalf("unexpected document claim: %+v", claim)
+	}
+	if err := store.CompleteDocument(ctx, *claim, "https://example.com/story", "Cached story",
+		"<html><body>cached page</body></html>", "<article>cached page</article>", nil); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := store.GetReadLater(ctx, second, item2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached.CrawlStatus != "ok" || cached.Title != "Cached story" ||
+		cached.CrawledContent != "<html><body>cached page</body></html>" ||
+		cached.ReaderContent != "<article>cached page</article>" || cached.FetchedAt == nil {
+		t.Fatalf("shared read-later document was not cached: %+v", cached)
+	}
+	claim, err = store.ClaimDueDocument(ctx, "other-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claim != nil {
+		t.Fatalf("completed cached document was fetched again: %+v", claim)
+	}
 }
 
 func TestAdaptiveDelayRespondsToVolumeAndFailures(t *testing.T) {

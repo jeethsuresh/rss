@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const maxEventStreamMessageBytes = 16 * 1024 * 1024
+
 var authorityMutationMethods = map[string]bool{
 	"feeds.add": true, "feeds.remove": true, "feeds.refresh": true,
 	"feeds.refreshAll": true, "feeds.setEnabled": true, "feeds.setPollInterval": true,
@@ -89,7 +91,11 @@ func (c *Client) StreamEvents(ctx context.Context, emit func(string, any)) error
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	res, err := c.HTTP.Do(req)
+	// SSE is intentionally long-lived. Keep the ordinary RPC timeout on
+	// c.HTTP, but do not let it terminate a healthy event stream every 90s.
+	streamHTTP := *c.HTTP
+	streamHTTP.Timeout = 0
+	res, err := streamHTTP.Do(req)
 	if err != nil {
 		return err
 	}
@@ -101,6 +107,10 @@ func (c *Client) StreamEvents(ctx context.Context, emit func(string, any)) error
 		return &remoteStatusError{Status: res.StatusCode}
 	}
 	scanner := bufio.NewScanner(res.Body)
+	// Sports and extracted-content invalidations can legitimately carry more
+	// than Scanner's 64 KiB default token limit. Match the desktop IPC ceiling
+	// while retaining an upper bound for malformed or hostile streams.
+	scanner.Buffer(make([]byte, 0, 64*1024), maxEventStreamMessageBytes)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data:") {

@@ -21,6 +21,8 @@ type Service struct {
 	Emit     func(name string, payload any)
 }
 
+const SplitThresholdStep = 0.05
+
 func New(articles domain.ArticleRepository, stories domain.StoryRepository, log *slog.Logger) *Service {
 	return &Service{Articles: articles, Stories: stories, Log: log}
 }
@@ -117,7 +119,11 @@ func (s *Service) Split(ctx context.Context, storyID string) ([]string, error) {
 		title, body := clusterText(a)
 		members = append(members, Member{ID: a.ID, Title: a.Title, Vec: Tokenize(title, body, tallies)})
 	}
-	comps := SplitComponents(members, JoinThreshold)
+	threshold, err := s.Stories.IncreaseSplitThreshold(ctx, storyID, SplitThresholdStep)
+	if err != nil {
+		return nil, err
+	}
+	comps := SplitComponents(members, threshold)
 	if len(comps) <= 1 {
 		if len(members) >= 2 {
 			return []string{storyID}, nil
@@ -144,12 +150,13 @@ func (s *Service) Split(ctx context.Context, storyID string) ([]string, error) {
 		now := time.Now().UTC()
 		title, summary := s.deterministicTitle(ctx, ids)
 		nst := &domain.Story{
-			ID:        uuid.NewString(),
-			Title:     title,
-			Summary:   summary,
-			Source:    domain.StorySourceDeterministic,
-			CreatedAt: now,
-			UpdatedAt: now,
+			ID:             uuid.NewString(),
+			Title:          title,
+			Summary:        summary,
+			Source:         domain.StorySourceDeterministic,
+			SplitThreshold: threshold,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		}
 		if err := s.Stories.Create(ctx, nst); err != nil {
 			return nil, err
@@ -160,13 +167,16 @@ func (s *Service) Split(ctx context.Context, storyID string) ([]string, error) {
 		s.emit("story.updated", map[string]any{"storyId": nst.ID})
 		created = append(created, nst.ID)
 	}
-	s.appendLog(ctx, "info", "", fmt.Sprintf("split story: %d → %d groups", len(members), len(comps)), st.Title)
+	s.appendLog(ctx, "info", "", fmt.Sprintf("split story: threshold %.2f, %d → %d groups", threshold, len(members), len(comps)), st.Title)
 	return created, nil
 }
 
 func (s *Service) ClusterArticles(ctx context.Context, ids []string) error {
 	for _, id := range ids {
 		if err := s.clusterOne(ctx, id, nil, nil); err != nil {
+			if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+				return nil
+			}
 			s.appendLog(ctx, "error", id, "deterministic index article failed", err.Error())
 			if s.Log != nil {
 				s.Log.Warn("cluster article", "id", id, "err", err)
