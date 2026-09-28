@@ -11,5 +11,7 @@ usage() {
 
 parse_common_args "$@"
 
+bash "${SCRIPT_DIR}/scripts/lib/common_test.sh"
+
 docker build --target backend-test -t "${PROJECT_NAME}-backend-test:latest" "${SCRIPT_DIR}"
 docker build --target frontend-test -t "${PROJECT_NAME}-frontend-test:latest" "${SCRIPT_DIR}"

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "${SCRIPT_DIR}/common.sh"
+
+fail() {
+  echo "common_test.sh: $*" >&2
+  exit 1
+}
+
+COMPOSE_DEFAULT="$(sed -n 's/.*image: \${RSS_SERVER_IMAGE:-\([^}]*\)}.*/\1/p' "${SCRIPT_DIR}/../../docker-compose.yaml" | head -n 1)"
+[[ -n "${COMPOSE_DEFAULT}" ]] || fail "could not parse compose image default"
+
+PROJECT_NAME="rss-reader"
+HOST_PORT="8787"
+unset RSS_SERVER_IMAGE DEPLOY_IMAGE_TAG COMPOSE_PROJECT_NAME RSS_SERVER_PORT
+export_compose_runtime_env
+[[ "${RSS_SERVER_IMAGE}" == "${COMPOSE_DEFAULT}" ]] || fail "build image is ${RSS_SERVER_IMAGE}, want compose default ${COMPOSE_DEFAULT}"
+
+unset RSS_SERVER_IMAGE
+DEPLOY_IMAGE_TAG="abc123def"
+export_compose_runtime_env
+[[ "${RSS_SERVER_IMAGE}" == "rss-reader-server:abc123def" ]] || fail "tagged image is ${RSS_SERVER_IMAGE}, want rss-reader-server:abc123def"
+
+RSS_SERVER_IMAGE="already-set:tag"
+unset DEPLOY_IMAGE_TAG
+export_compose_runtime_env
+[[ "${RSS_SERVER_IMAGE}" == "already-set:tag" ]] || fail "pre-set RSS_SERVER_IMAGE was overwritten to ${RSS_SERVER_IMAGE}"
+
+echo "common_test.sh: ok"
