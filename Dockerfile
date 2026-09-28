@@ -6,6 +6,10 @@ RUN go mod download
 COPY backend/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/rss-server ./cmd/server
 
+FROM build AS backend-test
+
+RUN go test ./...
+
 FROM oven/bun:1.4.0-alpine AS web
 
 WORKDIR /src
@@ -23,6 +27,17 @@ RUN cd /tools && bun install --production --ignore-scripts \
 COPY apps/desktop/ apps/desktop/
 COPY packages/shared/ packages/shared/
 RUN cd apps/desktop && /tools/node_modules/.bin/vite build
+
+FROM oven/bun:1.4.0-alpine AS frontend-test
+
+WORKDIR /src
+COPY package.json bun.lock ./
+COPY apps/desktop/package.json apps/desktop/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN bun install --frozen-lockfile --ignore-scripts
+COPY apps/desktop/ apps/desktop/
+COPY packages/shared/ packages/shared/
+RUN bun test
 
 FROM alpine:3.22
 

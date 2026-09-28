@@ -15,4 +15,3 @@ apps/desktop/resources
 .env
 .env.*
 backend/rss-backend
-backend/**/_test.go

@@ -1,0 +1,35 @@
+version: 1
+
+project:
+  name: rss-reader
+  compose_slug: rss-reader
+
+scripts:
+  build:
+    run: ./build.sh
+    description: Build the production RSS reader container
+  test:
+    run: ./test.sh
+    description: Run the Go and TypeScript test suites in containers
+
+deployments:
+  web:
+    description: Hosted multi-tenant RSS reader
+    auto_deploy: false
+    subdomain: rss
+    compose_slug: rss-reader
+    scripts:
+      build: build
+      test: test
+      deploy: ./deploy.sh
+      teardown: ./teardown.sh
+    ports:
+      - name: http
+        port: 8787
+        public: true
+        health:
+          path: /healthz
+          interval_seconds: 30
+
+agent:
+  packages: []

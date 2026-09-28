@@ -1,6 +1,6 @@
 services:
-  rss-server:
-    image: rss-reader-server:local
+  app:
+    image: ${RSS_SERVER_IMAGE:-rss-reader-server:local}
     build:
       context: .
       dockerfile: Dockerfile
