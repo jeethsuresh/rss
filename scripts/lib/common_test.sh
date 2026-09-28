@@ -19,6 +19,9 @@ unset RSS_SERVER_IMAGE DEPLOY_IMAGE_TAG COMPOSE_PROJECT_NAME RSS_SERVER_PORT
 export_compose_runtime_env
 [[ "${RSS_SERVER_IMAGE}" == "${COMPOSE_DEFAULT}" ]] || fail "build image is ${RSS_SERVER_IMAGE}, want compose default ${COMPOSE_DEFAULT}"
 
+# Forge tags the built compose image as {compose_slug}-app:{sha}, then runs
+# deploy.sh --project-name rss-reader-staging with DEPLOY_IMAGE_TAG set.
+PROJECT_NAME="rss-reader-staging"
 unset RSS_SERVER_IMAGE
 DEPLOY_IMAGE_TAG="abc123def"
 export_compose_runtime_env
