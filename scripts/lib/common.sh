@@ -60,5 +60,5 @@ parse_common_args() {
 export_compose_runtime_env() {
   export COMPOSE_PROJECT_NAME="${PROJECT_NAME}"
   export RSS_SERVER_PORT="${HOST_PORT}"
-  export RSS_SERVER_IMAGE="rss-reader-app:${DEPLOY_IMAGE_TAG:-latest}"
+  export RSS_SERVER_IMAGE="${RSS_SERVER_IMAGE:-rss-reader-app:${DEPLOY_IMAGE_TAG:-latest}}"
 }
