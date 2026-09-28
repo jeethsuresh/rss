@@ -18,3 +18,9 @@ Newline-delimited JSON over stdin/stdout. Events have `event`+`payload` and no `
 - Spec: `docs/superpowers/specs/2026-08-20-rss-reader-phases-design.md`
 - Plan: `docs/superpowers/plans/2026-08-20-rss-reader-implementation.md`
 - Checklist: `TODO.md`
+
+## Git remotes (Forge)
+
+- `origin` is the GitHub source used for the initial Forge import.
+- `forge` is the managed Forge repository at `http://10.1.2.2:3000/api/git/jeethsuresh-rss.git`.
+- Push deployment work to `forge`; it is configured as `remote.pushDefault`.
