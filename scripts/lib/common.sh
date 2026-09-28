@@ -60,5 +60,11 @@ parse_common_args() {
 export_compose_runtime_env() {
   export COMPOSE_PROJECT_NAME="${PROJECT_NAME}"
   export RSS_SERVER_PORT="${HOST_PORT}"
-  export RSS_SERVER_IMAGE="${RSS_SERVER_IMAGE:-rss-reader-server:${DEPLOY_IMAGE_TAG:-local}}"
+  # Forge finds the compose default after build.sh, then retags it as
+  # rss-reader-app:$DEPLOY_IMAGE_TAG for staging/production deploy.sh.
+  if [[ -n "${DEPLOY_IMAGE_TAG:-}" ]]; then
+    export RSS_SERVER_IMAGE="${RSS_SERVER_IMAGE:-rss-reader-app:${DEPLOY_IMAGE_TAG}}"
+  else
+    export RSS_SERVER_IMAGE="${RSS_SERVER_IMAGE:-rss-reader-server:local}"
+  fi
 }
