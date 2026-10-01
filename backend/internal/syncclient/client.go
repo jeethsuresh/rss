@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -104,6 +105,7 @@ func (c *Client) SyncOnce(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	serverURL = c.baseURL()
 	cursor, err := c.cursor(ctx, serverURL)
 	if err != nil {
 		return nil, err
@@ -162,9 +164,11 @@ func (c *Client) login(ctx context.Context, serverURL string) (string, error) {
 	if c.Config.Password == "" {
 		return "", errors.New("saved server session expired; log in again")
 	}
+	serverURL = c.baseURL()
 	body := map[string]string{"username": c.Config.Username, "password": c.Config.Password}
 	var auth authResponse
 	status, err := c.doJSON(ctx, http.MethodPost, serverURL+"/v1/auth/login", "", body, &auth)
+	serverURL = c.baseURL()
 	if err == nil && status < 300 && auth.Token != "" {
 		c.rememberToken(auth)
 		return auth.Token, nil
@@ -232,12 +236,16 @@ func (c *Client) exchange(ctx context.Context, serverURL, token string, request 
 	return &response, nil
 }
 
-func (c *Client) doJSON(ctx context.Context, method, url, token string, input, output any) (int, error) {
+func (c *Client) doJSON(ctx context.Context, method, endpoint, token string, input, output any) (int, error) {
 	body, err := json.Marshal(input)
 	if err != nil {
 		return 0, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	return c.doJSONBody(ctx, method, endpoint, token, body, output, true)
+}
+
+func (c *Client) doJSONBody(ctx context.Context, method, endpoint, token string, body []byte, output any, allowUpgrade bool) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
@@ -246,9 +254,33 @@ func (c *Client) doJSON(ctx context.Context, method, url, token string, input, o
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	res, err := c.HTTP.Do(req)
+	httpClient := http.Client{Timeout: 90 * time.Second}
+	if c.HTTP != nil {
+		httpClient = *c.HTTP
+	}
+	// nginx answers plain HTTP with 301 and an HTML body. The default client
+	// turns that POST into a GET, so login would parse the website instead of
+	// the JSON API. Retry the original method on a same-host HTTPS upgrade.
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	res, err := httpClient.Do(req)
 	if err != nil {
 		return 0, err
+	}
+	if allowUpgrade && isHTTPRedirect(res.StatusCode) {
+		location := res.Header.Get("Location")
+		next, ok := httpsUpgradeURL(req.URL, location)
+		raw, _ := io.ReadAll(io.LimitReader(res.Body, 512))
+		res.Body.Close()
+		if !ok {
+			if location == "" {
+				return res.StatusCode, &remoteStatusError{Status: res.StatusCode, Body: strings.TrimSpace(string(raw))}
+			}
+			return res.StatusCode, fmt.Errorf("server redirected to %s", location)
+		}
+		c.adoptHTTPS(req.URL)
+		return c.doJSONBody(ctx, method, next, token, body, output, false)
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
@@ -268,6 +300,49 @@ func (c *Client) doJSON(ctx context.Context, method, url, token string, input, o
 		}
 	}
 	return res.StatusCode, nil
+}
+
+func (c *Client) baseURL() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return strings.TrimRight(strings.TrimSpace(c.Config.ServerURL), "/")
+}
+
+func (c *Client) setBaseURL(raw string) {
+	c.mu.Lock()
+	c.Config.ServerURL = strings.TrimRight(strings.TrimSpace(raw), "/")
+	c.mu.Unlock()
+}
+
+func (c *Client) adoptHTTPS(original *url.URL) {
+	if original == nil {
+		return
+	}
+	current, err := url.Parse(c.baseURL())
+	if err != nil || current.Scheme == "https" || !strings.EqualFold(current.Host, original.Host) {
+		return
+	}
+	current.Scheme = "https"
+	c.setBaseURL(current.String())
+}
+
+func isHTTPRedirect(status int) bool {
+	return status == http.StatusMovedPermanently || status == http.StatusFound ||
+		status == http.StatusTemporaryRedirect || status == http.StatusPermanentRedirect
+}
+
+func httpsUpgradeURL(original *url.URL, location string) (string, bool) {
+	if original == nil || original.Scheme != "http" || strings.TrimSpace(location) == "" {
+		return "", false
+	}
+	next, err := original.Parse(location)
+	if err != nil || next.Scheme != "https" || !strings.EqualFold(next.Host, original.Host) {
+		return "", false
+	}
+	if next.EscapedPath() != original.EscapedPath() || next.RawQuery != original.RawQuery {
+		return "", false
+	}
+	return next.String(), true
 }
 
 type remoteStatusError struct {
@@ -434,7 +509,7 @@ func wins(clock int64, device, op string, currentClock int64, currentDevice, cur
 }
 
 func (c *Client) recordStatus(ctx context.Context, syncErr error) {
-	serverURL := strings.TrimRight(strings.TrimSpace(c.Config.ServerURL), "/")
+	serverURL := c.baseURL()
 	message := ""
 	if syncErr != nil {
 		message = syncErr.Error()

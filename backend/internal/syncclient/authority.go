@@ -31,13 +31,12 @@ var authorityMutationMethods = map[string]bool{
 	"folders.create": true, "folders.remove": true, "folders.assignFeed": true,
 	"folders.unassignFeed": true,
 	"settings.update":      true,
-	"ai.scan":              true, "ai.retryFailed": true,
 }
 
 func IsAuthorityMethod(method string) bool {
 	for _, prefix := range []string{
 		"feeds.", "articles.", "readLater.", "sports.", "stories.",
-		"folders.", "settings.", "ai.",
+		"folders.", "settings.",
 	} {
 		if strings.HasPrefix(method, prefix) {
 			return true
@@ -57,6 +56,7 @@ func (c *Client) RPC(ctx context.Context, method string, params json.RawMessage)
 	if err != nil {
 		return nil, err
 	}
+	serverURL = c.baseURL()
 	request := struct {
 		Method string          `json:"method"`
 		Params json.RawMessage `json:"params"`
@@ -68,6 +68,7 @@ func (c *Client) RPC(ctx context.Context, method string, params json.RawMessage)
 		c.clearToken()
 		token, err = c.login(ctx, serverURL)
 		if err == nil {
+			serverURL = c.baseURL()
 			status, err = c.doJSON(ctx, http.MethodPost, serverURL+"/v1/rpc", token, request, &result)
 		}
 	}
@@ -86,6 +87,7 @@ func (c *Client) StreamEvents(ctx context.Context, emit func(string, any)) error
 	if err != nil {
 		return err
 	}
+	serverURL = c.baseURL()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL+"/v1/events", nil)
 	if err != nil {
 		return err

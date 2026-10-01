@@ -80,6 +80,7 @@ export function SettingsPage({
   const aiDirty =
     aiBaseUrlDraft.trim() !== (settings.aiBaseUrl ?? "").trim() ||
     aiModelDraft.trim() !== (settings.aiModel ?? "").trim();
+  const serverManagedAI = !backend.sync;
 
   const reloadFeeds = useCallback(async () => {
     setFeeds(await backend.feeds.list());
@@ -221,7 +222,8 @@ export function SettingsPage({
       const url = aiBaseUrlDraftRef.current.trim();
       const model = aiModelDraftRef.current.trim();
       const needsSave =
-        url !== (settings.aiBaseUrl ?? "").trim() || model !== (settings.aiModel ?? "").trim();
+        !serverManagedAI &&
+        (url !== (settings.aiBaseUrl ?? "").trim() || model !== (settings.aiModel ?? "").trim());
       if (needsSave) {
         await patch({ aiBaseUrl: url, aiModel: model });
       }
@@ -668,15 +670,17 @@ export function SettingsPage({
 
           {section === "ai" && (
             <section className="settings-section">
-              <h2>Local AI (LM Studio)</h2>
+              <h2>{serverManagedAI ? "Server AI" : "Local AI (LM Studio)"}</h2>
               <p className="muted">
-                Point the reader at a local OpenAI-compatible server. Nothing is written until you press
-                Save (or Test, which saves first if needed).
+                {serverManagedAI
+                  ? "AI triage on this website is turned on only when the server has RSS_SERVER_AI_ENABLED and RSS_SERVER_AI_BASE_URL set. These fields cannot be changed from the browser."
+                  : "Point the reader at a local OpenAI-compatible server. Nothing is written until you press Save (or Test, which saves first if needed)."}
               </p>
               <label className="check">
                 <input
                   type="checkbox"
                   checked={settings.aiEnabled}
+                  disabled={serverManagedAI}
                   onChange={(e) => void patch({ aiEnabled: e.target.checked })}
                 />
                 Enable AI triage
@@ -689,6 +693,7 @@ export function SettingsPage({
                   autoComplete="off"
                   spellCheck={false}
                   value={aiBaseUrlDraft}
+                  disabled={serverManagedAI}
                   onChange={(e) => {
                     setAiBaseUrlDraft(e.target.value);
                     setAiTest(null);
@@ -708,6 +713,7 @@ export function SettingsPage({
                   autoComplete="off"
                   spellCheck={false}
                   value={aiModelDraft}
+                  disabled={serverManagedAI}
                   onChange={(e) => {
                     setAiModelDraft(e.target.value);
                     setAiTest(null);
@@ -722,25 +728,27 @@ export function SettingsPage({
                 />
               </label>
               <div className="settings-row ai-connection-actions">
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={aiSaving || !aiDirty}
-                  onMouseDown={keepFocusForSave}
-                  onClick={() => void saveAiConnection()}
-                >
-                  {aiSaving ? "Saving…" : "Save connection"}
-                </button>
+                {serverManagedAI ? null : (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={aiSaving || !aiDirty}
+                    onMouseDown={keepFocusForSave}
+                    onClick={() => void saveAiConnection()}
+                  >
+                    {aiSaving ? "Saving…" : "Save connection"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn primary"
-                  disabled={aiTesting || aiSaving}
+                  disabled={aiTesting || aiSaving || (serverManagedAI && !settings.aiEnabled)}
                   onMouseDown={keepFocusForSave}
                   onClick={() => void testAiConnection()}
                 >
                   {aiTesting ? "Testing…" : "Test connection"}
                 </button>
-                {aiDirty ? <span className="muted">Unsaved changes</span> : null}
+                {!serverManagedAI && aiDirty ? <span className="muted">Unsaved changes</span> : null}
               </div>
               <div
                 className={`ai-test-status ${

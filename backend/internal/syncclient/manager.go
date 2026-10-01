@@ -105,6 +105,7 @@ func (m *Manager) Connect(ctx context.Context, request ConnectRequest) (*Status,
 	if _, err := m.syncClient(ctx, client); err != nil {
 		return nil, err
 	}
+	serverURL = client.baseURL()
 
 	m.mu.Lock()
 	if m.cancelRun != nil {

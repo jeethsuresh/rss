@@ -92,6 +92,62 @@ func TestWebLoginGateAndRPC(t *testing.T) {
 	}
 }
 
+func TestWebCannotChangeAISettings(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	settingsRepo := sqlite.NewSettingsRepo(db)
+	current, err := settingsRepo.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.AIEnabled = false
+	current.AIBaseURL = "https://ai.example/v1"
+	current.AIModel = "server-model"
+	if err := settingsRepo.Update(context.Background(), current); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(
+		serverstore.New(db),
+		&application.Service{Settings: settingsRepo, Version: "test"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Config{RegistrationEnabled: true, Version: "test", Context: context.Background()},
+	)
+
+	register := httptest.NewRecorder()
+	handler.ServeHTTP(register, jsonRequest(http.MethodPost, "/v1/web/register", `{"username":"reader","password":"correct horse battery staple"}`))
+	if register.Code != http.StatusCreated {
+		t.Fatalf("register: status=%d body=%s", register.Code, register.Body.String())
+	}
+	cookie := register.Result().Cookies()[0]
+
+	update := httptest.NewRecorder()
+	request := jsonRequest(http.MethodPost, "/v1/rpc", `{"method":"settings.update","params":{"aiEnabled":true,"aiBaseUrl":"http://evil.example/v1","aiModel":"stolen","theme":"dark"}}`)
+	request.AddCookie(cookie)
+	request.Header.Set("X-RSS-CSRF", "1")
+	handler.ServeHTTP(update, request)
+	if update.Code != http.StatusOK {
+		t.Fatalf("settings.update: status=%d body=%s", update.Code, update.Body.String())
+	}
+	var settings domain.Settings
+	if err := json.Unmarshal(update.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings.AIEnabled || settings.AIBaseURL != "" || settings.AIModel != "" || settings.Theme != "dark" {
+		t.Fatalf("web settings = %#v", settings)
+	}
+	var enabled int
+	var base, model string
+	if err := db.SQL.QueryRow(`SELECT ai_enabled, ai_base_url, ai_model FROM settings WHERE id=1`).Scan(&enabled, &base, &model); err != nil {
+		t.Fatal(err)
+	}
+	if enabled != 0 || base != "https://ai.example/v1" || model != "server-model" {
+		t.Fatalf("stored AI config = enabled:%d base:%q model:%q", enabled, base, model)
+	}
+}
+
 func jsonRequest(method, target, body string) *http.Request {
 	request := httptest.NewRequest(method, target, bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")

@@ -73,9 +73,15 @@ whose directory is writable by the container's `rss` user.
 - `RSS_SERVER_COOKIE_SECURE`: mark browser session cookies HTTPS-only. Enable
   this for TLS deployments.
 - `RSS_SERVER_AI_ENABLED`: enable server-wide AI triage and AI meta-story actions.
-- `RSS_SERVER_AI_BASE_URL`: OpenAI-compatible API base, such as `https://api.example.com/v1`.
+- `RSS_SERVER_AI_BASE_URL`: OpenAI-compatible API base, such as `https://api.example.com/v1`. Required when AI is enabled.
 - `RSS_SERVER_AI_MODEL`: model identifier sent to the compatible API.
 - `RSS_SERVER_AI_API_KEY`: optional bearer token. It is kept in process memory and is not written to SQLite.
+
+Website users cannot enable AI triage or edit the base URL, model, or API key.
+The server applies these variables on startup and ignores AI fields in settings
+updates. Both `RSS_SERVER_AI_ENABLED=true` and `RSS_SERVER_AI_BASE_URL` must be
+set; otherwise server AI stays off, including values left in the database from
+an earlier run. The desktop app keeps its own local AI settings.
 
 Deterministic meta-story clustering runs whether AI is enabled or not. When AI is
 enabled, every newly stored canonical article is queued once for the existing AI
@@ -115,6 +121,10 @@ Optional client variables:
 
 - `RSS_SERVER_AUTO_REGISTER=true` attempts registration if login fails. The server must have registration enabled.
 - `RSS_SYNC_INTERVAL_SECONDS=300` changes the periodic sync interval; the minimum is 30 seconds.
+
+If the server URL is `http://` and that host redirects to `https://` on the same
+path, the desktop retries the original request over HTTPS and stores the HTTPS
+URL. Redirects to another host or path are rejected.
 
 On migration, existing local feeds and tenant-owned state become append-only
 events. Normal local creates, updates, and deletes are then captured by SQLite

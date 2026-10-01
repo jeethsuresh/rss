@@ -638,10 +638,14 @@ func (a *API) webSettings(ctx context.Context, userID string, current *domain.Se
 	}
 	if a.svc.Settings != nil {
 		global, err := a.svc.Settings.Get(ctx)
-		if err == nil {
-			current.AIEnabled = global.AIEnabled
+		if err == nil && global.AIEnabled && strings.TrimSpace(global.AIBaseURL) != "" {
+			current.AIEnabled = true
 			current.AIBaseURL = global.AIBaseURL
 			current.AIModel = global.AIModel
+		} else if err == nil {
+			current.AIEnabled = false
+			current.AIBaseURL = ""
+			current.AIModel = ""
 		}
 	}
 	return current, nil

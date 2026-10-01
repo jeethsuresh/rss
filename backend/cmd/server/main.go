@@ -155,26 +155,18 @@ func configureAI(settings *sqlite.SettingsRepo, log *slog.Logger) {
 		log.Warn("read AI settings", "err", err)
 		return
 	}
-	changed := false
-	if raw, ok := os.LookupEnv("RSS_SERVER_AI_ENABLED"); ok {
-		value, err := strconv.ParseBool(raw)
-		if err == nil {
-			current.AIEnabled = value
-			changed = true
-		}
+	baseURL := strings.TrimSpace(os.Getenv("RSS_SERVER_AI_BASE_URL"))
+	model := strings.TrimSpace(os.Getenv("RSS_SERVER_AI_MODEL"))
+	requested := envBool("RSS_SERVER_AI_ENABLED", false)
+	enabled := requested && baseURL != ""
+	if requested && baseURL == "" && log != nil {
+		log.Warn("RSS_SERVER_AI_ENABLED is set but RSS_SERVER_AI_BASE_URL is empty; AI triage stays off")
 	}
-	if value := strings.TrimSpace(os.Getenv("RSS_SERVER_AI_BASE_URL")); value != "" {
-		current.AIBaseURL = value
-		changed = true
-	}
-	if value := strings.TrimSpace(os.Getenv("RSS_SERVER_AI_MODEL")); value != "" {
-		current.AIModel = value
-		changed = true
-	}
-	if changed {
-		if err := settings.Update(ctx, current); err != nil {
-			log.Warn("configure AI from environment", "err", err)
-		}
+	current.AIEnabled = enabled
+	current.AIBaseURL = baseURL
+	current.AIModel = model
+	if err := settings.Update(ctx, current); err != nil && log != nil {
+		log.Warn("configure AI from environment", "err", err)
 	}
 }
 

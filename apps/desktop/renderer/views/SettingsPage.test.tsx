@@ -16,7 +16,7 @@ const settings: Settings = {
   aiModel: "",
 };
 
-function render(backend: Partial<ReaderBackend>, initialSection: "server" | "general") {
+function render(backend: Partial<ReaderBackend>, initialSection: "server" | "general" | "ai") {
   return renderToStaticMarkup(createElement(SettingsPage, {
     backend: backend as ReaderBackend,
     settings,
@@ -42,5 +42,21 @@ describe("desktop server settings", () => {
   test("does not offer a second server login inside the hosted web app", () => {
     const html = render({}, "general");
     expect(html).not.toContain("Server sync");
+  });
+
+  test("lets the desktop edit local AI settings", () => {
+    const html = render({ sync: {} as NonNullable<ReaderBackend["sync"]> }, "ai");
+    expect(html).toContain("Local AI (LM Studio)");
+    expect(html).toContain("Save connection");
+    expect(html).toContain("Enable AI triage");
+  });
+
+  test("locks AI settings in the hosted web app", () => {
+    const html = render({}, "ai");
+    expect(html).toContain("Server AI");
+    expect(html).toContain("cannot be changed from the browser");
+    expect(html).toContain("disabled");
+    expect(html).not.toContain("Save connection");
+    expect(html).not.toContain("Local AI (LM Studio)");
   });
 });

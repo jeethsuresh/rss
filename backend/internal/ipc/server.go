@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/jeeth/rss-reader/backend/internal/application"
@@ -139,6 +140,9 @@ func (s *Server) Done() <-chan struct{} { return s.done }
 
 func (s *Server) dispatch(ctx context.Context, req Request) (any, error) {
 	if s.Sync != nil && s.Sync.IsConnected() && syncclient.IsAuthorityMethod(req.Method) {
+		if req.Method == "settings.get" || req.Method == "settings.update" {
+			return s.dispatchConnectedSettings(ctx, req)
+		}
 		return s.Sync.RPC(ctx, req.Method, req.Params)
 	}
 	switch req.Method {
@@ -748,6 +752,75 @@ func mapError(err error) *Error {
 	default:
 		return &Error{Code: "INTERNAL", Message: err.Error()}
 	}
+}
+
+func extractLocalAISettings(patch map[string]any) map[string]any {
+	local := map[string]any{}
+	for _, key := range []string{"aiEnabled", "aiBaseUrl", "aiModel"} {
+		if value, ok := patch[key]; ok {
+			local[key] = value
+			delete(patch, key)
+		}
+	}
+	if len(local) == 0 {
+		return nil
+	}
+	return local
+}
+
+func (s *Server) dispatchConnectedSettings(ctx context.Context, req Request) (any, error) {
+	switch req.Method {
+	case "settings.get":
+		raw, err := s.Sync.RPC(ctx, "settings.get", json.RawMessage(`{}`))
+		if err != nil {
+			return nil, err
+		}
+		return s.overlayLocalAI(ctx, raw)
+	case "settings.update":
+		patch := map[string]any{}
+		if len(strings.TrimSpace(string(req.Params))) > 0 {
+			if err := json.Unmarshal(req.Params, &patch); err != nil {
+				return nil, domain.ErrInvalidParams
+			}
+		}
+		if local := extractLocalAISettings(patch); len(local) > 0 {
+			if _, err := s.svc.UpdateSettings(ctx, local); err != nil {
+				return nil, err
+			}
+		}
+		method := "settings.get"
+		payload := json.RawMessage(`{}`)
+		if len(patch) > 0 {
+			encoded, err := json.Marshal(patch)
+			if err != nil {
+				return nil, err
+			}
+			method = "settings.update"
+			payload = encoded
+		}
+		raw, err := s.Sync.RPC(ctx, method, payload)
+		if err != nil {
+			return nil, err
+		}
+		return s.overlayLocalAI(ctx, raw)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnsupported, req.Method)
+	}
+}
+
+func (s *Server) overlayLocalAI(ctx context.Context, raw json.RawMessage) (*domain.Settings, error) {
+	var settings domain.Settings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return nil, err
+	}
+	local, err := s.svc.GetSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settings.AIEnabled = local.AIEnabled
+	settings.AIBaseURL = local.AIBaseURL
+	settings.AIModel = local.AIModel
+	return &settings, nil
 }
 
 func parseStoryVote(v string) domain.StoryVote {
