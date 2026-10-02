@@ -323,16 +323,19 @@ func extractTitle(html string) string {
 	return strings.TrimSpace(stripTags(m[1]))
 }
 
+var reBaseTag = regexp.MustCompile(`(?i)<base\b[^>]*>`)
+
 // EnsureBaseHref injects a <base> so relative CSS/JS/img URLs resolve against the article origin.
+// Existing base tags are removed first. Only http(s) page URLs get a replacement, so a saved
+// page cannot retarget the reader at file:///.
 func EnsureBaseHref(html, pageURL string) string {
-	if _, err := url.Parse(pageURL); err != nil || pageURL == "" {
+	html = reBaseTag.ReplaceAllString(html, "")
+	parsed, err := url.Parse(pageURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return html
 	}
 	baseTag := `<base href="` + htmlAttrEscape(pageURL) + `">`
 	lower := strings.ToLower(html)
-	if strings.Contains(lower, "<base") {
-		return html
-	}
 	if idx := strings.Index(lower, "<head"); idx >= 0 {
 		gt := strings.Index(html[idx:], ">")
 		if gt >= 0 {

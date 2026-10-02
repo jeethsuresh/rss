@@ -16,6 +16,17 @@ var noisyArticleHTML = `<!doctype html><html><body>
 <aside>Subscribe to our newsletter</aside>
 </body></html>`
 
+func TestEnsureBaseHrefDropsFileBases(t *testing.T) {
+	html := EnsureBaseHref(`<html><head><base href="file:///"></head><body>hi</body></html>`, "file:///tmp/page.html")
+	if strings.Contains(strings.ToLower(html), "<base") || strings.Contains(html, "file:") {
+		t.Fatalf("file base survived: %s", html)
+	}
+	web := EnsureBaseHref(`<html><head></head><body>hi</body></html>`, "https://example.com/story")
+	if !strings.Contains(web, `<base href="https://example.com/story">`) {
+		t.Fatalf("missing article base: %s", web)
+	}
+}
+
 func TestExtractHTMLReturnsArticleText(t *testing.T) {
 	html, err := ExtractHTML(noisyArticleHTML)
 	if err != nil {

@@ -12,7 +12,7 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
 export function sanitizeArticleHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "input", "button", "textarea", "link"],
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "input", "button", "textarea", "link", "base"],
     FORBID_ATTR: ["onerror", "onload", "onclick", "style"],
     ALLOW_DATA_ATTR: false,
   });

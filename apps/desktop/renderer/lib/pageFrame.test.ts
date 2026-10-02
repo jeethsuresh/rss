@@ -18,6 +18,12 @@ describe("page frame preview", () => {
     expect(html).toMatch(/connect-src\s+'none'/);
   });
 
+  test("does not set a file base href", () => {
+    const html = preparePageFrameHtml(`<html><head><base href="file:///"></head><body>hi</body></html>`, "file:///tmp/page.html");
+    expect(html.toLowerCase()).not.toContain("file:");
+    expect(html).not.toContain("<base");
+  });
+
   test("prepared html sets base href to the article origin", () => {
     const html = preparePageFrameHtml(`<html><head></head><body>hi</body></html>`, "https://www.cbc.ca/news/story");
     expect(html).toContain(`<base href="https://www.cbc.ca/">`);

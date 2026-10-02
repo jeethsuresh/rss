@@ -3,9 +3,25 @@ export type MlbTeamRoute = {
   season: number | null;
 };
 
-export function mlbTeamHref(teamId: number, season?: number | null): string {
-  const seasonQuery = season == null ? "" : `?season=${encodeURIComponent(String(season))}`;
-  return `#/sports/mlb/teams/${teamId}${seasonQuery}`;
+/** In-page team route. Season stays in the year control, not the hash.
+ *  A `?query` inside the fragment makes Firefox resolve the link as `file:///`. */
+export function mlbTeamHref(teamId: number): string {
+  return `#/sports/mlb/teams/${teamId}`;
+}
+
+export function currentCalendarYear(now = new Date()): number {
+  return now.getFullYear();
+}
+
+/** Use the calendar year unless the user has chosen a different listed year. */
+export function selectedSportsYear(
+  previous: number | null,
+  available: readonly number[],
+  now = new Date(),
+): number {
+  const year = currentCalendarYear(now);
+  if (previous != null && previous !== year && available.includes(previous)) return previous;
+  return year;
 }
 
 export function mlbTeamRouteFromHash(hash: string): MlbTeamRoute | null {

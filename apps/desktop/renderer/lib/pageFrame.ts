@@ -44,9 +44,10 @@ function headLead(baseHref: string): string {
 function baseHrefFor(pageUrl: string): string {
   try {
     const u = new URL(pageUrl);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
     return `${u.origin}/`;
   } catch {
-    return pageUrl;
+    return "";
   }
 }
 

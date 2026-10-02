@@ -13,6 +13,7 @@ import type {
   SyncStatus,
 } from "@rss-reader/shared";
 import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
+import { SportsLogo } from "../components/SportsSpinner";
 
 type Props = {
   backend: ReaderBackend;
@@ -656,7 +657,7 @@ export function SettingsPage({
                             void backend.sports.followedToggle(t.id).then((ids) => setFollowedIds(ids ?? []));
                           }}
                         />
-                        {t.logoUrl ? <img src={t.logoUrl} alt="" className="sports-logo" /> : null}
+                        <SportsLogo url={t.logoUrl} className="sports-logo" />
                         <div>
                           <strong>{t.name}</strong>
                           <div className="muted">{t.abbreviation}</div>

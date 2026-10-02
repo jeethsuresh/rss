@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { decodeHtmlEntities, sanitizeArticleHtml, stripHtml } from "./html";
 
 describe("html sanitization", () => {
+  test("strips base tags that could retarget the page at file URLs", () => {
+    const html = sanitizeArticleHtml(`<base href="file:///" /><p>Hi</p>`);
+    expect(html).toContain("Hi");
+    expect(html.toLowerCase()).not.toContain("<base");
+  });
+
   test("strips scripts", () => {
     const html = sanitizeArticleHtml(`<p>Hi</p><script>alert(1)</script>`);
     expect(html).toContain("Hi");

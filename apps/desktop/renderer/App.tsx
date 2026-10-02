@@ -53,7 +53,7 @@ import { BrowserPane } from "./components/BrowserPane";
 import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
 import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
 import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
-import { browserPaneUrl } from "./lib/linkNavigation";
+import { browserPaneUrl, isFileLink } from "./lib/linkNavigation";
 import { GENERIC_ERROR_MESSAGE } from "./lib/errors";
 import { scrollListRowToTop } from "./lib/listScroll";
 import { shouldReloadArticleListInBackground } from "./lib/listRefresh";
@@ -847,10 +847,16 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
     const openLinksInPane = (event: MouseEvent) => {
       const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!anchor) return;
-      const url = browserPaneUrl(
-        anchor.getAttribute("href"),
-        active?.url || window.location.href,
-      );
+      // Firefox blocks https pages from following file: URLs. Hash routes that
+      // contain "?" can resolve to file:/// when a <base> points at the local filesystem.
+      if (isFileLink(anchor.href)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      const raw = anchor.getAttribute("href")?.trim() ?? "";
+      if (!raw || raw.startsWith("#")) return;
+      const url = browserPaneUrl(raw, active?.url || window.location.href);
       if (!url) return;
       event.preventDefault();
       event.stopPropagation();

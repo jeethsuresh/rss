@@ -5,7 +5,7 @@ import type {
   MlbTeam,
 } from "@rss-reader/shared";
 import { mlbTeamHref } from "../lib/sportsDeepLinks";
-import { SportsLoadingPane, SportsSpinner } from "./SportsSpinner";
+import { SportsLoadingPane, SportsLogo, SportsSpinner } from "./SportsSpinner";
 
 type Props = {
   season: number | null;
@@ -24,15 +24,14 @@ type Props = {
   onToday: () => void;
 };
 
-function TeamLink({ team, season, onSelectTeam }: {
+function TeamLink({ team, onSelectTeam }: {
   team: MlbTeam;
-  season: number | null;
   onSelectTeam: (teamId: number) => void;
 }) {
   return (
     <a
       className="mlb-team-link"
-      href={mlbTeamHref(team.id, season)}
+      href={mlbTeamHref(team.id)}
       onClick={(event) => {
         event.preventDefault();
         onSelectTeam(team.id);
@@ -43,10 +42,9 @@ function TeamLink({ team, season, onSelectTeam }: {
   );
 }
 
-function StandingsTable({ section, tracked, season, onSelectTeam }: {
+function StandingsTable({ section, tracked, onSelectTeam }: {
   section: MlbStandingSection;
   tracked: ReadonlySet<number>;
-  season: number | null;
   onSelectTeam: (teamId: number) => void;
 }) {
   return (
@@ -60,8 +58,8 @@ function StandingsTable({ section, tracked, season, onSelectTeam }: {
               <tr key={row.team.id} className={isTracked ? "tracked-team" : ""}>
                 <td>{row.rank}</td>
                 <td className="sports-standings-team">
-                  {row.team.logoUrl ? <img src={row.team.logoUrl} alt="" className="sports-logo" /> : null}
-                  <TeamLink team={row.team} season={season} onSelectTeam={onSelectTeam} />
+                  <SportsLogo url={row.team.logoUrl} className="sports-logo" />
+                  <TeamLink team={row.team} onSelectTeam={onSelectTeam} />
                   {isTracked ? <b className="mlb-you-badge">Tracked</b> : null}
                 </td>
                 <td>{row.wins}</td><td>{row.losses}</td><td>{row.winningPercentage || "—"}</td>
@@ -94,7 +92,7 @@ function TeamWithLogo({ team }: {
   const code = team.abbreviation || team.shortName || team.name;
   return (
     <span className="mlb-today-team">
-      {team.logoUrl ? <img src={team.logoUrl} alt="" className="mlb-today-team-logo" /> : null}
+      <SportsLogo url={team.logoUrl} className="mlb-today-team-logo" />
       <span>{code}</span>
     </span>
   );
@@ -239,7 +237,7 @@ export function BaseballStandingsDashboard(props: Props) {
                   {standingsByLeague[league].map((section) => (
                     <article className="mlb-standings-card" key={section.id}>
                       <h3>{section.kind === "wildcard" ? "Wild Card" : section.name}</h3>
-                      <StandingsTable section={section} tracked={tracked} season={props.season} onSelectTeam={props.onSelectTeam} />
+                      <StandingsTable section={section} tracked={tracked} onSelectTeam={props.onSelectTeam} />
                     </article>
                   ))}
                 </div>

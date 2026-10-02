@@ -16,13 +16,13 @@ import type {
   SportsCacheUpdatedEvent,
   SportsRefreshEvent,
 } from "@rss-reader/shared";
-import { SportsSpinner } from "../components/SportsSpinner";
+import { SportsLogo, SportsSpinner } from "../components/SportsSpinner";
 import { BaseballTeamDashboard } from "../components/BaseballTeamDashboard";
 import { BaseballStandingsDashboard } from "../components/BaseballStandingsDashboard";
 import { F1Dashboard } from "../components/F1Dashboard";
 import { localDateKey, preferredGameId, shiftLocalDateKey } from "../lib/baseballDashboard";
 import { preferredRaceMeetingKey } from "../lib/f1Dashboard";
-import { mlbTeamHref, mlbTeamRouteFromHash } from "../lib/sportsDeepLinks";
+import { currentCalendarYear, mlbTeamHref, mlbTeamRouteFromHash, selectedSportsYear } from "../lib/sportsDeepLinks";
 import { SPORTS_REGISTRY, type SportId } from "../lib/sportsRegistry";
 import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 
@@ -67,7 +67,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const [teams, setTeams] = useState<MlbTeam[]>([]);
   const [followed, setFollowed] = useState<number[]>([]);
   const [seasons, setSeasons] = useState<MlbSeason[]>([]);
-  const [season, setSeason] = useState<number | null>(initialMlbRoute?.season ?? null);
+  const [season, setSeason] = useState<number>(() => currentCalendarYear());
   const [selectedMlbTeamId, setSelectedMlbTeamId] = useState<number | null>(
     initialMlbRoute?.teamId ?? null,
   );
@@ -82,7 +82,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   // --- F1 ---
   const [f1Years, setF1Years] = useState<F1Season[]>([]);
-  const [f1Year, setF1Year] = useState<number | null>(null);
+  const [f1Year, setF1Year] = useState<number>(() => currentCalendarYear());
   const [f1Races, setF1Races] = useState<F1Race[]>([]);
   const [activeMeetingKey, setActiveMeetingKey] = useState<number | null>(null);
   const [activeSessionKey, setActiveSessionKey] = useState<number | null>(null);
@@ -146,7 +146,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     setMlbView("team");
     setSelectedMlbTeamId(teamId);
     setExpandedSports((prev) => new Set(prev).add("mlb"));
-    const href = mlbTeamHref(teamId, season);
+    const href = mlbTeamHref(teamId);
     if (window.location.hash !== href) window.location.hash = href;
   };
 
@@ -158,7 +158,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     if (targetSeason != null) setSeason(targetSeason);
     setSelectedMlbTeamId(game.homeTeam.id);
     setExpandedSports((prev) => new Set(prev).add("mlb"));
-    const href = mlbTeamHref(game.homeTeam.id, targetSeason);
+    const href = mlbTeamHref(game.homeTeam.id);
     if (window.location.hash !== href) window.location.hash = href;
   };
 
@@ -215,6 +215,20 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       selectedMlbTeam && !followed.includes(selectedMlbTeam.id) ? selectedMlbTeam : null,
     [followed, selectedMlbTeam],
   );
+  const seasonChoices = useMemo(() => {
+    const year = currentCalendarYear();
+    const withCurrent = seasons.some((item) => item.seasonId === year)
+      ? seasons
+      : [{ seasonId: year }, ...seasons];
+    return [...withCurrent].sort((a, b) => b.seasonId - a.seasonId);
+  }, [seasons]);
+  const f1YearChoices = useMemo(() => {
+    const year = currentCalendarYear();
+    const withCurrent = f1Years.some((item) => item.year === year)
+      ? f1Years
+      : [{ year }, ...f1Years];
+    return [...withCurrent].sort((a, b) => b.year - a.year);
+  }, [f1Years]);
 
   const reloadMlbMeta = useCallback(async () => {
     beginFetch("mlb.teams");
@@ -228,11 +242,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       setTeams(t ?? []);
       setFollowed(f ?? []);
       setSeasons(s ?? []);
-      setSeason((prev) =>
-        prev != null && (s ?? []).some((item) => item.seasonId === prev)
-          ? prev
-          : (s?.[0]?.seasonId ?? new Date().getFullYear()),
-      );
+      setSeason((prev) => selectedSportsYear(prev, (s ?? []).map((item) => item.seasonId)));
       setSelectedMlbTeamId((prev) =>
         prev != null && (t ?? []).some((team) => team.id === prev) ? prev : (f?.[0] ?? null),
       );
@@ -247,7 +257,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     try {
       const years = await backend.sports.f1Years();
       setF1Years(years ?? []);
-      setF1Year((prev) => prev ?? years?.[0]?.year ?? new Date().getFullYear());
+      setF1Year((prev) => selectedSportsYear(prev, (years ?? []).map((item) => item.year)));
     } finally {
       endFetchIfSync("f1.years");
     }
@@ -482,7 +492,6 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
       setMlbView("team");
       setExpandedSports((prev) => new Set(prev).add("mlb"));
       setSelectedMlbTeamId(route.teamId);
-      if (route.season != null) setSeason(route.season);
     };
     window.addEventListener("hashchange", applyMlbDeepLink);
     return () => window.removeEventListener("hashchange", applyMlbDeepLink);
@@ -490,9 +499,9 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   useEffect(() => {
     if (activeSport !== "mlb" || mlbView !== "team" || selectedMlbTeamId == null) return;
-    const href = mlbTeamHref(selectedMlbTeamId, season);
+    const href = mlbTeamHref(selectedMlbTeamId);
     if (window.location.hash !== href) window.history.replaceState(null, "", href);
-  }, [activeSport, mlbView, season, selectedMlbTeamId]);
+  }, [activeSport, mlbView, selectedMlbTeamId]);
 
   useEffect(() => {
     void reloadMlbSchedule();
@@ -743,7 +752,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                       setSeason(Number(e.target.value));
                     }}
                   >
-                    {seasons.map((s) => (
+                    {seasonChoices.map((s) => (
                       <option key={s.seasonId} value={s.seasonId}>
                         {s.seasonId}
                       </option>
@@ -774,7 +783,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                         onClick={() => selectMlbTeam(team.id)}
                       >
                         <span className="sports-team-row">
-                          {team.logoUrl ? <img src={team.logoUrl} alt="" className="sports-logo" /> : null}
+                          <SportsLogo url={team.logoUrl} className="sports-logo" />
                           {team.abbreviation || team.shortName || team.name}
                         </span>
                       </button>
@@ -793,9 +802,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                           onClick={() => selectMlbTeam(temporaryMlbTeam.id)}
                         >
                           <span className="sports-team-row">
-                            {temporaryMlbTeam.logoUrl ? (
-                              <img src={temporaryMlbTeam.logoUrl} alt="" className="sports-logo" />
-                            ) : null}
+                            <SportsLogo url={temporaryMlbTeam.logoUrl} className="sports-logo" />
                             {temporaryMlbTeam.abbreviation ||
                               temporaryMlbTeam.shortName ||
                               temporaryMlbTeam.name}
@@ -834,7 +841,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
                       setF1Year(Number(e.target.value));
                     }}
                   >
-                    {f1Years.map((y) => (
+                    {f1YearChoices.map((y) => (
                       <option key={y.year} value={y.year}>
                         {y.year}
                       </option>
@@ -877,7 +884,6 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
         ) : selectedMlbTeam ? (
           <BaseballTeamDashboard
             team={selectedMlbTeam}
-            season={season}
             games={games}
             activeGameId={activePk}
             detail={detail}

@@ -18,11 +18,10 @@ import {
   teamPlayoffOutlook,
 } from "../lib/baseballDashboard";
 import { mlbTeamHref } from "../lib/sportsDeepLinks";
-import { SportsLoadingPane, SportsSpinner } from "./SportsSpinner";
+import { SportsLoadingPane, SportsLogo, SportsSpinner } from "./SportsSpinner";
 
 type Props = {
   team: MlbTeam;
-  season: number | null;
   games: MlbGame[];
   activeGameId: number | null;
   detail: MlbGameDetail | null;
@@ -42,13 +41,11 @@ function teamLabel(team: MlbTeam): string {
 
 function TeamLink({
   team,
-  season,
   onSelectTeam,
   className,
   children,
 }: {
   team: MlbTeam;
-  season: number | null;
   onSelectTeam: (teamId: number) => void;
   className?: string;
   children?: ReactNode;
@@ -56,7 +53,7 @@ function TeamLink({
   return (
     <a
       className={`mlb-team-link${className ? ` ${className}` : ""}`}
-      href={mlbTeamHref(team.id, season)}
+      href={mlbTeamHref(team.id)}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -119,12 +116,11 @@ function ScheduleRail({
   activeGameId,
   loading,
   onSelectGame,
-  season,
   onSelectTeam,
   standings,
 }: Pick<
   Props,
-  "team" | "season" | "games" | "activeGameId" | "onSelectGame" | "onSelectTeam" | "standings"
+  "team" | "games" | "activeGameId" | "onSelectGame" | "onSelectTeam" | "standings"
 > & { loading: boolean }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const centeredGameRef = useRef<number | null>(null);
@@ -169,8 +165,8 @@ function ScheduleRail({
       <div className="mlb-section-heading">
         <div>
           <h1>
-            {team.logoUrl ? <img src={team.logoUrl} alt="" className="mlb-dashboard-team-logo" /> : null}
-            <TeamLink team={team} season={season} onSelectTeam={onSelectTeam}>
+            <SportsLogo url={team.logoUrl} className="mlb-dashboard-team-logo" />
+            <TeamLink team={team} onSelectTeam={onSelectTeam}>
               {team.name}
             </TeamLink>
             {playoffOutlook ? (
@@ -250,15 +246,15 @@ function ScheduleRail({
                   </div>
                   <div className="mlb-card-team-row">
                     <span>
-                      {away.logoUrl ? <img src={away.logoUrl} alt="" className="sports-logo" /> : null}
-                      <TeamLink team={away} season={season} onSelectTeam={onSelectTeam} />
+                      <SportsLogo url={away.logoUrl} className="sports-logo" />
+                      <TeamLink team={away} onSelectTeam={onSelectTeam} />
                     </span>
                     <strong>{hasScore ? game.awayScore : ""}</strong>
                   </div>
                   <div className="mlb-card-team-row">
                     <span>
-                      {home.logoUrl ? <img src={home.logoUrl} alt="" className="sports-logo" /> : null}
-                      <TeamLink team={home} season={season} onSelectTeam={onSelectTeam} />
+                      <SportsLogo url={home.logoUrl} className="sports-logo" />
+                      <TeamLink team={home} onSelectTeam={onSelectTeam} />
                     </span>
                     <strong>{hasScore ? game.homeScore : ""}</strong>
                   </div>
@@ -290,14 +286,12 @@ function pitcherShortName(name: string): string {
 
 function HorizontalGameTimeline({
   detail,
-  season,
   hoveredInning,
   onHoverInning,
   onScrollPlays,
   onSelectTeam,
 }: {
   detail: MlbGameDetail;
-  season: number | null;
   hoveredInning: number | null;
   onHoverInning: (inning: number | null) => void;
   onScrollPlays: (deltaY: number) => void;
@@ -335,7 +329,6 @@ function HorizontalGameTimeline({
     <div className={`mlb-pitcher-lane ${fieldingSide}`}>
       <TeamLink
         team={team}
-        season={season}
         onSelectTeam={onSelectTeam}
         className="mlb-pitcher-lane-label"
       >
@@ -373,10 +366,10 @@ function HorizontalGameTimeline({
           <div className="mlb-linescore-team-labels">
             <span>Inn</span>
             <strong>
-              <TeamLink team={detail.game.awayTeam} season={season} onSelectTeam={onSelectTeam} />
+              <TeamLink team={detail.game.awayTeam} onSelectTeam={onSelectTeam} />
             </strong>
             <strong>
-              <TeamLink team={detail.game.homeTeam} season={season} onSelectTeam={onSelectTeam} />
+              <TeamLink team={detail.game.homeTeam} onSelectTeam={onSelectTeam} />
             </strong>
           </div>
           <div ref={inningColumnsRef} className="mlb-inning-columns" style={{ gridTemplateColumns: `repeat(${inningCount}, minmax(44px, 1fr))` }}>
@@ -419,9 +412,8 @@ function HorizontalGameTimeline({
 function GamePane({
   detail,
   loading,
-  season,
   onSelectTeam,
-}: Pick<Props, "detail" | "season" | "onSelectTeam"> & { loading: boolean }) {
+}: Pick<Props, "detail" | "onSelectTeam"> & { loading: boolean }) {
   const [scoringOnly, setScoringOnly] = useState(true);
   const [hoveredInning, setHoveredInning] = useState<number | null>(null);
   const playFeedRef = useRef<HTMLDivElement>(null);
@@ -467,14 +459,14 @@ function GamePane({
         </div>
         <div className="mlb-game-scoreboard">
           <div>
-            {game.awayTeam.logoUrl ? <img src={game.awayTeam.logoUrl} alt="" /> : null}
-            <TeamLink team={game.awayTeam} season={season} onSelectTeam={onSelectTeam} />
+            <SportsLogo url={game.awayTeam.logoUrl} />
+            <TeamLink team={game.awayTeam} onSelectTeam={onSelectTeam} />
             <strong>{game.awayScore ?? "—"}</strong>
           </div>
           <span className="muted">at</span>
           <div>
-            {game.homeTeam.logoUrl ? <img src={game.homeTeam.logoUrl} alt="" /> : null}
-            <TeamLink team={game.homeTeam} season={season} onSelectTeam={onSelectTeam} />
+            <SportsLogo url={game.homeTeam.logoUrl} />
+            <TeamLink team={game.homeTeam} onSelectTeam={onSelectTeam} />
             <strong>{game.homeScore ?? "—"}</strong>
           </div>
         </div>
@@ -483,7 +475,6 @@ function GamePane({
       {detail.innings.length > 0 ? (
         <HorizontalGameTimeline
           detail={detail}
-          season={season}
           hoveredInning={hoveredInning}
           onHoverInning={setHoveredInning}
           onScrollPlays={(deltaY) => playFeedRef.current?.scrollBy({ top: deltaY })}
@@ -629,9 +620,9 @@ export function BaseballTeamDashboard(props: Props) {
   return (
     <main className="mlb-dashboard pane">
       {props.error ? <p className="error mlb-dashboard-error">{props.error}</p> : null}
-      <ScheduleRail team={props.team} season={props.season} games={props.games} activeGameId={props.activeGameId} standings={props.standings} loading={props.scheduleLoading} onSelectGame={props.onSelectGame} onSelectTeam={props.onSelectTeam} />
+      <ScheduleRail team={props.team} games={props.games} activeGameId={props.activeGameId} standings={props.standings} loading={props.scheduleLoading} onSelectGame={props.onSelectGame} onSelectTeam={props.onSelectTeam} />
       <div className="mlb-dashboard-grid">
-        <GamePane detail={props.detail} loading={props.detailLoading} season={props.season} onSelectTeam={props.onSelectTeam} />
+        <GamePane detail={props.detail} loading={props.detailLoading} onSelectTeam={props.onSelectTeam} />
         <RosterPane roster={props.roster} loading={props.rosterLoading} />
       </div>
     </main>

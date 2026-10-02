@@ -1,3 +1,12 @@
+import { safeHttpUrl } from "../lib/linkNavigation";
+
+/** Team mark. Local and non-web URLs are omitted so the page cannot load file://. */
+export function SportsLogo({ url, className }: { url?: string; className?: string }) {
+  const src = safeHttpUrl(url);
+  if (!src) return null;
+  return <img src={src} alt="" className={className} />;
+}
+
 /** Tiny inline spinner for Sports refresh indicators. */
 export function SportsSpinner({ label = "Refreshing" }: { label?: string }) {
   return (
