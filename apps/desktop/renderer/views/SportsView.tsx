@@ -16,6 +16,7 @@ import type {
   SportsCacheUpdatedEvent,
   SportsRefreshEvent,
 } from "@rss-reader/shared";
+import { ResponsiveLayout } from "../components/ResponsiveLayout";
 import { SportsSpinner } from "../components/SportsSpinner";
 import { BaseballTeamDashboard } from "../components/BaseballTeamDashboard";
 import { BaseballStandingsDashboard } from "../components/BaseballStandingsDashboard";
@@ -57,6 +58,7 @@ function defaultKind(sessions: F1Session[]): F1SessionKind {
 }
 
 export function SportsView({ backend, onOpenSettingsSports }: Props) {
+  const [mobileDetail, setMobileDetail] = useState(false);
   const initialMlbRoute = mlbTeamRouteFromHash(window.location.hash);
   const [activeSport, setActiveSport] = useState<SportId>("mlb");
   const [mlbView, setMlbView] = useState<"standings" | "team">(
@@ -141,6 +143,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   };
 
   const selectMlbTeam = (teamId: number) => {
+    setMobileDetail(false);
     pendingMlbGameId.current = null;
     setActiveSport("mlb");
     setMlbView("team");
@@ -151,6 +154,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   };
 
   const selectMlbGame = (game: MlbGame) => {
+    setMobileDetail(true);
     const targetSeason = game.season || season;
     pendingMlbGameId.current = game.id;
     setActiveSport("mlb");
@@ -163,6 +167,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   };
 
   const selectMlbStandings = () => {
+    setMobileDetail(false);
     pendingMlbGameId.current = null;
     setActiveSport("mlb");
     setMlbView("standings");
@@ -696,7 +701,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     activeSessionKey != null && isRefreshing(`f1.race.${activeSessionKey}`);
 
   return (
-    <div className="layout sports-layout">
+    <ResponsiveLayout className="sports-layout" detail={mobileDetail} onDetailChange={setMobileDetail} label={activeSport === "f1" ? "Formula 1" : "Baseball"} detailAvailable={activeSport === "f1" || mlbView === "team"}>
       <aside className="pane sidebar">
         {SPORTS_REGISTRY.map((sport) => {
           const open = expandedSports.has(sport.id);
@@ -887,7 +892,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
             detailLoading={mlbDetailRefreshing}
             rosterLoading={mlbRosterRefreshing}
             error={error}
-            onSelectGame={setActivePk}
+            onSelectGame={(id) => { setActivePk(id); setMobileDetail(true); }}
             onSelectTeam={selectMlbTeam}
           />
         ) : (
@@ -917,6 +922,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           detailLoading={f1DetailRefreshing}
           error={error}
           onSelectRace={(race) => {
+            setMobileDetail(true);
             setActiveMeetingKey(race.meetingKey);
             setF1SessionKind(defaultKind(race.sessions ?? []));
             setActiveSessionKey(race.sessionKey);
@@ -932,6 +938,6 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
           </div>
         </section>
       )}
-    </div>
+    </ResponsiveLayout>
   );
 }

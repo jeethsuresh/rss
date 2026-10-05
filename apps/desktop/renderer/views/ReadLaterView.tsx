@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared";
+import { ResponsiveLayout } from "../components/ResponsiveLayout";
 import { PageFrame } from "../components/PageFrame";
 import { ReaderBody } from "../components/ReaderBody";
 import { BrowserPane } from "../components/BrowserPane";
@@ -40,6 +41,7 @@ export function ReadLaterView({
   focusArticleId,
   onFocusConsumed,
 }: Props) {
+  const [mobileDetail, setMobileDetail] = useState(false);
   const [filter, setFilter] = useState<ReadLaterFilter>("all");
   const [articles, setArticles] = useState<Article[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -84,6 +86,7 @@ export function ReadLaterView({
 
   useEffect(() => {
     if (!focusArticleId) return;
+    setMobileDetail(true);
     setFilter("all");
     setActiveId(focusArticleId);
     void load().finally(() => onFocusConsumed?.());
@@ -214,7 +217,7 @@ export function ReadLaterView({
   };
 
   return (
-    <div className="layout">
+    <ResponsiveLayout detail={mobileDetail} onDetailChange={setMobileDetail} label="Read Later" detailAvailable={!!active}>
       <aside className="pane sidebar">
         {FILTERS.map((f) => (
           <button
@@ -243,7 +246,7 @@ export function ReadLaterView({
               data-list-row-key={`read-later:${a.id}`}
               type="button"
               className={`article-row ${a.id === activeId ? "active" : ""} ${a.isRead ? "" : "unread"}`}
-              onClick={() => setActiveId(a.id)}
+              onClick={() => { setActiveId(a.id); setMobileDetail(true); }}
             >
               <div className="article-meta">
                 <span>{hostOf(a.url)}</span>
@@ -356,6 +359,6 @@ export function ReadLaterView({
           </article>
         )}
       </section>
-    </div>
+    </ResponsiveLayout>
   );
 }

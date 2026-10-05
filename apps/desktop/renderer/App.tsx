@@ -47,6 +47,7 @@ import {
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
+import { ResponsiveLayout } from "./components/ResponsiveLayout";
 import { PageFrame } from "./components/PageFrame";
 import { ReaderBody } from "./components/ReaderBody";
 import { BrowserPane } from "./components/BrowserPane";
@@ -145,6 +146,7 @@ export function App({
 }
 
 function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; serverAuthoritative: boolean }) {
+  const [mobileDetail, setMobileDetail] = useState(false);
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
@@ -680,6 +682,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
 
   const selectArticle = useCallback(
     (article: Article) => {
+      setMobileDetail(true);
       setActiveId(article.id);
       if (settings?.markReadOnOpen && !article.isRead) {
         patchArticle({ ...article, isRead: true });
@@ -700,6 +703,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
 
   const selectStory = useCallback(
     (story: Story) => {
+      setMobileDetail(true);
       setActiveStoryId(story.id);
       setStoryMemberId(null);
       setActiveId(null);
@@ -720,6 +724,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
 
   const selectStoryMember = useCallback(
     (article: Article) => {
+      setMobileDetail(true);
       setStoryMemberId(article.id);
       setActiveId(article.id);
       if (settings?.markReadOnOpen && !article.isRead) {
@@ -1369,6 +1374,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
 
   const openArticleFromSettings = useCallback(async (articleId: string) => {
     const article = await backend.articles.get(articleId);
+    setMobileDetail(true);
     setBrowserUrl(null);
     setSettingsSection("general");
     if (article.isReadLater) {
@@ -1581,7 +1587,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           }}
         />
       ) : (
-      <div className="layout">
+      <ResponsiveLayout detail={mobileDetail} onDetailChange={setMobileDetail} label={isStoriesMode ? "Stories" : "Articles"} detailAvailable={!!active || !!activeStory}>
         <aside className="pane sidebar rss-sidebar">
           <div className="rss-sidebar-content">
           <button
@@ -1986,7 +1992,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
             </article>
           )}
         </section>
-      </div>
+      </ResponsiveLayout>
       )}
 
       {showAdd && (

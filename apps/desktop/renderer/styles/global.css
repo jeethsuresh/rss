@@ -3654,3 +3654,66 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
   text-align: center;
   color: var(--muted);
 }
+
+/* Pane navigation is shared by web and desktop; the wide-screen grid is unchanged. */
+.responsive-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
+.mobile-pane-nav, .sidebar-scrim { display: none; }
+.f1-detail-container { display: contents; }
+@media (max-width: 980px) {
+  .mobile-pane-nav { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg1); }
+  .mobile-pane-nav strong { flex: 1; font-size: 14px; }
+  .responsive-shell .layout { grid-template-columns: 200px minmax(0, 1fr); }
+  .responsive-shell.mobile-detail .article-list { display: none; }
+  .responsive-shell.mobile-detail .reader-pane { display: flex; grid-column: 2; }
+  .responsive-shell .pane { min-width: 0; }
+  .responsive-shell .mlb-dashboard, .responsive-shell .f1-dashboard { display: block; overflow-y: auto; }
+  .responsive-shell.mobile-list .mlb-dashboard-grid, .responsive-shell.mobile-list .f1-detail-container { display: none; }
+  .mobile-detail .mlb-schedule-section, .mobile-detail .f1-championship-pane, .mobile-detail .f1-timeline-section { display: none; }
+  .responsive-shell .f1-session-workspace { grid-template-columns: minmax(0, 1fr); }
+  .responsive-shell .mlb-dashboard-grid { display: block; }
+  .responsive-shell .mlb-game-pane, .responsive-shell .mlb-roster-pane { overflow: visible; }
+}
+@media (max-width: 640px) {
+  html, body, #root { height: 100%; }
+  .web-app-shell { height: 100dvh; }
+  .toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .mode-tabs { flex: 1 0 100%; display: flex; }
+  .mode-tab { flex: 1; padding-inline: 6px; font-size: 12px; }
+  .toolbar-spacer, .toolbar .status-dot { display: none; }
+  .toolbar .search { flex: 1; min-width: 0; width: 100%; }
+  .rl-add-toolbar { flex: 1 0 100%; min-width: 0; }
+  .responsive-shell .layout { grid-template-columns: minmax(0, 1fr); position: relative; overflow: hidden; }
+  .responsive-shell .layout > .sidebar { position: absolute; inset: 0 auto 0 0; width: min(300px, 86vw); z-index: 22; transform: translateX(-100%); visibility: hidden; transition: transform 180ms ease, visibility 180ms; background: var(--bg1); }
+  .responsive-shell.sidebar-open .layout > .sidebar { transform: translateX(0); visibility: visible; }
+  .sidebar-open .sidebar-scrim { display: block; position: absolute; inset: 61px 0 0; z-index: 21; background: rgb(0 0 0 / 40%); }
+  .responsive-shell .article-list, .responsive-shell.mobile-detail .reader-pane, .responsive-shell .mlb-dashboard, .responsive-shell .mlb-league-dashboard, .responsive-shell .f1-dashboard { grid-column: 1 / -1; }
+  .btn, .nav-item, .feed-item, .content-tab, .mode-tab { min-height: 44px; }
+  input, select { font-size: 16px; }
+  .reader { padding: 18px; }
+  .reader h1 { font-size: 26px; overflow-wrap: anywhere; }
+  .reader-toolbar, .reader-actions { flex-wrap: wrap; }
+  .reader-body { overflow-wrap: anywhere; }
+  .reader-body img, .reader-body video { max-width: 100%; height: auto; }
+  .reader-body table { display: block; overflow-x: auto; }
+  .modal { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); overflow: auto; }
+  .responsive-shell .mlb-league-standings-grid, .responsive-shell .mlb-today-leagues { grid-template-columns: minmax(0, 1fr); }
+  .responsive-shell .mlb-game-pane, .responsive-shell .mlb-roster-pane, .responsive-shell .f1-session-detail { padding: 16px; }
+  .responsive-shell .sports-linescore-wrap, .responsive-shell .mlb-roster-table-wrap, .responsive-shell .f1-classification-scroll { max-width: 100%; overflow-x: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .responsive-shell .layout > .sidebar { transition: none; }
+}
+
+@media (max-width: 980px) {
+  .responsive-shell .f1-race-pane { min-height: 0; }
+  .responsive-shell .f1-detail-container { display: block; min-height: 0; }
+  .responsive-shell .f1-session-detail { overflow: visible; }
+}
+@media (max-width: 640px) {
+  .mobile-pane-nav { min-height: 61px; }
+  .mobile-pane-nav strong { min-width: 0; }
+  .mobile-pane-nav .btn { padding-inline: 8px; font-size: 12px; }
+  .responsive-shell .f1-session-tabs { display: flex; flex-wrap: wrap; }
+  .responsive-shell .f1-session-tabs button { flex: 1 0 72px; min-height: 44px; }
+  .responsive-shell .mlb-schedule-controls button, .responsive-shell .f1-timeline-controls button { min-height: 44px; min-width: 44px; }
+}

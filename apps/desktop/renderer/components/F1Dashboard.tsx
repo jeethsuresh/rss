@@ -521,6 +521,7 @@ export function F1Dashboard(props: Props) {
           loading={props.racesLoading}
           onSelectRace={props.onSelectRace}
         />
+        <div className="f1-detail-container">
         <SessionDetail
           detail={props.detail}
           activeSessionKey={props.activeSessionKey}
@@ -531,6 +532,7 @@ export function F1Dashboard(props: Props) {
           onSelectKind={props.onSelectKind}
           onSelectSession={props.onSelectSession}
         />
+        </div>
       </section>
     </main>
   );
