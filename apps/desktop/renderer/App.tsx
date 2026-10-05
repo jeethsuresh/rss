@@ -707,23 +707,13 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
 
   const selectStory = useCallback(
     (story: Story) => {
-      setMobileDetail(true);
+      setMobileDetail(false);
       setActiveStoryId(story.id);
       setStoryMemberId(null);
       setActiveId(null);
       setActiveStory((current) => (current?.id === story.id ? current : story));
-      if (settings?.markReadOnOpen && !story.isRead) {
-        patchStory({ ...story, isRead: true });
-        void backend.stories
-          .markRead(story.id)
-          .then(patchStory)
-          .catch(() => {
-            patchStory(story);
-            setError(GENERIC_ERROR_MESSAGE);
-          });
-      }
     },
-    [backend, settings?.markReadOnOpen, patchStory],
+    [],
   );
 
   const selectStoryMember = useCallback(
@@ -1646,11 +1636,10 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
         onDetailChange={(show) => {
           if (!show) setMobileDetail(false);
           else if (isStoriesMode && storyMember) selectStoryMember(storyMember);
-          else if (isStoriesMode && activeStory) selectStory(activeStory);
           else if (active) selectArticle(active);
         }}
         label={isStoriesMode ? "Stories" : "Articles"}
-        detailAvailable={isStoriesMode ? !!activeStory : !!active}
+        detailAvailable={isStoriesMode ? !!storyMember : !!active}
         chrome={sidebarChrome}
         toolbar={<>{mobileSearch}{rssFilters}</>}
       >
@@ -1824,7 +1813,8 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
                       <button
                         key={storyListRowKey(row)}
                         data-list-row-key={storyListRowKey(row)}
-                        className={`article-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
+                        className={`article-row meta-story-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
+                        aria-expanded={activeStory?.id === story.id}
                         onClick={() => void selectStory(story)}
                       >
                         <div className="article-meta">

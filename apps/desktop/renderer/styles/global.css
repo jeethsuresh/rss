@@ -4034,3 +4034,76 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
     transition: none;
   }
 }
+
+
+.pane-swipe-layer {
+  display: none;
+}
+
+@media (max-width: 980px) {
+  .mobile-list .detail-back-row {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pane-swipe-layer {
+    display: block;
+    position: fixed;
+    z-index: 24;
+    overflow: hidden;
+    pointer-events: none;
+    background: var(--bg0);
+    will-change: transform;
+  }
+
+  .pane-swipe-scene {
+    width: 100%;
+    height: 100%;
+    flex: none;
+    pointer-events: none;
+    background: var(--bg0);
+  }
+
+  .pane-swipe-scene,
+  .pane-swipe-scene * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .responsive-shell.pane-swipe-live {
+    background: var(--bg0);
+    will-change: transform;
+  }
+
+  .pane-swipe-layer::after,
+  .responsive-shell.pane-swipe-live::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    pointer-events: none;
+    background: black;
+    opacity: var(--pane-swipe-dim, 0);
+    transition: opacity var(--pane-swipe-duration, 0ms) cubic-bezier(0.22, 0.8, 0.25, 1);
+  }
+
+  .responsive-shell.pane-swipe-drawer .layout > .sidebar {
+    visibility: visible;
+    pointer-events: none;
+    transform: translate3d(var(--pane-sidebar-x), 0, 0);
+    transition: transform var(--pane-swipe-duration, 0ms) cubic-bezier(0.22, 0.8, 0.25, 1);
+    box-shadow: 8px 0 28px rgb(0 0 0 / 18%);
+  }
+
+  .pane-swipe-drawer .sidebar-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 21;
+    pointer-events: none;
+    background: rgb(0 0 0 / 40%);
+    opacity: var(--pane-sidebar-reveal, 0);
+    transition: opacity var(--pane-swipe-duration, 0ms) cubic-bezier(0.22, 0.8, 0.25, 1);
+  }
+}
