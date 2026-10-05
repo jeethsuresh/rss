@@ -1,3 +1,4 @@
+import { DetailBackButton } from "./ResponsiveLayout";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   F1Race,
@@ -522,6 +523,7 @@ export function F1Dashboard(props: Props) {
           onSelectRace={props.onSelectRace}
         />
         <div className="f1-detail-container">
+          <DetailBackButton />
         <SessionDetail
           detail={props.detail}
           activeSessionKey={props.activeSessionKey}

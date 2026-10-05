@@ -53,7 +53,7 @@ export function WebApp() {
         <span>{user.username}</span>
         <button className="btn" onClick={() => void logout()}>Log out</button>
       </div>
-      <App backend={backend} serverAuthoritative />
+      <App backend={backend} serverAuthoritative session={{ username: user.username, onLogout: logout }} />
     </div>
   );
 }

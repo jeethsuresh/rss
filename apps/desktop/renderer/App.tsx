@@ -47,7 +47,7 @@ import {
 import { SettingsPage } from "./views/SettingsPage";
 import { ReadLaterView } from "./views/ReadLaterView";
 import { SportsView } from "./views/SportsView";
-import { ResponsiveLayout } from "./components/ResponsiveLayout";
+import { DetailBackButton, ReaderSidebar, ResponsiveLayout, type SidebarChrome } from "./components/ResponsiveLayout";
 import { PageFrame } from "./components/PageFrame";
 import { ReaderBody } from "./components/ReaderBody";
 import { BrowserPane } from "./components/BrowserPane";
@@ -95,12 +95,16 @@ function PriorityBadge({ priority }: { priority: Priority }) {
   return <span className={cls}>{label}</span>;
 }
 
+type AppSession = { username: string; onLogout: () => Promise<void> };
+
 export function App({
   backend: providedBackend,
   serverAuthoritative = false,
+  session,
 }: {
   backend?: ReaderBackend;
   serverAuthoritative?: boolean;
+  session?: AppSession;
 } = {}) {
   const backend = useMemo(() => {
     if (providedBackend) return providedBackend;
@@ -142,10 +146,10 @@ export function App({
     );
   }
 
-  return <AppMain backend={backend} serverAuthoritative={serverAuthoritative || connectedAuthority} />;
+  return <AppMain backend={backend} serverAuthoritative={serverAuthoritative || connectedAuthority} session={session} />;
 }
 
-function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; serverAuthoritative: boolean }) {
+function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBackend; serverAuthoritative: boolean; session?: AppSession }) {
   const [mobileDetail, setMobileDetail] = useState(false);
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -823,6 +827,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
   );
 
   useEffect(() => {
+    if (window.matchMedia("(max-width: 980px)").matches) return;
     const key = isStoriesMode
       ? storyMemberId
         ? storyListRowKey({ kind: "member", storyId: activeStoryId ?? "", articleId: storyMemberId })
@@ -1171,7 +1176,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
       if (appMode === "readLater") {
         if (e.key === "/") {
           e.preventDefault();
-          document.getElementById("rl-search-input")?.focus();
+          document.getElementById(window.matchMedia("(max-width: 980px)").matches ? "mobile-search-input" : "rl-search-input")?.focus();
         }
         return;
       }
@@ -1224,7 +1229,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           break;
         case "/":
           e.preventDefault();
-          document.getElementById("search-input")?.focus();
+          document.getElementById(window.matchMedia("(max-width: 980px)").matches ? "mobile-search-input" : "search-input")?.focus();
           break;
         default:
           break;
@@ -1456,6 +1461,80 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
     </div>
   ) : null;
 
+  const renderModeTabs = (vertical = false) => (
+    <div className="mode-tabs" role="tablist" aria-label="App mode" aria-orientation={vertical ? "vertical" : "horizontal"}>
+      <button type="button" role="tab" className={`mode-tab ${appMode === "rss" ? "active" : ""}`}
+        aria-selected={appMode === "rss"} onClick={() => { setMobileDetail(false); setAppMode("rss"); }}>
+        RSS Reader ({totalUnread})
+      </button>
+      <button type="button" role="tab" className={`mode-tab ${appMode === "readLater" ? "active" : ""}`}
+        aria-selected={appMode === "readLater"} onClick={() => setAppMode("readLater")}>
+        Read Later ({readLaterUnread})
+      </button>
+      <button type="button" role="tab" className={`mode-tab ${appMode === "sports" ? "active" : ""}`}
+        aria-selected={appMode === "sports"} onClick={() => setAppMode("sports")}>
+        Sports
+      </button>
+    </div>
+  );
+  const rssFilters = (
+    <div className="article-list-filter" role="group" aria-label="Filter RSS list">
+      <button type="button" className={effectiveRssListFilter === "all" ? "active" : ""}
+        aria-pressed={effectiveRssListFilter === "all"} onClick={() => changeRssListFilter("all")}>
+        All
+      </button>
+      <button type="button" className={effectiveRssListFilter === "unread" ? "active" : ""}
+        aria-pressed={effectiveRssListFilter === "unread"} onClick={() => changeRssListFilter("unread")}>
+        Unread
+      </button>
+    </div>
+  );
+  const mobileSearch = appMode === "sports" ? <strong>Sports</strong> : (
+    <input
+      id="mobile-search-input"
+      className="search mobile-search"
+      type="search"
+      aria-label={appMode === "rss" ? "Search articles" : "Search saved links"}
+      placeholder="Search"
+      value={appMode === "rss" ? search : rlSearch}
+      onChange={(event) => appMode === "rss" ? setSearch(event.target.value) : setRlSearch(event.target.value)}
+      disabled={appMode === "rss" && isStoriesMode}
+    />
+  );
+  const sidebarChrome: SidebarChrome = {
+    navigation: <div className="sidebar-mode-navigation">{renderModeTabs(true)}</div>,
+    tools: appMode === "rss" ? (
+      <div className="sidebar-tools">
+        <button type="button" className="btn" onClick={() => void refreshAll()} disabled={busy}>
+          {busy ? "Refreshing…" : "Refresh"}
+        </button>
+        <button type="button" className="btn" disabled={markAllBusy} onClick={() => void markCurrentListRead()}>
+          {markAllBusy ? "Marking…" : "Mark All as Read"}
+        </button>
+      </div>
+    ) : appMode === "readLater" ? (
+      <form className="sidebar-add-link" onSubmit={(event) => { event.preventDefault(); void addReadLaterUrl(); }}>
+        <input type="url" className="search" aria-label="Save a URL" placeholder="https://… paste a URL"
+          value={rlAddUrl} onChange={(event) => setRlAddUrl(event.target.value)} disabled={busy} />
+        <button type="submit" className="btn primary" disabled={busy || !rlAddUrl.trim()}>
+          {busy ? "Adding…" : "Add link"}
+        </button>
+      </form>
+    ) : null,
+    footer: (
+      <>
+        <button type="button" className="btn sidebar-settings" data-dismiss-sidebar
+          onClick={() => { setSettingsSection("general"); setView("settings"); }}>Settings</button>
+        {session ? (
+          <div className="sidebar-account">
+            <span className="sidebar-username" title={session.username}>{session.username}</span>
+            <button type="button" className="btn" onClick={() => void session.onLogout().catch(() => setError(GENERIC_ERROR_MESSAGE))}>Log out</button>
+          </div>
+        ) : null}
+      </>
+    ),
+  };
+
   if (view === "settings" && settings) {
     return (
       <>
@@ -1479,35 +1558,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
   return (
     <div className={`app ${densityClass}`}>
       <header className="toolbar">
-        <div className="mode-tabs" role="tablist" aria-label="App mode">
-          <button
-            type="button"
-            role="tab"
-            className={`mode-tab ${appMode === "rss" ? "active" : ""}`}
-            aria-selected={appMode === "rss"}
-            onClick={() => setAppMode("rss")}
-          >
-            RSS Reader ({totalUnread})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`mode-tab ${appMode === "readLater" ? "active" : ""}`}
-            aria-selected={appMode === "readLater"}
-            onClick={() => setAppMode("readLater")}
-          >
-            Read Later ({readLaterUnread})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`mode-tab ${appMode === "sports" ? "active" : ""}`}
-            aria-selected={appMode === "sports"}
-            onClick={() => setAppMode("sports")}
-          >
-            Sports
-          </button>
-        </div>
+        {renderModeTabs()}
         <span className={`status-dot ${error ? "error" : ""}`} title={error ?? "Connected"} />
         <div className="toolbar-spacer" />
         {appMode === "rss" ? (
@@ -1574,6 +1625,8 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           backend={backend}
           serverAuthoritative={serverAuthoritative}
           search={rlSearch}
+          chrome={sidebarChrome}
+          toolbar={mobileSearch}
           unreadCount={readLaterUnread}
           focusArticleId={readLaterFocusId}
           onFocusConsumed={() => setReadLaterFocusId(null)}
@@ -1581,14 +1634,27 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
       ) : appMode === "sports" ? (
         <SportsView
           backend={backend}
+          chrome={sidebarChrome}
           onOpenSettingsSports={() => {
             setSettingsSection("sports");
             setView("settings");
           }}
         />
       ) : (
-      <ResponsiveLayout detail={mobileDetail} onDetailChange={setMobileDetail} label={isStoriesMode ? "Stories" : "Articles"} detailAvailable={!!active || !!activeStory}>
-        <aside className="pane sidebar rss-sidebar">
+      <ResponsiveLayout
+        detail={mobileDetail}
+        onDetailChange={(show) => {
+          if (!show) setMobileDetail(false);
+          else if (isStoriesMode && storyMember) selectStoryMember(storyMember);
+          else if (isStoriesMode && activeStory) selectStory(activeStory);
+          else if (active) selectArticle(active);
+        }}
+        label={isStoriesMode ? "Stories" : "Articles"}
+        detailAvailable={isStoriesMode ? !!activeStory : !!active}
+        chrome={sidebarChrome}
+        toolbar={<>{mobileSearch}{rssFilters}</>}
+      >
+        <ReaderSidebar className="rss-sidebar">
           <div className="rss-sidebar-content">
           <button
             className={`nav-item ${selected.type === "items" ? "active" : ""}`}
@@ -1719,32 +1785,15 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           ))}
           </div>
           <div className="rss-sidebar-footer">
-            <button type="button" className="btn primary rss-sidebar-add-feed" onClick={() => setShowAdd(true)}>
+            <button type="button" className="btn primary rss-sidebar-add-feed" data-dismiss-sidebar onClick={() => setShowAdd(true)}>
               Add feed
             </button>
           </div>
-        </aside>
+        </ReaderSidebar>
 
         <section ref={articleListRef} className="pane article-list">
           <div className="article-list-toolbar">
-            <div className="article-list-filter" role="group" aria-label="Filter RSS list">
-              <button
-                type="button"
-                className={effectiveRssListFilter === "all" ? "active" : ""}
-                aria-pressed={effectiveRssListFilter === "all"}
-                onClick={() => changeRssListFilter("all")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={effectiveRssListFilter === "unread" ? "active" : ""}
-                aria-pressed={effectiveRssListFilter === "unread"}
-                onClick={() => changeRssListFilter("unread")}
-              >
-                Unread
-              </button>
-            </div>
+            {rssFilters}
             <button
               type="button"
               className="btn article-list-mark-read"
@@ -1881,6 +1930,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         </section>
 
         <section className="pane reader-pane">
+          <DetailBackButton />
           {browserUrl ? (
             <BrowserPane
               initialUrl={browserUrl}

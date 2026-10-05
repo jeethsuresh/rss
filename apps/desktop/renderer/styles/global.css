@@ -3655,65 +3655,382 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
   color: var(--muted);
 }
 
-/* Pane navigation is shared by web and desktop; the wide-screen grid is unchanged. */
-.responsive-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
-.mobile-pane-nav, .sidebar-scrim { display: none; }
-.f1-detail-container { display: contents; }
-@media (max-width: 980px) {
-  .mobile-pane-nav { display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg1); }
-  .mobile-pane-nav strong { flex: 1; font-size: 14px; }
-  .responsive-shell .layout { grid-template-columns: 200px minmax(0, 1fr); }
-  .responsive-shell.mobile-detail .article-list { display: none; }
-  .responsive-shell.mobile-detail .reader-pane { display: flex; grid-column: 2; }
-  .responsive-shell .pane { min-width: 0; }
-  .responsive-shell .mlb-dashboard, .responsive-shell .f1-dashboard { display: block; overflow-y: auto; }
-  .responsive-shell.mobile-list .mlb-dashboard-grid, .responsive-shell.mobile-list .f1-detail-container { display: none; }
-  .mobile-detail .mlb-schedule-section, .mobile-detail .f1-championship-pane, .mobile-detail .f1-timeline-section { display: none; }
-  .responsive-shell .f1-session-workspace { grid-template-columns: minmax(0, 1fr); }
-  .responsive-shell .mlb-dashboard-grid { display: block; }
-  .responsive-shell .mlb-game-pane, .responsive-shell .mlb-roster-pane { overflow: visible; }
+/* Responsive pane chrome. Desktop keeps its existing toolbar and grid. */
+.responsive-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overscroll-behavior-x: none;
 }
-@media (max-width: 640px) {
-  html, body, #root { height: 100%; }
-  .web-app-shell { height: 100dvh; }
-  .toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
-  .mode-tabs { flex: 1 0 100%; display: flex; }
-  .mode-tab { flex: 1; padding-inline: 6px; font-size: 12px; }
-  .toolbar-spacer, .toolbar .status-dot { display: none; }
-  .toolbar .search { flex: 1; min-width: 0; width: 100%; }
-  .rl-add-toolbar { flex: 1 0 100%; min-width: 0; }
-  .responsive-shell .layout { grid-template-columns: minmax(0, 1fr); position: relative; overflow: hidden; }
-  .responsive-shell .layout > .sidebar { position: absolute; inset: 0 auto 0 0; width: min(300px, 86vw); z-index: 22; transform: translateX(-100%); visibility: hidden; transition: transform 180ms ease, visibility 180ms; background: var(--bg1); }
-  .responsive-shell.sidebar-open .layout > .sidebar { transform: translateX(0); visibility: visible; }
-  .sidebar-open .sidebar-scrim { display: block; position: absolute; inset: 61px 0 0; z-index: 21; background: rgb(0 0 0 / 40%); }
-  .responsive-shell .article-list, .responsive-shell.mobile-detail .reader-pane, .responsive-shell .mlb-dashboard, .responsive-shell .mlb-league-dashboard, .responsive-shell .f1-dashboard { grid-column: 1 / -1; }
-  .btn, .nav-item, .feed-item, .content-tab, .mode-tab { min-height: 44px; }
-  input, select { font-size: 16px; }
-  .reader { padding: 18px; }
-  .reader h1 { font-size: 26px; overflow-wrap: anywhere; }
-  .reader-toolbar, .reader-actions { flex-wrap: wrap; }
-  .reader-body { overflow-wrap: anywhere; }
-  .reader-body img, .reader-body video { max-width: 100%; height: auto; }
-  .reader-body table { display: block; overflow-x: auto; }
-  .modal { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); overflow: auto; }
-  .responsive-shell .mlb-league-standings-grid, .responsive-shell .mlb-today-leagues { grid-template-columns: minmax(0, 1fr); }
-  .responsive-shell .mlb-game-pane, .responsive-shell .mlb-roster-pane, .responsive-shell .f1-session-detail { padding: 16px; }
-  .responsive-shell .sports-linescore-wrap, .responsive-shell .mlb-roster-table-wrap, .responsive-shell .f1-classification-scroll { max-width: 100%; overflow-x: auto; }
+
+.mobile-pane-nav,
+.mobile-sidebar-top,
+.mobile-sidebar-bottom,
+.sidebar-scrim,
+.detail-back-row {
+  display: none;
 }
-@media (prefers-reduced-motion: reduce) {
-  .responsive-shell .layout > .sidebar { transition: none; }
+
+.sidebar-content,
+.f1-detail-container {
+  display: contents;
 }
 
 @media (max-width: 980px) {
-  .responsive-shell .f1-race-pane { min-height: 0; }
-  .responsive-shell .f1-detail-container { display: block; min-height: 0; }
-  .responsive-shell .f1-session-detail { overflow: visible; }
+  .app > .toolbar,
+  .web-session-bar {
+    display: none;
+  }
+
+  .web-app-shell {
+    height: 100dvh;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .mobile-pane-nav {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg1);
+  }
+
+  .mobile-detail .mobile-pane-nav {
+    display: none;
+  }
+
+  .mobile-pane-nav .search {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding-inline: 12px;
+    font-size: 16px;
+  }
+
+  .mobile-pane-nav .article-list-filter {
+    flex-shrink: 0;
+  }
+
+  .mobile-pane-nav .article-list-filter button {
+    min-height: 40px;
+    padding-inline: 9px;
+    font-size: 12px;
+  }
+
+  .sidebar-menu-button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    font-size: 22px;
+  }
+
+  .reader-sidebar {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .density-comfortable .sports-layout > .reader-sidebar {
+    padding: 0;
+  }
+
+  .sidebar-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 10px;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .rss-sidebar > .sidebar-content {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .mobile-sidebar-top,
+  .mobile-sidebar-bottom {
+    display: block;
+    flex-shrink: 0;
+    padding: 10px;
+  }
+
+  .mobile-sidebar-top {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-sidebar-bottom {
+    border-top: 1px solid var(--border);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    background: var(--bg1);
+  }
+
+  .sidebar-mode-navigation .mode-tabs {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .sidebar-mode-navigation .mode-tab {
+    min-height: 44px;
+    text-align: left;
+  }
+
+  .sidebar-tools,
+  .sidebar-add-link {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .sidebar-tools .btn,
+  .sidebar-settings {
+    width: 100%;
+    min-height: 44px;
+    text-align: left;
+  }
+
+  .sidebar-add-link .search {
+    width: 100%;
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .sidebar-account {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .sidebar-username {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    color: var(--muted);
+  }
+
+  .detail-back-row {
+    display: block;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg1);
+  }
+
+  .detail-back-button {
+    min-height: 44px;
+  }
+
+  .responsive-shell .layout {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .responsive-shell .article-list-toolbar,
+  .responsive-shell.mobile-detail .article-list {
+    display: none;
+  }
+
+  .responsive-shell.mobile-detail .reader-pane {
+    display: flex;
+    grid-column: 2;
+  }
+
+  .responsive-shell .pane {
+    min-width: 0;
+  }
+
+  .responsive-shell .mlb-dashboard,
+  .responsive-shell .f1-dashboard {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .responsive-shell .mlb-dashboard-grid {
+    display: block;
+  }
+
+  .responsive-shell .f1-detail-container {
+    display: block;
+    min-height: 0;
+  }
+
+  .responsive-shell.mobile-list .mlb-dashboard-grid,
+  .responsive-shell.mobile-list .f1-detail-container,
+  .mobile-detail .mlb-schedule-section,
+  .mobile-detail .f1-championship-pane,
+  .mobile-detail .f1-timeline-section {
+    display: none;
+  }
+
+  .responsive-shell .f1-race-pane,
+  .responsive-shell .f1-championship-pane {
+    min-height: 0;
+  }
+
+  .responsive-shell .f1-session-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .responsive-shell .mlb-game-pane,
+  .responsive-shell .mlb-roster-pane,
+  .responsive-shell .f1-session-detail {
+    overflow: visible;
+  }
 }
+
+@media (min-width: 641px) and (max-width: 980px) {
+  .sidebar-menu-button {
+    display: none;
+  }
+
+  .mobile-pane-nav {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-left: 212px;
+  }
+}
+
 @media (max-width: 640px) {
-  .mobile-pane-nav { min-height: 61px; }
-  .mobile-pane-nav strong { min-width: 0; }
-  .mobile-pane-nav .btn { padding-inline: 8px; font-size: 12px; }
-  .responsive-shell .f1-session-tabs { display: flex; flex-wrap: wrap; }
-  .responsive-shell .f1-session-tabs button { flex: 1 0 72px; min-height: 44px; }
-  .responsive-shell .mlb-schedule-controls button, .responsive-shell .f1-timeline-controls button { min-height: 44px; min-width: 44px; }
+  .mobile-pane-nav {
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+
+  .responsive-shell .layout {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .responsive-shell .layout > .sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(300px, 86vw);
+    z-index: 22;
+    transform: translateX(-100%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 180ms ease, visibility 180ms;
+    background: var(--bg1);
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .responsive-shell.sidebar-open .layout > .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .sidebar-open .sidebar-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 21;
+    background: rgb(0 0 0 / 40%);
+  }
+
+  .responsive-shell .article-list,
+  .responsive-shell.mobile-detail .reader-pane,
+  .responsive-shell .mlb-dashboard,
+  .responsive-shell .mlb-league-dashboard,
+  .responsive-shell .f1-dashboard {
+    grid-column: 1 / -1;
+  }
+
+  .btn, .nav-item, .feed-item, .content-tab, .mode-tab {
+    min-height: 44px;
+  }
+
+  input, select {
+    font-size: 16px;
+  }
+
+  .detail-back-row {
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+
+  .reader {
+    padding: 18px;
+  }
+
+  .reader h1 {
+    font-size: 26px;
+    overflow-wrap: anywhere;
+  }
+
+  .reader-toolbar, .reader-actions {
+    flex-wrap: wrap;
+  }
+
+  .reader-body {
+    overflow-wrap: anywhere;
+  }
+
+  .reader-body img, .reader-body video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .reader-body table {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .modal-backdrop {
+    z-index: 40;
+  }
+
+  .modal {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow: auto;
+  }
+
+  .responsive-shell .mlb-league-standings-grid,
+  .responsive-shell .mlb-today-leagues {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .responsive-shell .mlb-game-pane,
+  .responsive-shell .mlb-roster-pane,
+  .responsive-shell .f1-session-detail {
+    padding: 16px;
+  }
+
+  .responsive-shell .sports-linescore-wrap,
+  .responsive-shell .mlb-roster-table-wrap,
+  .responsive-shell .f1-classification-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .responsive-shell .f1-session-tabs {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .responsive-shell .f1-session-tabs button {
+    flex: 1 0 72px;
+    min-height: 44px;
+  }
+
+  .responsive-shell .mlb-schedule-controls button,
+  .responsive-shell .f1-timeline-controls button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .responsive-shell .layout > .sidebar {
+    transition: none;
+  }
 }

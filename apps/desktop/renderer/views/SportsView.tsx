@@ -16,7 +16,7 @@ import type {
   SportsCacheUpdatedEvent,
   SportsRefreshEvent,
 } from "@rss-reader/shared";
-import { ResponsiveLayout } from "../components/ResponsiveLayout";
+import { ReaderSidebar, ResponsiveLayout, type SidebarChrome } from "../components/ResponsiveLayout";
 import { SportsSpinner } from "../components/SportsSpinner";
 import { BaseballTeamDashboard } from "../components/BaseballTeamDashboard";
 import { BaseballStandingsDashboard } from "../components/BaseballStandingsDashboard";
@@ -28,6 +28,7 @@ import { SPORTS_REGISTRY, type SportId } from "../lib/sportsRegistry";
 import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 
 type Props = {
+  chrome?: SidebarChrome;
   backend: ReaderBackend;
   onOpenSettingsSports?: () => void;
 };
@@ -57,7 +58,7 @@ function defaultKind(sessions: F1Session[]): F1SessionKind {
   return "race";
 }
 
-export function SportsView({ backend, onOpenSettingsSports }: Props) {
+export function SportsView({ backend, onOpenSettingsSports, chrome }: Props) {
   const [mobileDetail, setMobileDetail] = useState(false);
   const initialMlbRoute = mlbTeamRouteFromHash(window.location.hash);
   const [activeSport, setActiveSport] = useState<SportId>("mlb");
@@ -96,6 +97,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   const syncRefreshKeys = useRef(new Set<string>());
   const dailyScheduleRequest = useRef(0);
   const pendingMlbGameId = useRef<number | null>(null);
+  const selectedDailyGame = useRef<MlbGame | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expandedSports, setExpandedSports] = useState<ReadonlySet<SportId>>(
     () => new Set<SportId>(SPORTS_REGISTRY.filter((sport) => sport.available).map((sport) => sport.id)),
@@ -144,6 +146,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   const selectMlbTeam = (teamId: number) => {
     setMobileDetail(false);
+    selectedDailyGame.current = null;
     pendingMlbGameId.current = null;
     setActiveSport("mlb");
     setMlbView("team");
@@ -154,6 +157,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
   };
 
   const selectMlbGame = (game: MlbGame) => {
+    selectedDailyGame.current = game;
     setMobileDetail(true);
     const targetSeason = game.season || season;
     pendingMlbGameId.current = game.id;
@@ -168,6 +172,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
 
   const selectMlbStandings = () => {
     setMobileDetail(false);
+    selectedDailyGame.current = null;
     pendingMlbGameId.current = null;
     setActiveSport("mlb");
     setMlbView("standings");
@@ -191,6 +196,20 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
         inline: "nearest",
       });
     });
+  };
+
+  const changeMobileDetail = (show: boolean) => {
+    if (activeSport === "mlb" && selectedDailyGame.current) {
+      if (show && mlbView === "standings") {
+        selectMlbGame(selectedDailyGame.current);
+        return;
+      }
+      if (!show && mlbView === "team") {
+        setMlbView("standings");
+        window.history.replaceState(null, "", "#sports/mlb/standings");
+      }
+    }
+    setMobileDetail(show);
   };
 
   const pinMlbTeam = async (teamId: number) => {
@@ -701,8 +720,15 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
     activeSessionKey != null && isRefreshing(`f1.race.${activeSessionKey}`);
 
   return (
-    <ResponsiveLayout className="sports-layout" detail={mobileDetail} onDetailChange={setMobileDetail} label={activeSport === "f1" ? "Formula 1" : "Baseball"} detailAvailable={activeSport === "f1" || mlbView === "team"}>
-      <aside className="pane sidebar">
+    <ResponsiveLayout
+      className="sports-layout"
+      detail={mobileDetail}
+      onDetailChange={changeMobileDetail}
+      label={activeSport === "f1" ? "Formula 1" : "Baseball"}
+      detailAvailable={activeSport === "f1" ? activeSessionKey != null : mlbView === "team" ? activePk != null : selectedDailyGame.current != null}
+      chrome={chrome}
+    >
+      <ReaderSidebar>
         {SPORTS_REGISTRY.map((sport) => {
           const open = expandedSports.has(sport.id);
           return (
@@ -859,7 +885,7 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
             </div>
           );
         })}
-      </aside>
+      </ReaderSidebar>
 
       {activeSport === "mlb" ? (
         mlbView === "standings" ? (
@@ -892,7 +918,11 @@ export function SportsView({ backend, onOpenSettingsSports }: Props) {
             detailLoading={mlbDetailRefreshing}
             rosterLoading={mlbRosterRefreshing}
             error={error}
-            onSelectGame={(id) => { setActivePk(id); setMobileDetail(true); }}
+            onSelectGame={(id) => {
+              selectedDailyGame.current = null;
+              setActivePk(id);
+              setMobileDetail(true);
+            }}
             onSelectTeam={selectMlbTeam}
           />
         ) : (

@@ -1,3 +1,4 @@
+import { DetailBackButton } from "./ResponsiveLayout";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   MlbGame,
@@ -628,6 +629,7 @@ function RosterPane({ roster, loading }: Pick<Props, "roster"> & { loading: bool
 export function BaseballTeamDashboard(props: Props) {
   return (
     <main className="mlb-dashboard pane">
+      <DetailBackButton />
       {props.error ? <p className="error mlb-dashboard-error">{props.error}</p> : null}
       <ScheduleRail team={props.team} season={props.season} games={props.games} activeGameId={props.activeGameId} standings={props.standings} loading={props.scheduleLoading} onSelectGame={props.onSelectGame} onSelectTeam={props.onSelectTeam} />
       <div className="mlb-dashboard-grid">

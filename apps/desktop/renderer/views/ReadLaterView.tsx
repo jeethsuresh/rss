@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared";
-import { ResponsiveLayout } from "../components/ResponsiveLayout";
+import { DetailBackButton, ReaderSidebar, ResponsiveLayout, type SidebarChrome } from "../components/ResponsiveLayout";
 import { PageFrame } from "../components/PageFrame";
 import { ReaderBody } from "../components/ReaderBody";
 import { BrowserPane } from "../components/BrowserPane";
@@ -10,6 +10,8 @@ import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 import { scrollListRowToTop } from "../lib/listScroll";
 
 type Props = {
+  chrome?: SidebarChrome;
+  toolbar?: ReactNode;
   backend: ReaderBackend;
   serverAuthoritative?: boolean;
   search: string;
@@ -34,6 +36,8 @@ const FILTERS: { id: ReadLaterFilter; label: string }[] = [
 ];
 
 export function ReadLaterView({
+  chrome,
+  toolbar,
   backend,
   serverAuthoritative = false,
   search,
@@ -60,7 +64,7 @@ export function ReadLaterView({
   }, [activeId]);
 
   useEffect(() => {
-    if (!activeId || lastScrolledIdRef.current === activeId) return;
+    if (window.matchMedia("(max-width: 980px)").matches || !activeId || lastScrolledIdRef.current === activeId) return;
     const frame = window.requestAnimationFrame(() => {
       if (scrollListRowToTop(articleListRef.current, `read-later:${activeId}`)) {
         lastScrolledIdRef.current = activeId;
@@ -217,8 +221,13 @@ export function ReadLaterView({
   };
 
   return (
-    <ResponsiveLayout detail={mobileDetail} onDetailChange={setMobileDetail} label="Read Later" detailAvailable={!!active}>
-      <aside className="pane sidebar">
+    <ResponsiveLayout detail={mobileDetail} onDetailChange={setMobileDetail} label="Read Later" detailAvailable={!!active} chrome={chrome}
+      toolbar={<>{toolbar}<div className="article-list-filter" role="group" aria-label="Filter saved links">
+        {(["all", "unread"] as const).map((value) => <button type="button" key={value} className={filter === value ? "active" : ""}
+          aria-pressed={filter === value} onClick={() => { setFilter(value); setMobileDetail(false); }}>{value === "all" ? "All" : "Unread"}</button>)}
+      </div></>}>
+
+      <ReaderSidebar>
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -230,14 +239,14 @@ export function ReadLaterView({
             {f.id === "unread" ? <span className="count">{unreadCount}</span> : null}
           </button>
         ))}
-      </aside>
+      </ReaderSidebar>
 
       <section ref={articleListRef} className="pane article-list">
         {error && <p className="error" style={{ padding: "8px 12px" }}>{error}</p>}
         {articles.length === 0 ? (
           <div className="empty">
             <h2>Nothing here</h2>
-            <p>Paste a URL in the toolbar, or send an article from RSS Reader.</p>
+            <p>Save a URL, or send an article from RSS Reader.</p>
           </div>
         ) : (
           articles.map((a) => (
@@ -261,6 +270,7 @@ export function ReadLaterView({
       </section>
 
       <section className="pane reader-pane">
+        <DetailBackButton />
         {browserUrl ? (
           <BrowserPane
             initialUrl={browserUrl}

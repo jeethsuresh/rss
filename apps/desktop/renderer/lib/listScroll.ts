@@ -15,7 +15,7 @@ export function scrollListRowToTop(
   rowKey: string | null,
   behavior: ScrollBehavior = "smooth",
 ): boolean {
-  if (!container || !rowKey) return false;
+  if (!container || !rowKey || container.getClientRects().length === 0) return false;
   const row = Array.from(container.querySelectorAll<HTMLElement>("[data-list-row-key]"))
     .find((element) => element.dataset.listRowKey === rowKey);
   if (!row) return false;
