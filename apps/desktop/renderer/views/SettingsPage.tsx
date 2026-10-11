@@ -16,6 +16,7 @@ import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 
 type Props = {
   backend: ReaderBackend;
+  session?: { username: string; onLogout: () => Promise<void> };
   settings: Settings;
   onSettings: (s: Settings) => void;
   onClose: () => void;
@@ -28,6 +29,7 @@ type SettingsSection = "server" | "general" | "feeds" | "ai" | "sports" | "error
 
 export function SettingsPage({
   backend,
+  session,
   settings,
   onSettings,
   onClose,
@@ -61,6 +63,20 @@ export function SettingsPage({
   const [serverPassword, setServerPassword] = useState("");
   const [serverBusy, setServerBusy] = useState<"login" | "register" | "sync" | "disconnect" | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const logout = async () => {
+    if (!session || loggingOut) return;
+    setLoggingOut(true);
+    setServerError(null);
+    try {
+      await session.onLogout();
+    } catch {
+      setServerError(GENERIC_ERROR_MESSAGE);
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   const [pollDraft, setPollDraft] = useState(String(settings.defaultPollIntervalSeconds));
   const [aiBaseUrlDraft, setAiBaseUrlDraft] = useState(settings.aiBaseUrl);
@@ -310,7 +326,7 @@ export function SettingsPage({
         <nav className="settings-nav">
           {(
             [
-              ...(backend.sync ? [["server", "Server"]] : []),
+              ...(session || backend.sync ? [["server", session ? "Login" : "Server"]] : []),
               ["general", "General"],
               ["feeds", "Feeds"],
               ["sports", "Sports"],
@@ -332,7 +348,18 @@ export function SettingsPage({
         <div className="settings-body">
           {error && <p className="error">{error}</p>}
 
-          {section === "server" && backend.sync && (
+          {section === "server" && session && (
+            <section className="settings-section">
+              <h2>Login</h2>
+              <p className="account-identity">Signed in as <strong>{session.username}</strong></p>
+              {serverError ? <p className="error" role="alert">{serverError}</p> : null}
+              <button type="button" className="btn" disabled={loggingOut} onClick={() => void logout()}>
+                {loggingOut ? "Logging out…" : "Log out"}
+              </button>
+            </section>
+          )}
+
+          {section === "server" && !session && backend.sync && (
             <section className="settings-section">
               <h2>Server sync</h2>
               <p className="muted">

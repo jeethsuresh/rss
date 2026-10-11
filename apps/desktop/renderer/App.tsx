@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 import type {
   Article,
   ArticleQuery,
@@ -37,6 +37,7 @@ import {
   isListableStory,
   memberArticle,
   nextStoryVote,
+  storyArticles,
   storyListRowKey,
   storyListRows,
   storiesInSnapshot,
@@ -164,6 +165,8 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const [activeStory, setActiveStory] = useState<Story | null>(null);
+  const [splittingStory, setSplittingStory] = useState(false);
+  const [splitFeedback, setSplitFeedback] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [search, setSearch] = useState("");
   const [rlSearch, setRlSearch] = useState("");
@@ -350,6 +353,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
       if (id && list.some((s) => s.id === id)) return id;
       return list[0]?.id ?? null;
     });
+    return list;
   }, [backend]);
 
   const reloadContent = useCallback(
@@ -418,15 +422,15 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
 
   useEffect(() => {
     if (!isStoriesMode || !activeStoryId) {
-      if (!isStoriesMode) {
-        setActiveStory(null);
-        setStoryMemberId(null);
-      }
+      setActiveStory(null);
+      setStoryMemberId(null);
       return;
     }
+    let cancelled = false;
     void backend.stories
       .get(activeStoryId)
       .then((full) => {
+        if (cancelled) return;
         if (!full || !isListableStory(full)) {
           setActiveStory(null);
           setStoryMemberId(null);
@@ -435,7 +439,10 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
         }
         setActiveStory(full);
       })
-      .catch(() => setActiveStory(null));
+      .catch(() => {
+        if (!cancelled) setActiveStory(null);
+      });
+    return () => { cancelled = true; };
   }, [backend, isStoriesMode, activeStoryId, loadStories]);
 
   useEffect(() => {
@@ -671,18 +678,33 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
   );
 
   const splitActiveStory = useCallback(async () => {
-    if (!activeStory) return;
+    if (!activeStory || splittingStory) return;
+    setSplittingStory(true);
+    setSplitFeedback(null);
     try {
       const { storyIds } = await backend.stories.split(activeStory.id);
-      await loadStories();
-      if (storyIds?.[0]) {
-        setActiveStoryId(storyIds[0]);
-        setStoryMemberId(null);
+      // A split replaces story IDs, so the frozen unread list must be rebuilt too.
+      const list = await loadStories(true);
+      const visible = effectiveRssListFilter === "unread" ? list.filter((story) => !story.isRead) : list;
+      const next = visible.find((story) => storyIds?.includes(story.id)) ?? visible[0] ?? null;
+      setActiveStoryId(next?.id ?? null);
+      setActiveStory(next);
+      setStoryMemberId(null);
+      setActiveId(null);
+      setMobileDetail(false);
+      if (next?.id === activeStory.id) {
+        // A tighter grouping threshold can leave strongly related coverage together.
+        setActiveStory(await backend.stories.get(next.id));
+        setSplitFeedback("These articles still belong together. Split again to separate them further.");
+      } else {
+        setSplitFeedback("Story split. Any ungrouped articles are available in All Items.");
       }
-    } catch (e) {
+    } catch {
       setError(GENERIC_ERROR_MESSAGE);
+    } finally {
+      setSplittingStory(false);
     }
-  }, [backend, activeStory, loadStories]);
+  }, [backend, activeStory, splittingStory, loadStories, effectiveRssListFilter]);
 
   const selectArticle = useCallback(
     (article: Article) => {
@@ -1515,12 +1537,6 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
       <>
         <button type="button" className="btn sidebar-settings" data-dismiss-sidebar
           onClick={() => { setSettingsSection("general"); setView("settings"); }}>Settings</button>
-        {session ? (
-          <div className="sidebar-account">
-            <span className="sidebar-username" title={session.username}>{session.username}</span>
-            <button type="button" className="btn" onClick={() => void session.onLogout().catch(() => setError(GENERIC_ERROR_MESSAGE))}>Log out</button>
-          </div>
-        ) : null}
       </>
     ),
   };
@@ -1530,6 +1546,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
       <>
         <SettingsPage
           backend={backend}
+          session={session}
           settings={settings}
           onSettings={setSettings}
           onClose={() => {
@@ -1792,6 +1809,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
               {markAllBusy ? "Marking…" : "Mark All as Read"}
             </button>
           </div>
+          {isStoriesMode && splitFeedback ? <p className="story-split-feedback muted" role="status">{splitFeedback}</p> : null}
           {isStoriesMode ? (
             visibleStories.length === 0 ? (
               <div className="empty">
@@ -1803,29 +1821,38 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
                 </p>
               </div>
             ) : (
-              storyRows.map((row) => {
+              storyRows.map((row, rowIndex) => {
                 switch (row.kind) {
                   case "story": {
                     const story = visibleStories.find((s) => s.id === row.storyId);
                     if (!story) return null;
                     const isActive = story.id === activeStoryId && !storyMemberId;
                     return (
-                      <button
-                        key={storyListRowKey(row)}
-                        data-list-row-key={storyListRowKey(row)}
-                        className={`article-row meta-story-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
-                        aria-expanded={activeStory?.id === story.id}
-                        onClick={() => void selectStory(story)}
-                      >
-                        <div className="article-meta">
-                          <span>
-                            {story.memberCount} article{story.memberCount === 1 ? "" : "s"}
-                          </span>
-                          <span>{formatRelativeTime(story.updatedAt ?? story.createdAt)}</span>
-                        </div>
-                        <h3 className="article-title">{decodeHtmlEntities(story.title || "(untitled story)")}</h3>
-                        <p className="article-summary">{story.summary || ""}</p>
-                      </button>
+                      <Fragment key={storyListRowKey(row)}>
+                        <button
+                          data-list-row-key={storyListRowKey(row)}
+                          className={`article-row meta-story-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
+                          aria-expanded={activeStory?.id === story.id}
+                          onClick={() => void selectStory(story)}
+                        >
+                          <div className="article-meta">
+                            <span>
+                              <span aria-hidden>{activeStory?.id === story.id ? "▾" : "▸"} </span>
+                              {story.memberCount} article{story.memberCount === 1 ? "" : "s"}
+                            </span>
+                            <span>{formatRelativeTime(story.updatedAt ?? story.createdAt)}</span>
+                          </div>
+                          <h3 className="article-title">{decodeHtmlEntities(story.title || "(untitled story)")}</h3>
+                          <p className="article-summary">{story.summary || ""}</p>
+                        </button>
+                        {activeStory?.id === story.id ? (
+                          <div className="story-member-tools">
+                            <button type="button" className="btn" disabled={splittingStory} onClick={() => void splitActiveStory()}>
+                              {splittingStory ? "Splitting…" : "Split story"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </Fragment>
                     );
                   }
                   case "member": {
@@ -1836,7 +1863,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
                       <div
                         key={storyListRowKey(row)}
                         data-list-row-key={storyListRowKey(row)}
-                        className={`article-row story-member-row ${member.id === storyMemberId ? "active" : ""} ${member.isRead ? "" : "unread"}`}
+                        className={`article-row story-member-row ${storyRows[rowIndex + 1]?.kind !== "member" ? "story-member-last" : ""} ${member.id === storyMemberId ? "active" : ""} ${member.isRead ? "" : "unread"}`}
                       >
                         <button
                           type="button"
@@ -1956,8 +1983,8 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
                   >
                     {activeStory.isRead ? "Mark unread" : "Mark read"}
                   </button>
-                  <button type="button" className="btn" onClick={() => void splitActiveStory()}>
-                    Split
+                  <button type="button" className="btn" disabled={splittingStory} onClick={() => void splitActiveStory()}>
+                    {splittingStory ? "Splitting…" : "Split"}
                   </button>
                   <button
                     type="button"
@@ -1978,6 +2005,21 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
                     👎
                   </button>
                 </div>
+                <details key={activeStory.id} className="story-article-overview">
+                  <summary>Articles ({activeStory.memberCount})</summary>
+                  <div className="story-article-titles">
+                    {storyArticles(activeStory).map((member) => (
+                      <button type="button" className="story-article-link" key={member.id}
+                        onClick={() => void selectStoryMember(member)}>
+                        <span className="article-meta">
+                          <span>{member.feedTitle}</span>
+                          <span>{formatRelativeTime(member.publishedAt ?? member.discoveredAt)}</span>
+                        </span>
+                        <span className="story-article-title">{decodeHtmlEntities(member.title || "(untitled)")}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
               </article>
             )
           ) : !active ? (

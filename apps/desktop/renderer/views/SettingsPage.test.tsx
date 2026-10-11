@@ -16,9 +16,10 @@ const settings: Settings = {
   aiModel: "",
 };
 
-function render(backend: Partial<ReaderBackend>, initialSection: "server" | "general") {
+function render(backend: Partial<ReaderBackend>, initialSection: "server" | "general", session?: { username: string; onLogout: () => Promise<void> }) {
   return renderToStaticMarkup(createElement(SettingsPage, {
     backend: backend as ReaderBackend,
+    session,
     settings,
     onSettings: () => undefined,
     onClose: () => undefined,
@@ -37,6 +38,15 @@ describe("desktop server settings", () => {
     expect(html).toContain("Password");
     expect(html).toContain("Sign in");
     expect(html).toContain("Create account");
+  });
+
+  test("hosts the web account and logout in Login settings without a second sign-in form", () => {
+    const html = render({}, "server", { username: "reader", onLogout: async () => undefined });
+    expect(html).toContain("Login");
+    expect(html).toContain("Signed in as <strong>reader</strong>");
+    expect(html).toContain("Log out");
+    expect(html).not.toContain("Password");
+    expect(html).not.toContain("Server sync");
   });
 
   test("does not offer a second server login inside the hosted web app", () => {

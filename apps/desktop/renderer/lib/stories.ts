@@ -39,6 +39,14 @@ export function storiesInSnapshot(stories: Story[], storyIds: readonly string[])
   });
 }
 
+export function storyArticles(story: Story): Article[] {
+  return (story.articles ?? []).filter((article) => !article.isReadLater).sort((a, b) => {
+    const aTime = Date.parse(a.publishedAt ?? a.discoveredAt);
+    const bTime = Date.parse(b.publishedAt ?? b.discoveredAt);
+    return bTime - aTime;
+  });
+}
+
 export function storyListRows(stories: Story[], expanded: Story | null): StoryListRow[] {
   const rows: StoryListRow[] = [];
   for (const story of stories) {
@@ -49,15 +57,7 @@ export function storyListRows(stories: Story[], expanded: Story | null): StoryLi
     if (expanded?.id !== story.id) {
       continue;
     }
-    const newestFirst = [...(expanded.articles ?? [])].sort((a, b) => {
-      const aTime = Date.parse(a.publishedAt ?? a.discoveredAt);
-      const bTime = Date.parse(b.publishedAt ?? b.discoveredAt);
-      return bTime - aTime;
-    });
-    for (const article of newestFirst) {
-      if (article.isReadLater) {
-        continue;
-      }
+    for (const article of storyArticles(expanded)) {
       rows.push({ kind: "member", storyId: story.id, articleId: article.id });
     }
   }

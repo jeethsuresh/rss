@@ -2472,10 +2472,75 @@ button {
 }
 
 .article-row.story-member-row {
-  padding-left: 22px;
+  position: relative;
+  padding-left: 30px;
   display: flex;
   align-items: flex-start;
   gap: 8px;
+}
+
+.story-member-row::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: -1px;
+  bottom: -6px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  pointer-events: none;
+}
+
+.story-member-row.story-member-last::before {
+  bottom: 16px;
+  width: 8px;
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-bottom-left-radius: 5px;
+}
+
+.story-split-feedback {
+  margin: 10px 12px;
+  font-size: 0.82rem;
+}
+
+.account-identity {
+  overflow-wrap: anywhere;
+}
+
+.story-member-tools {
+  display: none;
+}
+
+.story-article-overview {
+  margin-top: 24px;
+  border-block: 1px solid var(--border);
+}
+
+.story-article-overview > summary {
+  cursor: pointer;
+  padding-block: 14px;
+  font-weight: 600;
+}
+
+.story-article-titles {
+  display: grid;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  margin: 0 0 16px 6px;
+  padding-left: 10px;
+}
+
+.story-article-link {
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  padding: 12px;
+  border-radius: var(--radius);
+}
+
+.story-article-link:hover {
+  background: var(--bg2);
+}
+
+.story-article-title {
+  line-height: 1.4;
 }
 
 .story-member-main {
@@ -3555,29 +3620,11 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
   height: 100vh;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .web-app-shell > .app {
   min-height: 0;
-}
-
-.web-session-bar {
-  min-height: 34px;
-  padding: 4px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg1);
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.web-session-bar .btn {
-  min-height: 26px;
-  padding: 3px 9px;
 }
 
 .web-auth-shell {
@@ -3679,9 +3726,17 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
 }
 
 @media (max-width: 980px) {
-  .app > .toolbar,
-  .web-session-bar {
+  .app > .toolbar {
     display: none;
+  }
+
+  .story-member-tools {
+    display: block;
+    padding: 4px 12px 8px 30px;
+  }
+
+  .story-member-tools .btn {
+    min-height: 44px;
   }
 
   .web-app-shell {
@@ -3801,23 +3856,6 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
     width: 100%;
     min-width: 0;
     font-size: 16px;
-  }
-
-  .sidebar-account {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 8px;
-  }
-
-  .sidebar-username {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 14px;
-    color: var(--muted);
   }
 
   .detail-back-row {

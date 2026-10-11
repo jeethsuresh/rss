@@ -49,10 +49,6 @@ export function WebApp() {
 
   return (
     <div className="web-app-shell">
-      <div className="web-session-bar">
-        <span>{user.username}</span>
-        <button className="btn" onClick={() => void logout()}>Log out</button>
-      </div>
       <App backend={backend} serverAuthoritative session={{ username: user.username, onLogout: logout }} />
     </div>
   );
