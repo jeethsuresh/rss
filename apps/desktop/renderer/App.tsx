@@ -55,7 +55,7 @@ import { BrowserPane } from "./components/BrowserPane";
 import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
 import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
 import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
-import { browserPaneUrl } from "./lib/linkNavigation";
+import { browserPaneUrl, shouldOpenLinkInPane } from "./lib/linkNavigation";
 import { GENERIC_ERROR_MESSAGE } from "./lib/errors";
 import { scrollListRowToTop } from "./lib/listScroll";
 import { shouldReloadArticleListInBackground } from "./lib/listRefresh";
@@ -868,7 +868,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
   useEffect(() => {
     const openLinksInPane = (event: MouseEvent) => {
       const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor) return;
+      if (!anchor || !shouldOpenLinkInPane(event, anchor)) return;
       const url = browserPaneUrl(
         anchor.getAttribute("href"),
         active?.url || window.location.href,
@@ -1145,7 +1145,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
         className="reader-body"
         onClick={(event) => {
           const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
-          if (!anchor) return;
+          if (!anchor || !shouldOpenLinkInPane(event, anchor)) return;
           const url = browserPaneUrl(anchor.getAttribute("href"), article.url);
           if (!url) return;
           event.preventDefault();

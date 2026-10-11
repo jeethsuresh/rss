@@ -6,6 +6,7 @@ import { ReaderBody } from "../components/ReaderBody";
 import { BrowserPane } from "../components/BrowserPane";
 import { formatRelativeTime, stripHtml, decodeHtmlEntities, sanitizeArticleHtml } from "../lib/html";
 import { isFullBleedTab, type ContentTab } from "../lib/readerMode";
+import { shouldOpenLinkInPane } from "../lib/linkNavigation";
 import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 import { scrollListRowToTop } from "../lib/listScroll";
 
@@ -197,7 +198,7 @@ export function ReadLaterView({
           className="reader-body"
           onClick={(event) => {
             const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
-            if (!anchor) return;
+            if (!anchor || !shouldOpenLinkInPane(event, anchor)) return;
             const url = new URL(anchor.getAttribute("href") || "", article.url).href;
             if (!/^https?:\/\//i.test(url)) return;
             event.preventDefault();

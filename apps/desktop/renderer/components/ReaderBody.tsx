@@ -1,4 +1,5 @@
 import type { Article } from "@rss-reader/shared";
+import { shouldOpenLinkInPane } from "../lib/linkNavigation";
 import { readerPaneModel } from "../lib/readerMode";
 
 type Props = {
@@ -28,7 +29,7 @@ export function ReaderBody({ article, contentBusy, onRecrawl, onNavigate }: Prop
           className="reader-body reader-mode-body"
           onClick={(event) => {
             const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
-            if (!anchor || !onNavigate) return;
+            if (!anchor || !onNavigate || !shouldOpenLinkInPane(event, anchor)) return;
             const url = new URL(anchor.getAttribute("href") || "", article.url).href;
             if (!/^https?:\/\//i.test(url)) return;
             event.preventDefault();
