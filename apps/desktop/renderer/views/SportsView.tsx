@@ -85,7 +85,7 @@ export function SportsView({ backend, onOpenSettingsSports, chrome }: Props) {
 
   // --- F1 ---
   const [f1Years, setF1Years] = useState<F1Season[]>([]);
-  const [f1Year, setF1Year] = useState<number | null>(null);
+  const [f1Year, setF1Year] = useState<number>(() => new Date().getFullYear());
   const [f1Races, setF1Races] = useState<F1Race[]>([]);
   const [activeMeetingKey, setActiveMeetingKey] = useState<number | null>(null);
   const [activeSessionKey, setActiveSessionKey] = useState<number | null>(null);
@@ -271,7 +271,6 @@ export function SportsView({ backend, onOpenSettingsSports, chrome }: Props) {
     try {
       const years = await backend.sports.f1Years();
       setF1Years(years ?? []);
-      setF1Year((prev) => prev ?? years?.[0]?.year ?? new Date().getFullYear());
     } finally {
       endFetchIfSync("f1.years");
     }
@@ -859,12 +858,15 @@ export function SportsView({ backend, onOpenSettingsSports, chrome }: Props) {
                   <select
                     className="sports-season-select"
                     aria-label="Formula 1 year"
-                    value={f1Year ?? ""}
+                    value={f1Year}
                     onChange={(e) => {
                       setActiveSport("f1");
                       setF1Year(Number(e.target.value));
                     }}
                   >
+                    {!f1Years.some((y) => y.year === f1Year) && (
+                      <option value={f1Year}>{f1Year}</option>
+                    )}
                     {f1Years.map((y) => (
                       <option key={y.year} value={y.year}>
                         {y.year}
