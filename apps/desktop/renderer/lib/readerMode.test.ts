@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { Article } from "@rss-reader/shared";
 import { parseHTML } from "linkedom";
-import { extractReaderArticle, isFullBleedTab, readerPaneModel, readerSourceHtml } from "./readerMode";
+import { defaultContentTab, extractReaderArticle, isFullBleedTab, readerPaneModel, readerSourceHtml } from "./readerMode";
 
 beforeAll(() => {
   class LinkedomParser {
@@ -165,3 +165,10 @@ describe("isFullBleedTab", () => {
   });
 });
 
+
+describe("default content view", () => {
+  test("RSS articles open in Reader and saved links retain Live", () => {
+    expect(defaultContentTab(false)).toBe("reader");
+    expect(defaultContentTab(true)).toBe("primary");
+  });
+});

@@ -51,9 +51,10 @@ import { SportsView } from "./views/SportsView";
 import { DetailBackButton, ReaderSidebar, ResponsiveLayout, type SidebarChrome } from "./components/ResponsiveLayout";
 import { PageFrame } from "./components/PageFrame";
 import { ReaderBody } from "./components/ReaderBody";
+import { StoryArticleVotes } from "./components/StoryArticleVotes";
 import { BrowserPane } from "./components/BrowserPane";
 import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
-import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
+import { defaultContentTab, isFullBleedTab, type ContentTab } from "./lib/readerMode";
 import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
 import { browserPaneUrl, shouldOpenLinkInPane } from "./lib/linkNavigation";
 import { GENERIC_ERROR_MESSAGE } from "./lib/errors";
@@ -188,6 +189,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
   const lastScrolledListRowKeyRef = useRef<string | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const paginationInFlightRef = useRef(false);
+  const readerSelectionKeyRef = useRef("");
   const articleListGenerationRef = useRef(0);
   const pendingArticleDeepLinkRef = useRef<Article | null>(null);
   const [view, setView] = useState<View>("reader");
@@ -197,7 +199,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
   );
   const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
   const [storyMemberId, setStoryMemberId] = useState<string | null>(null);
-  const [contentTab, setContentTab] = useState<ContentTab>("primary");
+  const [contentTab, setContentTab] = useState<ContentTab>("reader");
   const [contentBusy, setContentBusy] = useState(false);
   const [markAllBusy, setMarkAllBusy] = useState(false);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
@@ -216,6 +218,8 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
   const effectiveRssListFilter = rssListFilter;
   const storyMember = isStoriesMode ? memberArticle(activeStory, storyMemberId) : null;
   const active = isStoriesMode ? storyMember : (articles.find((a) => a.id === activeId) ?? null);
+  readerSelectionKeyRef.current = JSON.stringify([appMode, view, selected.type,
+    "id" in selected ? selected.id : "", rssListFilter, search, activeStoryId, active?.id, contentTab, browserUrl, mobileDetail]);
   const storyUnread = unreadStoryCount(stories);
   const visibleStories =
     isStoriesMode && effectiveRssListFilter === "unread"
@@ -295,7 +299,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
       if (pendingArticle && !list.some((article) => article.id === pendingArticle.id)) {
         list = [pendingArticle, ...list];
       }
-      setArticles((prev) => (append ? [...prev, ...list] : list));
+      setArticles((prev) => (append ? [...prev, ...list.filter((item) => !prev.some((existing) => existing.id === item.id))] : list));
       setNextCursor(res.nextCursor);
       if (!append) {
         setArticleListRevision((revision) => revision + 1);
@@ -534,6 +538,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
           void backend.stories
             .get(payload.storyId)
             .then((full) => {
+              if (!full) { void loadStories(); return; }
               setStories((prev) => upsertStoryInPlace(prev, full));
               if (!isListableStory(full)) {
                 if (payload.storyId === activeStoryId) {
@@ -595,10 +600,8 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
     setArticles((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
     setActiveStory((prev) => {
       if (!prev?.articles) return prev;
-      return {
-        ...prev,
-        articles: prev.articles.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)),
-      };
+      const members = prev.articles.map((a) => (a.id === updated.id ? { ...a, ...updated } : a));
+      return { ...prev, articles: members, isRead: members.every((article) => article.isRead) };
     });
   }, []);
 
@@ -828,6 +831,63 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
     ],
   );
 
+  const finishActiveArticle = useCallback(async (): Promise<boolean> => {
+    if (!active || active.isReadLater || contentTab !== "reader") return false;
+    const article = active;
+    const selectionKey = readerSelectionKeyRef.current;
+    const stillSelected = () => readerSelectionKeyRef.current === selectionKey;
+    try {
+      if (!article.isRead) patchArticle(await backend.articles.markRead(article.id));
+      void loadFeeds();
+      if (!stillSelected()) return false;
+      if (isStoriesMode && activeStory) {
+        const members = storyArticles(activeStory);
+        const next = members[members.findIndex((member) => member.id === article.id) + 1];
+        if (next && next.id !== article.id) {
+          selectStoryMember(next);
+          return false;
+        }
+        const storyIndex = visibleStories.findIndex((story) => story.id === activeStory.id);
+        const remainingStories = visibleStories.slice(storyIndex + 1).filter((story) =>
+          effectiveRssListFilter === "all" || !story.isRead,
+        );
+        for (const nextStory of remainingStories) {
+          const full = await backend.stories.get(nextStory.id);
+          if (!stillSelected()) return false;
+          if (!full) continue;
+          const nextMember = storyArticles(full).find((member) =>
+            effectiveRssListFilter === "all" || !member.isRead,
+          );
+          if (!nextMember) continue;
+          setActiveStoryId(full.id);
+          setActiveStory(full);
+          selectStoryMember(nextMember);
+          return false;
+        }
+        return true;
+      }
+      let next = articles[articles.findIndex((item) => item.id === article.id) + 1];
+      if (!next && nextCursor) {
+        const generation = articleListGenerationRef.current;
+        const page = await backend.articles.list({ ...articleScopeQuery, limit: 50, cursor: nextCursor });
+        if (!stillSelected() || generation !== articleListGenerationRef.current) return false;
+        const more = page.articles ?? [];
+        setArticles((prev) => [...prev, ...more.filter((item) => !prev.some((existing) => existing.id === item.id))]);
+        setNextCursor(page.nextCursor);
+        next = more[0];
+      }
+      if (next && next.id !== article.id && stillSelected()) {
+        selectArticle(next);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      setError(GENERIC_ERROR_MESSAGE);
+      throw error;
+    }
+  }, [active, contentTab, backend, patchArticle, loadFeeds, isStoriesMode, activeStory,
+    visibleStories, effectiveRssListFilter, selectStoryMember, articles, nextCursor, articleScopeQuery, selectArticle]);
+
   const moveMetaStory = useCallback(
     (delta: number) => {
       if (!isStoriesMode) return;
@@ -859,9 +919,9 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
   }, [isStoriesMode, activeStoryId, storyMemberId, activeId, storyRows]);
 
   useEffect(() => {
-    setContentTab("primary");
+    setContentTab(defaultContentTab(active?.isReadLater ?? false));
     setBrowserUrl(null);
-  }, [activeId]);
+  }, [active?.id, active?.isReadLater]);
 
   useEffect(() => window.desktop.onOpenInPane(setBrowserUrl), []);
 
@@ -1093,6 +1153,7 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
           contentBusy={contentBusy}
           onRecrawl={() => void recrawlActive()}
           onNavigate={setBrowserUrl}
+          onFinish={!article.isReadLater ? finishActiveArticle : undefined}
         />
       );
     }
@@ -1880,26 +1941,8 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
                           </h3>
                           <p className="article-summary">{stripHtml(member.summary || member.content)}</p>
                         </button>
-                        <div className="story-votes">
-                          <button
-                            type="button"
-                            className={`story-vote ${memberVote === "up" ? "active" : ""}`}
-                            aria-label="Thumbs up"
-                            aria-pressed={memberVote === "up"}
-                            onClick={() => void voteStoryArticle(activeStory.id, member.id, "up")}
-                          >
-                            👍
-                          </button>
-                          <button
-                            type="button"
-                            className={`story-vote ${memberVote === "down" ? "active" : ""}`}
-                            aria-label="Thumbs down"
-                            aria-pressed={memberVote === "down"}
-                            onClick={() => void voteStoryArticle(activeStory.id, member.id, "down")}
-                          >
-                            👎
-                          </button>
-                        </div>
+                        <StoryArticleVotes article={member} vote={memberVote}
+                          onVote={(vote) => void voteStoryArticle(activeStory.id, member.id, vote)} />
                       </div>
                     );
                   }
@@ -2005,18 +2048,22 @@ function AppMain({ backend, serverAuthoritative, session }: { backend: ReaderBac
                     👎
                   </button>
                 </div>
-                <details key={activeStory.id} className="story-article-overview">
+                <details key={activeStory.id} className="story-article-overview" open>
                   <summary>Articles ({activeStory.memberCount})</summary>
                   <div className="story-article-titles">
                     {storyArticles(activeStory).map((member) => (
-                      <button type="button" className="story-article-link" key={member.id}
-                        onClick={() => void selectStoryMember(member)}>
-                        <span className="article-meta">
-                          <span>{member.feedTitle}</span>
-                          <span>{formatRelativeTime(member.publishedAt ?? member.discoveredAt)}</span>
-                        </span>
-                        <span className="story-article-title">{decodeHtmlEntities(member.title || "(untitled)")}</span>
-                      </button>
+                      <div className="story-article-overview-row" key={member.id}>
+                        <button type="button" className="story-article-link"
+                          onClick={() => void selectStoryMember(member)}>
+                          <span className="article-meta">
+                            <span>{member.feedTitle}</span>
+                            <span>{formatRelativeTime(member.publishedAt ?? member.discoveredAt)}</span>
+                          </span>
+                          <span className="story-article-title">{decodeHtmlEntities(member.title || "(untitled)")}</span>
+                        </button>
+                        <StoryArticleVotes article={member} vote={activeStory.articleVotes?.[member.id]}
+                          onVote={(vote) => void voteStoryArticle(activeStory.id, member.id, vote)} />
+                      </div>
                     ))}
                   </div>
                 </details>

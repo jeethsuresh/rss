@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+import { ReaderEnd } from "./ReaderEnd";
 import type { Article } from "@rss-reader/shared";
 import { shouldOpenLinkInPane } from "../lib/linkNavigation";
 import { readerPaneModel } from "../lib/readerMode";
@@ -7,9 +9,10 @@ type Props = {
   contentBusy: boolean;
   onRecrawl: () => void;
   onNavigate?: (url: string) => void;
+  onFinish?: () => Promise<boolean>;
 };
 
-export function ReaderBody({ article, contentBusy, onRecrawl, onNavigate }: Props) {
+export function ReaderBody({ article, contentBusy, onRecrawl, onNavigate, onFinish }: Props) {
   const model = readerPaneModel(article);
   switch (model.kind) {
     case "status":
@@ -25,20 +28,23 @@ export function ReaderBody({ article, contentBusy, onRecrawl, onNavigate }: Prop
       );
     case "article":
       return (
-        <div
-          className="reader-body reader-mode-body"
-          onClick={(event) => {
-            const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
-            if (!anchor || !onNavigate || !shouldOpenLinkInPane(event, anchor)) return;
-            const url = new URL(anchor.getAttribute("href") || "", article.url).href;
-            if (!/^https?:\/\//i.test(url)) return;
-            event.preventDefault();
-            onNavigate(url);
-          }}
-        >
-          {model.byline ? <p className="reader-byline">{model.byline}</p> : null}
-          <div dangerouslySetInnerHTML={{ __html: model.contentHtml }} />
-        </div>
+        <Fragment>
+          <div
+            className="reader-body reader-mode-body"
+            onClick={(event) => {
+              const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
+              if (!anchor || !onNavigate || !shouldOpenLinkInPane(event, anchor)) return;
+              const url = new URL(anchor.getAttribute("href") || "", article.url).href;
+              if (!/^https?:\/\//i.test(url)) return;
+              event.preventDefault();
+              onNavigate(url);
+            }}
+          >
+            {model.byline ? <p className="reader-byline">{model.byline}</p> : null}
+            <div dangerouslySetInnerHTML={{ __html: model.contentHtml }} />
+          </div>
+          {onFinish ? <ReaderEnd articleId={article.id} onFinish={onFinish} /> : null}
+        </Fragment>
       );
     default: {
       const _exhaustive: never = model;
