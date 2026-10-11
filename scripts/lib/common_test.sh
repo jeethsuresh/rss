@@ -12,6 +12,7 @@ fail() {
 
 COMPOSE_DEFAULT="$(sed -n 's/.*image: \${RSS_SERVER_IMAGE:-\([^}]*\)}.*/\1/p' "${SCRIPT_DIR}/../../docker-compose.yaml" | head -n 1)"
 [[ -n "${COMPOSE_DEFAULT}" ]] || fail "could not parse compose image default"
+[[ "${COMPOSE_DEFAULT}" == "docker.io/library/rss-reader-app:latest" ]] || fail "compose image must be fully qualified to avoid stale localhost images"
 
 PROJECT_NAME="rss-reader"
 HOST_PORT="8787"
@@ -25,7 +26,7 @@ PROJECT_NAME="rss-reader-staging"
 unset RSS_SERVER_IMAGE
 DEPLOY_IMAGE_TAG="abc123def"
 export_compose_runtime_env
-[[ "${RSS_SERVER_IMAGE}" == "rss-reader-app:abc123def" ]] || fail "tagged image is ${RSS_SERVER_IMAGE}, want rss-reader-app:abc123def"
+[[ "${RSS_SERVER_IMAGE}" == "docker.io/library/rss-reader-app:abc123def" ]] || fail "tagged image is ${RSS_SERVER_IMAGE}, want docker.io/library/rss-reader-app:abc123def"
 
 RSS_SERVER_IMAGE="already-set:tag"
 unset DEPLOY_IMAGE_TAG

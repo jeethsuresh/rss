@@ -1,6 +1,6 @@
 services:
   app:
-    image: ${RSS_SERVER_IMAGE:-rss-reader-app:latest}
+    image: ${RSS_SERVER_IMAGE:-docker.io/library/rss-reader-app:latest}
     build:
       context: .
       dockerfile: Dockerfile
