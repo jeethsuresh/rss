@@ -2069,6 +2069,9 @@ button {
 }
 
 .reader-fullbleed .reader-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: 16px 20px 32px;
   max-width: none;
 }
