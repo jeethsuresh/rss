@@ -1,0 +1,96 @@
+# Chart 42.1.0. Traefik's local ACME store requires one writer.
+deployment:
+  replicas: 1
+updateStrategy:
+  type: Recreate
+  rollingUpdate: null
+service:
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-name: gravitas-public-ingress
+    service.beta.kubernetes.io/do-loadbalancer-protocol: tcp
+    service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
+  spec:
+    type: LoadBalancer
+    externalTrafficPolicy: Cluster
+ports:
+  web:
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    http:
+      tls:
+        enabled: true
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 0s
+        idleTimeout: 180s
+providers:
+  kubernetesIngress:
+    namespaces: [rss, office, traefik]
+  kubernetesCRD:
+    namespaces: [rss, office, traefik]
+    allowCrossNamespace: false
+    defaultTLSResourcesNamespace: traefik
+    safeNaming: true
+core:
+  strictTLSOptions: true
+ingressClass:
+  enabled: true
+  name: traefik
+  isDefaultClass: false
+ingressRoute:
+  dashboard:
+    enabled: false
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: do-block-storage-retain
+  path: /data
+podSecurityContext:
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+envFrom:
+  - secretRef:
+      name: namecheap-credentials
+certificatesResolvers:
+  namecheap:
+    acme:
+      email: jeethsuresh@gmail.com
+      storage: /data/acme.json
+      keyType: EC256
+      dnsChallenge:
+        provider: namecheap
+        resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
+extraObjects:
+  - apiVersion: traefik.io/v1alpha1
+    kind: TLSStore
+    metadata:
+      name: default
+    spec:
+      defaultGeneratedCert:
+        resolver: namecheap
+        domain:
+          main: "*.gravitas.cool"
+  - apiVersion: traefik.io/v1alpha1
+    kind: TLSOption
+    metadata:
+      name: default
+    spec:
+      minVersion: VersionTLS12
+      sniStrict: true
