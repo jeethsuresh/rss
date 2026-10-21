@@ -6,10 +6,11 @@ import (
 )
 
 type User struct {
-	ID          string    `json:"id"`
-	DisplayName string    `json:"displayName,omitempty"`
-	Username    string    `json:"username"`
-	Created     time.Time `json:"createdAt"`
+	SessionExpiresAt time.Time `json:"-"`
+	ID               string    `json:"id"`
+	DisplayName      string    `json:"displayName,omitempty"`
+	Username         string    `json:"username"`
+	Created          time.Time `json:"createdAt"`
 }
 
 type AuthResult struct {

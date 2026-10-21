@@ -277,18 +277,22 @@ func (c *Client) SetSession(w http.ResponseWriter, identity Identity) error {
 	return nil
 }
 func (c *Client) Session(r *http.Request) (Identity, error) {
+	identity, _, err := c.SessionInfo(r)
+	return identity, err
+}
+func (c *Client) SessionInfo(r *http.Request) (Identity, time.Time, error) {
 	got, err := r.Cookie(SessionCookie)
 	if err != nil {
-		return Identity{}, ErrLoginRequired
+		return Identity{}, time.Time{}, ErrLoginRequired
 	}
 	var s session
 	if err = c.open("session", got.Value, &s); err != nil {
-		return Identity{}, ErrLoginRequired
+		return Identity{}, time.Time{}, ErrLoginRequired
 	}
 	if s.Expires <= time.Now().Unix() || s.Expires > time.Now().Add(SessionLifetime+time.Minute).Unix() || s.Identity.Issuer != c.Issuer || s.Identity.Subject == "" {
-		return Identity{}, ErrLoginRequired
+		return Identity{}, time.Time{}, ErrLoginRequired
 	}
-	return s.Identity, nil
+	return s.Identity, time.Unix(s.Expires, 0), nil
 }
 func (c *Client) ClearSession(w http.ResponseWriter) { cookie(w, SessionCookie, "", -1) }
 func (c *Client) ValidMutation(r *http.Request) bool {

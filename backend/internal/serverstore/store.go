@@ -126,13 +126,13 @@ func (s *Store) Authenticate(ctx context.Context, token string) (*User, error) {
 	h := sha256.Sum256([]byte(token))
 	now := s.now()
 	var user User
-	var created string
+	var created, sessionExpiry string
 	err := s.db.SQL.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.created_at, u.display_name
+		SELECT u.id, u.username, u.created_at, u.display_name, sess.expires_at
 		FROM auth_sessions sess
 		JOIN users u ON u.id = sess.user_id
 		WHERE sess.token_hash = ? AND sess.expires_at > ?`, hex.EncodeToString(h[:]), formatTime(now)).
-		Scan(&user.ID, &user.Username, &created, &user.DisplayName)
+		Scan(&user.ID, &user.Username, &created, &user.DisplayName, &sessionExpiry)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("invalid or expired session")
 	}
@@ -140,6 +140,7 @@ func (s *Store) Authenticate(ctx context.Context, token string) (*User, error) {
 		return nil, err
 	}
 	user.Created = parseTime(created)
+	user.SessionExpiresAt = parseTime(sessionExpiry)
 	_, _ = s.db.SQL.ExecContext(ctx, `UPDATE auth_sessions SET last_used_at=? WHERE token_hash=?`, formatTime(now), hex.EncodeToString(h[:]))
 	return &user, nil
 }

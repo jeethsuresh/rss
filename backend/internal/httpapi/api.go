@@ -223,7 +223,13 @@ func (a *API) auth(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", err)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, user)))
+		ctx := r.Context()
+		if a.cfg.Federation != nil {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, user.SessionExpiresAt)
+			defer cancel()
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, userContextKey{}, user)))
 	})
 }
 
