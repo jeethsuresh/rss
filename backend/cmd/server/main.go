@@ -18,6 +18,7 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/application"
 	"github.com/jeeth/rss-reader/backend/internal/cluster"
 	"github.com/jeeth/rss-reader/backend/internal/crawl"
+	"github.com/jeeth/rss-reader/backend/internal/gravitas"
 	"github.com/jeeth/rss-reader/backend/internal/httpapi"
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
 	"github.com/jeeth/rss-reader/backend/internal/netguard"
@@ -40,8 +41,22 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	var federation *gravitas.Client
+	issuer := strings.TrimSpace(os.Getenv("GRAVITAS_ISSUER"))
+	if envBool("GRAVITAS_REQUIRED", false) && issuer == "" {
+		log.Error("GRAVITAS_ISSUER is required")
+		os.Exit(1)
+	}
+	if issuer != "" {
+		var err error
+		federation, err = gravitas.New(issuer, os.Getenv("GRAVITAS_APP_URL"), os.Getenv("GRAVITAS_SESSION_KEY"))
+		if err != nil {
+			log.Error("invalid Gravitas configuration", "err", err)
+			os.Exit(1)
+		}
+	}
 	registrationKey := strings.TrimSpace(os.Getenv("RSS_SERVER_REGISTRATION_KEY"))
-	if *registration && registrationKey == "" {
+	if federation == nil && *registration && registrationKey == "" {
 		log.Error("RSS_SERVER_REGISTRATION_KEY is required when registration is enabled")
 		os.Exit(1)
 	}
@@ -117,6 +132,7 @@ func main() {
 	handler := httpapi.New(store, svc, log, httpapi.Config{
 		RegistrationEnabled: *registration,
 		RegistrationKey:     registrationKey,
+		Federation:          federation,
 		Version:             version,
 		Context:             ctx,
 		WebDir:              resolvedWebDir,

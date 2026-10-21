@@ -15,12 +15,14 @@ import (
 
 	"github.com/jeeth/rss-reader/backend/internal/application"
 	"github.com/jeeth/rss-reader/backend/internal/domain"
+	"github.com/jeeth/rss-reader/backend/internal/gravitas"
 	"github.com/jeeth/rss-reader/backend/internal/serverstore"
 )
 
 type Config struct {
 	RegistrationEnabled bool
 	RegistrationKey     string
+	Federation          *gravitas.Client
 	Version             string
 	Context             context.Context
 	WebDir              string
@@ -62,6 +64,16 @@ func New(store *serverstore.Store, svc *application.Service, log *slog.Logger, c
 	mux.HandleFunc("GET /v1/web/config", a.webConfig)
 	mux.HandleFunc("POST /v1/web/register", a.webRegister)
 	mux.HandleFunc("POST /v1/web/login", a.webLogin)
+	mux.HandleFunc("GET /auth/gravitas/start", a.federationStart)
+	mux.HandleFunc("GET /auth/gravitas/register", a.federationRegister)
+	mux.HandleFunc("GET /auth/gravitas/callback", a.federationCallback)
+	mux.HandleFunc("GET /auth/gravitas/ready.json", func(w http.ResponseWriter, r *http.Request) {
+		if a.cfg.Federation == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"ok": false})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auth": "gravitas"})
+	})
 
 	mux.Handle("GET /v1/me", a.auth(http.HandlerFunc(a.me)))
 	mux.Handle("GET /v1/web/session", a.auth(http.HandlerFunc(a.webSession)))
@@ -143,6 +155,9 @@ func (a *API) register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) login(w http.ResponseWriter, r *http.Request) {
+	if a.requireFederatedLogin(w) {
+		return
+	}
 	if !a.allowAuthAttempt(r) {
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", errors.New("too many authentication attempts"))
 		return
@@ -187,22 +202,34 @@ type credentials struct {
 
 func (a *API) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		token := bearerToken(r)
+		usingCookie := token == ""
 		if token == "" {
-			if cookie, err := r.Cookie(webSessionCookie); err == nil {
+			if cookie, err := r.Cookie(a.sessionCookieName()); err == nil {
 				token = strings.TrimSpace(cookie.Value)
 			}
+		}
+		if usingCookie && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions && r.Header.Get("X-RSS-CSRF") != "1" {
+			writeError(w, http.StatusForbidden, "CSRF_REQUIRED", errors.New("missing request verification header"))
+			return
 		}
 		if token == "" {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", errors.New("session required"))
 			return
 		}
-		user, err := a.store.Authenticate(r.Context(), token)
+		user, err := a.authenticate(r, token)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", err)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, user)))
+		ctx := r.Context()
+		if a.cfg.Federation != nil {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, user.SessionExpiresAt)
+			defer cancel()
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, userContextKey{}, user)))
 	})
 }
 

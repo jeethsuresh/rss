@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { App } from "./App";
 import { createWebBackend, installWebDesktopShim } from "./lib/webBackend";
 
-type User = { id: string; username: string };
-type Config = { registrationEnabled: boolean; version: string };
+type User = { id: string; username: string; displayName?: string };
+type Config = { registrationEnabled: boolean; federated?: boolean; version: string };
 
 if (!window.rss) installWebDesktopShim();
 
@@ -50,8 +50,8 @@ export function WebApp() {
   return (
     <div className="web-app-shell">
       <div className="web-session-bar">
-        <span>{user.username}</span>
-        <button className="btn" onClick={() => void logout()}>Log out</button>
+        <span>{user.displayName || user.username}</span>
+        <button className="btn" onClick={() => void logout()}>{config?.federated ? "Sign out of News" : "Log out"}</button>
       </div>
       <App backend={backend} serverAuthoritative />
     </div>
@@ -84,6 +84,17 @@ function Login({ config, onAuthenticated }: { config: Config | null; onAuthentic
       setBusy(false);
     }
   };
+
+  if (config?.federated) {
+    const next = new URLSearchParams(location.search).get("next") || "/";
+    const query = new URLSearchParams({ next }).toString();
+    return <main className="web-auth-shell"><section className="web-auth-card">
+      <p className="web-auth-kicker">RSS Reader</p><h1>Welcome to News</h1>
+      <p>Use your Gravitas account to read and save your feeds.</p>
+      <a className="btn primary" href={"/auth/gravitas/start?" + query}>Sign in with Gravitas</a>
+      <a className="web-auth-switch" href={"/auth/gravitas/register?" + query}>Register at gravitas.cool</a>
+    </section></main>;
+  }
 
   return (
     <main className="web-auth-shell">

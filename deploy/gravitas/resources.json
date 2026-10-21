@@ -89,7 +89,7 @@
                 },
                 "startupProbe": {
                   "httpGet": {
-                    "path": "/healthz",
+                    "path": "/auth/gravitas/ready.json",
                     "port": "http"
                   },
                   "timeoutSeconds": 3,
@@ -98,7 +98,7 @@
                 },
                 "readinessProbe": {
                   "httpGet": {
-                    "path": "/healthz",
+                    "path": "/auth/gravitas/ready.json",
                     "port": "http"
                   },
                   "timeoutSeconds": 3,
@@ -135,11 +135,23 @@
                   },
                   {
                     "name": "RSS_SERVER_REGISTRATION_ENABLED",
-                    "value": "true"
+                    "value": "false"
                   },
                   {
                     "name": "RSS_SERVER_COOKIE_SECURE",
                     "value": "true"
+                  },
+                  {
+                    "name": "GRAVITAS_REQUIRED",
+                    "value": "true"
+                  },
+                  {
+                    "name": "GRAVITAS_ISSUER",
+                    "value": "https://gravitas.cool"
+                  },
+                  {
+                    "name": "GRAVITAS_APP_URL",
+                    "value": "https://news.gravitas.cool"
                   }
                 ],
                 "envFrom": [
@@ -281,6 +293,28 @@
               {
                 "protocol": "TCP",
                 "port": 443
+              }
+            ]
+          },
+          {
+            "to": [
+              {
+                "namespaceSelector": {
+                  "matchLabels": {
+                    "kubernetes.io/metadata.name": "traefik"
+                  }
+                },
+                "podSelector": {
+                  "matchLabels": {
+                    "app.kubernetes.io/name": "traefik"
+                  }
+                }
+              }
+            ],
+            "ports": [
+              {
+                "protocol": "TCP",
+                "port": 8443
               }
             ]
           }
