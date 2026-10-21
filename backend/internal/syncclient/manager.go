@@ -21,6 +21,7 @@ type ConnectRequest struct {
 	Username         string `json:"username"`
 	Password         string `json:"password"`
 	Register         bool   `json:"register"`
+	InviteKey        string `json:"inviteKey,omitempty"`
 	SessionToken     string `json:"sessionToken,omitempty"`
 	SessionExpiresAt string `json:"sessionExpiresAt,omitempty"`
 }
@@ -96,6 +97,7 @@ func (m *Manager) Connect(ctx context.Context, request ConnectRequest) (*Status,
 	client := New(m.DB, Config{
 		ServerURL: serverURL, Username: username, Password: request.Password,
 		AutoRegister: request.Register, Interval: m.Interval,
+		InviteKey:    request.InviteKey,
 		SessionToken: request.SessionToken, SessionExpiresAt: sessionExpires,
 	}, m.Log)
 	if m.HTTP != nil {

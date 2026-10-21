@@ -40,6 +40,11 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	registrationKey := strings.TrimSpace(os.Getenv("RSS_SERVER_REGISTRATION_KEY"))
+	if *registration && registrationKey == "" {
+		log.Error("RSS_SERVER_REGISTRATION_KEY is required when registration is enabled")
+		os.Exit(1)
+	}
 	if dir := filepath.Dir(*dbPath); dir != "." {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			log.Error("create database directory", "err", err)
@@ -111,6 +116,7 @@ func main() {
 	}
 	handler := httpapi.New(store, svc, log, httpapi.Config{
 		RegistrationEnabled: *registration,
+		RegistrationKey:     registrationKey,
 		Version:             version,
 		Context:             ctx,
 		WebDir:              resolvedWebDir,

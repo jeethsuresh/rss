@@ -24,7 +24,7 @@ func TestManagerConnectSyncAndDisconnect(t *testing.T) {
 	defer serverDB.Close()
 	handler := httpapi.New(
 		serverstore.New(serverDB), &application.Service{}, slog.Default(),
-		httpapi.Config{RegistrationEnabled: true},
+		httpapi.Config{RegistrationEnabled: true, RegistrationKey: "test-invite"},
 	)
 
 	localDB, err := sqlite.Open(filepath.Join(t.TempDir(), "local.db"))
@@ -42,7 +42,7 @@ func TestManagerConnectSyncAndDisconnect(t *testing.T) {
 		ServerURL: "http://rss.test",
 		Username:  "desktop-reader",
 		Password:  "correct horse battery staple",
-		Register:  true,
+		Register:  true, InviteKey: "test-invite",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestManagerAuthorityCommitsAndRollsBackMutations(t *testing.T) {
 	defer serverDB.Close()
 	api := httpapi.New(
 		serverstore.New(serverDB), &application.Service{}, slog.Default(),
-		httpapi.Config{RegistrationEnabled: true},
+		httpapi.Config{RegistrationEnabled: true, RegistrationKey: "test-invite"},
 	)
 	gate := &rpcGateHandler{inner: api}
 
@@ -128,7 +128,7 @@ func TestManagerAuthorityCommitsAndRollsBackMutations(t *testing.T) {
 	manager.Start(ctx)
 	if _, err := manager.Connect(ctx, ConnectRequest{
 		ServerURL: "http://rss.test", Username: "authority-user",
-		Password: "correct horse battery staple", Register: true,
+		Password: "correct horse battery staple", Register: true, InviteKey: "test-invite",
 	}); err != nil {
 		t.Fatal(err)
 	}

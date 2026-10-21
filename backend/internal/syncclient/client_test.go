@@ -27,7 +27,7 @@ func TestClientPushesAndPullsFeedOps(t *testing.T) {
 	}
 	defer serverDB.Close()
 	store := serverstore.New(serverDB)
-	handler := httpapi.New(store, &application.Service{}, slog.Default(), httpapi.Config{RegistrationEnabled: true})
+	handler := httpapi.New(store, &application.Service{}, slog.Default(), httpapi.Config{RegistrationEnabled: true, RegistrationKey: "test-invite"})
 
 	localDB, err := sqlite.Open(filepath.Join(t.TempDir(), "local.db"))
 	if err != nil {
@@ -73,7 +73,7 @@ func TestClientPushesAndPullsFeedOps(t *testing.T) {
 
 	client := New(localDB, Config{
 		ServerURL: "http://rss.test", Username: "sync-user", Password: "a secure password",
-		AutoRegister: true,
+		AutoRegister: true, InviteKey: "test-invite",
 	}, slog.Default())
 	client.HTTP = &http.Client{Transport: handlerTransport{handler: handler}}
 	first, err := client.SyncOnce(ctx)
@@ -205,7 +205,7 @@ func TestClientDrainsStateQueueAcrossMultipleBatches(t *testing.T) {
 	}
 	defer serverDB.Close()
 	store := serverstore.New(serverDB)
-	handler := httpapi.New(store, &application.Service{}, slog.Default(), httpapi.Config{RegistrationEnabled: true})
+	handler := httpapi.New(store, &application.Service{}, slog.Default(), httpapi.Config{RegistrationEnabled: true, RegistrationKey: "test-invite"})
 
 	localDB, err := sqlite.Open(filepath.Join(t.TempDir(), "local.db"))
 	if err != nil {
@@ -241,7 +241,7 @@ func TestClientDrainsStateQueueAcrossMultipleBatches(t *testing.T) {
 
 	client := New(localDB, Config{
 		ServerURL: "http://rss.test", Username: "batch-user", Password: "a secure password",
-		AutoRegister: true,
+		AutoRegister: true, InviteKey: "test-invite",
 	}, slog.Default())
 	client.HTTP = &http.Client{Transport: handlerTransport{handler: handler}}
 	result, err := client.SyncOnce(ctx)

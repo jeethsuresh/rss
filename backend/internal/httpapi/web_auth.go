@@ -13,7 +13,7 @@ const webSessionCookie = "rss_session"
 
 func (a *API) webConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"registrationEnabled": a.cfg.RegistrationEnabled,
+		"registrationEnabled": a.registrationEnabled(),
 		"version":             a.cfg.Version,
 	})
 }
@@ -23,13 +23,16 @@ func (a *API) webRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", errors.New("too many authentication attempts"))
 		return
 	}
-	if !a.cfg.RegistrationEnabled {
+	if !a.registrationEnabled() {
 		writeError(w, http.StatusForbidden, "REGISTRATION_DISABLED", errors.New("registration is disabled"))
 		return
 	}
-	var body credentials
+	var body registrationCredentials
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_PARAMS", err)
+		return
+	}
+	if !a.authorizeInvite(w, body.InviteKey) {
 		return
 	}
 	result, err := a.store.Register(r.Context(), body.Username, body.Password)

@@ -26,6 +26,7 @@ type Config struct {
 	Username         string
 	Password         string
 	AutoRegister     bool
+	InviteKey        string
 	Interval         time.Duration
 	SessionToken     string
 	SessionExpiresAt time.Time
@@ -183,13 +184,11 @@ func (c *Client) login(ctx context.Context, serverURL string) (string, error) {
 		return "", fmt.Errorf("login failed with status %d", status)
 	}
 	auth = authResponse{}
+	body["inviteKey"] = c.Config.InviteKey
 	status, err = c.doJSON(ctx, http.MethodPost, serverURL+"/v1/auth/register", "", body, &auth)
 	if err != nil {
 		if status == http.StatusConflict {
 			return "", errors.New("that username already exists")
-		}
-		if status == http.StatusForbidden {
-			return "", errors.New("account registration is disabled on this server")
 		}
 		return "", err
 	}

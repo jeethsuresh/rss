@@ -61,6 +61,7 @@ export function WebApp() {
 function Login({ config, onAuthenticated }: { config: Config | null; onAuthenticated: (user: User) => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteKey, setInviteKey] = useState("");
   const [registering, setRegistering] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +74,7 @@ function Login({ config, onAuthenticated }: { config: Config | null; onAuthentic
       const result = await api<{ user: User }>(registering ? "/v1/web/register" : "/v1/web/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, ...(registering ? { inviteKey } : {}) }),
       });
       history.replaceState(null, "", "/");
       onAuthenticated(result.user);
@@ -94,6 +95,7 @@ function Login({ config, onAuthenticated }: { config: Config | null; onAuthentic
         </div>
         <label>Username<input autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} /></label>
         <label>Password<input autoComplete={registering ? "new-password" : "current-password"} type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={10} /></label>
+        {registering ? <label>Invite key<input type="password" autoComplete="off" value={inviteKey} onChange={(e) => setInviteKey(e.target.value)} required /></label> : null}
         {error ? <p className="error" role="alert">{error}</p> : null}
         <button className="btn primary" disabled={busy}>{busy ? "Please wait…" : registering ? "Create account" : "Sign in"}</button>
         {config?.registrationEnabled ? (

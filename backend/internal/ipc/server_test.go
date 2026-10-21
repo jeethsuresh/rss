@@ -110,7 +110,7 @@ func TestServeQueuesRequestsBehindSessionRestore(t *testing.T) {
 	defer serverDB.Close()
 	remote := httpapi.New(
 		serverstore.New(serverDB), &application.Service{}, log,
-		httpapi.Config{RegistrationEnabled: true},
+		httpapi.Config{RegistrationEnabled: true, RegistrationKey: "test-invite"},
 	)
 	localDB, err := sqlite.Open(filepath.Join(t.TempDir(), "local.db"))
 	if err != nil {
@@ -134,7 +134,7 @@ func TestServeQueuesRequestsBehindSessionRestore(t *testing.T) {
 	go func() { serveDone <- server.Serve(ctx, inputReader) }()
 
 	if _, err := io.WriteString(inputWriter,
-		`{"id":"connect","method":"sync.connect","params":{"serverUrl":"http://rss.test","username":"reader","password":"correct horse battery staple","register":true}}`+"\n"+
+		`{"id":"connect","method":"sync.connect","params":{"serverUrl":"http://rss.test","username":"reader","password":"correct horse battery staple","register":true,"inviteKey":"test-invite"}}`+"\n"+
 			`{"id":"ping","method":"system.ping","params":{}}`+"\n"); err != nil {
 		t.Fatal(err)
 	}

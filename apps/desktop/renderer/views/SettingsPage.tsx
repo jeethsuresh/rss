@@ -60,6 +60,7 @@ export function SettingsPage({
   const [serverUrl, setServerUrl] = useState("http://127.0.0.1:8787");
   const [serverUsername, setServerUsername] = useState("");
   const [serverPassword, setServerPassword] = useState("");
+  const [serverInviteKey, setServerInviteKey] = useState("");
   const [serverBusy, setServerBusy] = useState<"login" | "register" | "sync" | "disconnect" | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -250,9 +251,11 @@ export function SettingsPage({
         username: serverUsername.trim(),
         password: serverPassword,
         register,
+        ...(register ? { inviteKey: serverInviteKey } : {}),
       });
       setSyncStatus(status);
       setServerPassword("");
+      setServerInviteKey("");
       await reloadFeeds();
     } catch (caught) {
       const message = caught instanceof Error ? caught.message.replace(/^[A-Z_]+:\s*/, "") : "Unable to connect";
@@ -399,6 +402,10 @@ export function SettingsPage({
                       minLength={10}
                       required
                     />
+                  </label>
+                  <label className="field field-wide">
+                    Invite key (for account creation only)
+                    <input type="password" autoComplete="off" value={serverInviteKey} onChange={(event) => setServerInviteKey(event.target.value)} />
                   </label>
                   {serverError ? <p className="error" role="alert">{serverError}</p> : null}
                   <div className="settings-row">
