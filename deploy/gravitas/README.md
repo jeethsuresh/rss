@@ -113,3 +113,7 @@ Readiness uses `/auth/gravitas/ready.json` to reject a server without the IAM
 guard; old images cannot become ready under this manifest. Take an online SQLite
 backup or quiesced snapshot before applying the new identity migration. Rollback
 must retain the authentication-aware readiness check and an IAM-capable image.
+
+Egress permits the shared Traefik HTTPS backend so IAM discovery and token
+exchange continue working after ingress service translation. Other private
+application endpoints remain blocked by the network policy.
