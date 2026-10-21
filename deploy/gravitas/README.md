@@ -14,7 +14,11 @@ public HTTPS health to pass. No application or cloud credentials belong in Git.
 
 RSS is a fresh installation. Account bootstrap ran privately with registration
 bound to loopback, then removed its temporary Secret/Job. Public registration
-is disabled, session cookies are Secure/HttpOnly, and optional AI credentials
+requires an invite key on both the web and desktop API paths; the expected key
+is configured as `RSS_SERVER_REGISTRATION_KEY` in `rss-runtime`. Missing or
+incorrect keys are rejected, and registration fails closed without configuration.
+The key is needed only to create an account; ordinary sign-in is unchanged.
+Session cookies are Secure/HttpOnly, and optional AI credentials
 belong in the administrator-managed `rss-runtime` Secret. AI is initially off.
 
 The app uses one replica and Recreate so one process owns the SQLite volume.

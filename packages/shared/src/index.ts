@@ -159,6 +159,7 @@ export interface SyncConnectRequest {
   username: string;
   password: string;
   register?: boolean;
+  inviteKey?: string;
 }
 
 export type ReadLaterFilter = "all" | "unread" | "starred" | "archived";

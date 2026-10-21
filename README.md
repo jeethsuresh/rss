@@ -63,7 +63,7 @@ Writes `apps/desktop/resources/bin/rss-backend` (or `.exe` on Windows).
 Run or build the multi-tenant Go server:
 
 ```bash
-RSS_SERVER_REGISTRATION_ENABLED=true bun run server:dev
+RSS_SERVER_REGISTRATION_ENABLED=true RSS_SERVER_REGISTRATION_KEY="choose-a-private-invite-key" bun run server:dev
 bun run server:build
 ```
 

@@ -33,7 +33,7 @@ func TestWebLoginGateAndRPC(t *testing.T) {
 		serverstore.New(db),
 		&application.Service{Version: "test"},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Config{RegistrationEnabled: true, Version: "test", Context: context.Background(), WebDir: webDir},
+		Config{RegistrationEnabled: true, RegistrationKey: "test-invite", Version: "test", Context: context.Background(), WebDir: webDir},
 	)
 
 	root := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestWebLoginGateAndRPC(t *testing.T) {
 	}
 
 	register := httptest.NewRecorder()
-	handler.ServeHTTP(register, jsonRequest(http.MethodPost, "/v1/web/register", `{"username":"reader","password":"correct horse battery staple"}`))
+	handler.ServeHTTP(register, jsonRequest(http.MethodPost, "/v1/web/register", `{"username":"reader","password":"correct horse battery staple","inviteKey":"test-invite"}`))
 	if register.Code != http.StatusCreated {
 		t.Fatalf("register: status=%d body=%s", register.Code, register.Body.String())
 	}
@@ -113,11 +113,11 @@ func TestWebCannotChangeAISettings(t *testing.T) {
 		serverstore.New(db),
 		&application.Service{Settings: settingsRepo, Version: "test"},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Config{RegistrationEnabled: true, Version: "test", Context: context.Background()},
+		Config{RegistrationEnabled: true, RegistrationKey: "test-invite", Version: "test", Context: context.Background()},
 	)
 
 	register := httptest.NewRecorder()
-	handler.ServeHTTP(register, jsonRequest(http.MethodPost, "/v1/web/register", `{"username":"reader","password":"correct horse battery staple"}`))
+	handler.ServeHTTP(register, jsonRequest(http.MethodPost, "/v1/web/register", `{"username":"reader","password":"correct horse battery staple","inviteKey":"test-invite"}`))
 	if register.Code != http.StatusCreated {
 		t.Fatalf("register: status=%d body=%s", register.Code, register.Body.String())
 	}
