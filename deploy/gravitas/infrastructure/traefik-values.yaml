@@ -1,9 +1,11 @@
-# Chart 42.1.0. Traefik's local ACME store requires one writer.
+# Chart 42.1.0. Shared ingress; cert-manager owns the wildcard TLS Secret.
 deployment:
-  replicas: 1
+  replicas: 2
 updateStrategy:
-  type: Recreate
-  rollingUpdate: null
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
 service:
   annotations:
     service.beta.kubernetes.io/do-loadbalancer-name: gravitas-public-ingress
@@ -31,12 +33,12 @@ ports:
         idleTimeout: 180s
 providers:
   kubernetesIngress:
-    namespaces: [rss, office, traefik]
+    namespaces: []
   kubernetesCRD:
-    namespaces: [rss, office, traefik]
+    namespaces: []
     allowCrossNamespace: false
     defaultTLSResourcesNamespace: traefik
-    safeNaming: true
+    safeNaming: false
 core:
   strictTLSOptions: true
 ingressClass:
@@ -47,10 +49,10 @@ ingressRoute:
   dashboard:
     enabled: false
 persistence:
+  enabled: false
+podDisruptionBudget:
   enabled: true
-  size: 1Gi
-  storageClass: do-block-storage-retain
-  path: /data
+  minAvailable: 1
 podSecurityContext:
   runAsUser: 65532
   runAsGroup: 65532
@@ -61,32 +63,18 @@ podSecurityContext:
 resources:
   requests:
     cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
     memory: 256Mi
-envFrom:
-  - secretRef:
-      name: namecheap-credentials
-certificatesResolvers:
-  namecheap:
-    acme:
-      email: jeethsuresh@gmail.com
-      storage: /data/acme.json
-      keyType: EC256
-      dnsChallenge:
-        provider: namecheap
-        resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
+  limits:
+    cpu: 100m
+    memory: 256Mi
 extraObjects:
   - apiVersion: traefik.io/v1alpha1
     kind: TLSStore
     metadata:
       name: default
     spec:
-      defaultGeneratedCert:
-        resolver: namecheap
-        domain:
-          main: "*.gravitas.cool"
+      defaultCertificate:
+        secretName: gravitas-wildcard-tls
   - apiVersion: traefik.io/v1alpha1
     kind: TLSOption
     metadata:
@@ -94,3 +82,11 @@ extraObjects:
     spec:
       minVersion: VersionTLS12
       sniStrict: true
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: traefik
+        topologyKey: kubernetes.io/hostname

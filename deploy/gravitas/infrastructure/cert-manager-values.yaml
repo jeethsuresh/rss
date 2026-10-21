@@ -1,0 +1,17 @@
+crds:
+  enabled: true
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: 100m, memory: 128Mi}
+webhook:
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 100m, memory: 128Mi}
+cainjector:
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 100m, memory: 128Mi}
+startupapicheck:
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 100m, memory: 128Mi}
