@@ -13,12 +13,9 @@ with the intended kubeconfig; it rejects any other cluster endpoint and requires
 public HTTPS health to pass. No application or cloud credentials belong in Git.
 
 RSS is a fresh installation. Account bootstrap ran privately with registration
-bound to loopback, then removed its temporary Secret/Job. Public registration
-requires an invite key on both the web and desktop API paths; the expected key
-is configured as `RSS_SERVER_REGISTRATION_KEY` in `rss-runtime`. Missing or
-incorrect keys are rejected, and registration fails closed without configuration.
-The key is needed only to create an account; ordinary sign-in is unchanged.
-Session cookies are Secure/HttpOnly, and optional AI credentials
+bound to loopback, then removed its temporary Secret/Job. The hosted app now directs registration and sign-in to Gravitas IAM; its central
+invite and approval policy applies. Local password registration/sign-in is disabled
+in this deployment. Session cookies are Secure/HttpOnly, and optional AI credentials
 belong in the administrator-managed `rss-runtime` Secret. AI is initially off.
 
 The app uses one replica and Recreate so one process owns the SQLite volume.
@@ -87,3 +84,32 @@ The first DNS update preserved all existing record names/types/values, mail
 priorities and TTLs. Namecheap's full-record API changed `vpn`'s UI metadata
 from dynamic to regular A; its address remains unchanged. The dynamic update
 client itself was not exercised during this deployment.
+
+## Gravitas federated login
+
+The hosted deployment uses the custom IAM authorization-code + PKCE S256 protocol
+at `https://gravitas.cool`, with only `profile.name` access. `/auth/gravitas/start`
+initiates login; `/auth/gravitas/register` starts central registration while
+preserving the app callback. An existing IAM session is reused; first-time app
+consent may still be required. Central signup retains its invite and approval
+rules. This is the IAM server's protocol, not OIDC.
+
+`GRAVITAS_ISSUER`, `GRAVITAS_APP_URL` and `GRAVITAS_REQUIRED=true` select the hosted
+mode. `GRAVITAS_SESSION_KEY` is a base64url 32-byte secret in `rss-runtime` used
+to encrypt short-lived PKCE transaction cookies. It must persist across rollouts;
+no issuer cookie, password, access token or refresh token is shared with the app
+browser. Discovery and token/profile requests stay pinned to the configured HTTPS
+issuer, and the callback checks encrypted browser state and a one-use PKCE code.
+
+Local password login and registration endpoints cannot authenticate in hosted
+mode. Each `(issuer, sub)` receives a separate tenant account; usernames never
+link an existing local account. Existing local users/data remain in the database.
+The app session uses a host-only Secure/HttpOnly `__Host-rss_session` cookie and
+expires after eight hours. Cookie-authenticated writes require the CSRF header.
+Local app logout revokes its RSS session; it does not log out of IAM. An existing
+app session has its own lifetime, independent of IAM logout/grant revocation.
+
+Readiness uses `/auth/gravitas/ready.json` to reject a server without the IAM
+guard; old images cannot become ready under this manifest. Take an online SQLite
+backup or quiesced snapshot before applying the new identity migration. Rollback
+must retain the authentication-aware readiness check and an IAM-capable image.

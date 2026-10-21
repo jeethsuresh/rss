@@ -11,9 +11,19 @@ import (
 
 const webSessionCookie = "rss_session"
 
+func (a *API) sessionCookieName() string {
+	if a.cfg.Federation != nil {
+		return "__Host-rss_session"
+	}
+	return webSessionCookie
+}
+func (a *API) secureSessionCookie() bool { return a.cfg.CookieSecure || a.cfg.Federation != nil }
+
 func (a *API) webConfig(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"registrationEnabled": a.registrationEnabled(),
+		"federated":           a.cfg.Federation != nil,
 		"version":             a.cfg.Version,
 	})
 }
@@ -45,6 +55,9 @@ func (a *API) webRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) webLogin(w http.ResponseWriter, r *http.Request) {
+	if a.requireFederatedLogin(w) {
+		return
+	}
 	if !a.allowAuthAttempt(r) {
 		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", errors.New("too many authentication attempts"))
 		return
@@ -69,7 +82,7 @@ func (a *API) webSession(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) webLogout(w http.ResponseWriter, r *http.Request) {
 	token := ""
-	if cookie, err := r.Cookie(webSessionCookie); err == nil {
+	if cookie, err := r.Cookie(a.sessionCookieName()); err == nil {
 		token = cookie.Value
 	}
 	if token == "" {
@@ -80,21 +93,26 @@ func (a *API) webLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: webSessionCookie, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, Secure: a.cfg.CookieSecure, SameSite: http.SameSiteStrictMode,
+		Name: a.sessionCookieName(), Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: a.secureSessionCookie(), SameSite: http.SameSiteStrictMode,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (a *API) setSessionCookie(w http.ResponseWriter, result *serverstore.AuthResult) {
+	w.Header().Set("Cache-Control", "no-store")
+	sameSite := http.SameSiteStrictMode
+	if a.cfg.Federation != nil {
+		sameSite = http.SameSiteLaxMode
+	}
 	maxAge := int(time.Until(result.ExpiresAt).Seconds())
 	if maxAge < 0 {
 		maxAge = 0
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: webSessionCookie, Value: result.Token, Path: "/", MaxAge: maxAge,
-		Expires: result.ExpiresAt, HttpOnly: true, Secure: a.cfg.CookieSecure,
-		SameSite: http.SameSiteStrictMode,
+		Name: a.sessionCookieName(), Value: result.Token, Path: "/", MaxAge: maxAge,
+		Expires: result.ExpiresAt, HttpOnly: true, Secure: a.secureSessionCookie(),
+		SameSite: sameSite,
 	})
 }
 

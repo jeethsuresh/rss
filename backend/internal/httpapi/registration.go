@@ -14,7 +14,7 @@ type registrationCredentials struct {
 }
 
 func (a *API) registrationEnabled() bool {
-	return a.cfg.RegistrationEnabled && a.cfg.RegistrationKey != ""
+	return a.cfg.Federation == nil && a.cfg.RegistrationEnabled && a.cfg.RegistrationKey != ""
 }
 
 func (a *API) authorizeInvite(w http.ResponseWriter, provided string) bool {

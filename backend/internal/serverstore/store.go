@@ -91,6 +91,10 @@ func (s *Store) Login(ctx context.Context, username, password string) (*AuthResu
 }
 
 func (s *Store) createSession(ctx context.Context, user User) (*AuthResult, error) {
+	return s.createSessionFrom(ctx, user, "local", 30*24*time.Hour)
+}
+
+func (s *Store) createSessionFrom(ctx context.Context, user User, source string, lifetime time.Duration) (*AuthResult, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
@@ -98,12 +102,12 @@ func (s *Store) createSession(ctx context.Context, user User) (*AuthResult, erro
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	tokenHash := sha256.Sum256([]byte(token))
 	now := s.now()
-	expires := now.Add(30 * 24 * time.Hour)
+	expires := now.Add(lifetime)
 	_, _ = s.db.SQL.ExecContext(ctx, `DELETE FROM auth_sessions WHERE expires_at <= ?`, formatTime(now))
 	_, err := s.db.SQL.ExecContext(ctx, `
-		INSERT INTO auth_sessions(id, user_id, token_hash, created_at, expires_at, last_used_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, uuid.NewString(), user.ID, hex.EncodeToString(tokenHash[:]),
-		formatTime(now), formatTime(expires), formatTime(now))
+		INSERT INTO auth_sessions(id, user_id, token_hash, created_at, expires_at, last_used_at, auth_source)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, uuid.NewString(), user.ID, hex.EncodeToString(tokenHash[:]),
+		formatTime(now), formatTime(expires), formatTime(now), source)
 	if err != nil {
 		return nil, err
 	}
@@ -124,11 +128,11 @@ func (s *Store) Authenticate(ctx context.Context, token string) (*User, error) {
 	var user User
 	var created string
 	err := s.db.SQL.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.created_at
+		SELECT u.id, u.username, u.created_at, u.display_name
 		FROM auth_sessions sess
 		JOIN users u ON u.id = sess.user_id
 		WHERE sess.token_hash = ? AND sess.expires_at > ?`, hex.EncodeToString(h[:]), formatTime(now)).
-		Scan(&user.ID, &user.Username, &created)
+		Scan(&user.ID, &user.Username, &created, &user.DisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("invalid or expired session")
 	}

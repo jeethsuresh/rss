@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"github.com/jeeth/rss-reader/backend/internal/gravitas"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +21,12 @@ func (a *API) webApp() http.Handler {
 			path = "index.html"
 		}
 		if path == "index.html" && r.URL.Path != "/login" && !a.hasWebSession(r) {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			next := gravitas.SafeNext(r.URL.RequestURI())
+			destination := "/login"
+			if next != "/" {
+				destination += "?next=" + url.QueryEscape(next)
+			}
+			http.Redirect(w, r, destination, http.StatusSeeOther)
 			return
 		}
 		candidate := filepath.Join(root, path)
@@ -48,10 +55,10 @@ func (a *API) webApp() http.Handler {
 }
 
 func (a *API) hasWebSession(r *http.Request) bool {
-	cookie, err := r.Cookie(webSessionCookie)
+	cookie, err := r.Cookie(a.sessionCookieName())
 	if err != nil || cookie.Value == "" {
 		return false
 	}
-	_, err = a.store.Authenticate(r.Context(), cookie.Value)
+	_, err = a.authenticate(r, cookie.Value)
 	return err == nil
 }
