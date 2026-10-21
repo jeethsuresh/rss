@@ -1,4 +1,4 @@
-FROM golang:1.24.2-alpine AS build
+FROM golang:1.27.3-alpine AS build
 
 WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
@@ -42,8 +42,8 @@ RUN bun test
 FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S rss \
-    && adduser -S -G rss rss \
+    && addgroup -S -g 10001 rss \
+    && adduser -S -u 10001 -G rss rss \
     && mkdir -p /data \
     && chown rss:rss /data
 
@@ -52,7 +52,7 @@ COPY --from=web /src/apps/desktop/dist-renderer /app/web
 
 ENV RSS_SERVER_WEB_DIR=/app/web
 
-USER rss
+USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 8787
 

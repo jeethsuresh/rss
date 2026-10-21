@@ -1,0 +1,92 @@
+# Chart 42.1.0. Shared ingress; cert-manager owns the wildcard TLS Secret.
+deployment:
+  replicas: 2
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
+service:
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-name: gravitas-public-ingress
+    service.beta.kubernetes.io/do-loadbalancer-protocol: tcp
+    service.beta.kubernetes.io/do-loadbalancer-size-unit: "1"
+  spec:
+    type: LoadBalancer
+    externalTrafficPolicy: Cluster
+ports:
+  web:
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    http:
+      tls:
+        enabled: true
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 0s
+        idleTimeout: 180s
+providers:
+  kubernetesIngress:
+    namespaces: []
+  kubernetesCRD:
+    namespaces: []
+    allowCrossNamespace: false
+    defaultTLSResourcesNamespace: traefik
+    safeNaming: false
+core:
+  strictTLSOptions: true
+ingressClass:
+  enabled: true
+  name: traefik
+  isDefaultClass: false
+ingressRoute:
+  dashboard:
+    enabled: false
+persistence:
+  enabled: false
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+podSecurityContext:
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 100m
+    memory: 256Mi
+extraObjects:
+  - apiVersion: traefik.io/v1alpha1
+    kind: TLSStore
+    metadata:
+      name: default
+    spec:
+      defaultCertificate:
+        secretName: gravitas-wildcard-tls
+  - apiVersion: traefik.io/v1alpha1
+    kind: TLSOption
+    metadata:
+      name: default
+    spec:
+      minVersion: VersionTLS12
+      sniStrict: true
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: traefik
+        topologyKey: kubernetes.io/hostname

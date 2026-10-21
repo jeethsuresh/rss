@@ -1,0 +1,17 @@
+# Explicitly registers the shared certificate for strict SNI matching.
+# The reserved hostname serves only Traefik's empty internal response.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: wildcard-certificate
+  namespace: traefik
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`tls-status.gravitas.cool`)
+      kind: Rule
+      services:
+        - name: noop@internal
+          kind: TraefikService
+  tls:
+    secretName: gravitas-wildcard-tls
