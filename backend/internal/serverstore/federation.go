@@ -49,9 +49,13 @@ func (s *Store) LoginFederated(ctx context.Context, issuer, subject, displayName
 }
 func (s *Store) AuthenticateFederated(ctx context.Context, token, issuer string) (*User, error) {
 	digest := sha256.Sum256([]byte(token))
-	var source string
-	if err := s.db.SQL.QueryRowContext(ctx, `SELECT auth_source FROM auth_sessions WHERE token_hash=?`, hex.EncodeToString(digest[:])).Scan(&source); err != nil || source != issuer {
+	var source, subject string
+	if err := s.db.SQL.QueryRowContext(ctx, `SELECT sess.auth_source,f.subject FROM auth_sessions sess JOIN federated_identities f ON f.user_id=sess.user_id AND f.issuer=sess.auth_source WHERE sess.token_hash=?`, hex.EncodeToString(digest[:])).Scan(&source, &subject); err != nil || source != issuer {
 		return nil, ErrInvalidCredentials
 	}
-	return s.Authenticate(ctx, token)
+	user, err := s.Authenticate(ctx, token)
+	if err == nil {
+		user.FederatedSubject = subject
+	}
+	return user, err
 }

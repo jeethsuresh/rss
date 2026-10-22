@@ -90,15 +90,25 @@ func (a *API) webLogout(w http.ResponseWriter, r *http.Request) {
 	if token == "" {
 		token = bearerToken(r)
 	}
+	if a.cfg.Federation != nil {
+		decoded, _ := a.cfg.Federation.DecodeAppSession(token)
+		if decoded.LocalToken != "" {
+			token = decoded.LocalToken
+		}
+	}
 	if err := a.store.RevokeSession(r.Context(), token); err != nil {
 		writeDomainError(w, err)
 		return
 	}
+	a.clearSessionCookie(w)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (a *API) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name: a.sessionCookieName(), Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: a.secureSessionCookie(), SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (a *API) setSessionCookie(w http.ResponseWriter, result *serverstore.AuthResult) {

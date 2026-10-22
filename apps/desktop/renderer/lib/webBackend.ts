@@ -51,6 +51,8 @@ export function createWebBackend(): ReaderBackend {
   const ensureEvents = () => {
     if (events) return;
     events = new EventSource("/v1/events");
+    events.addEventListener("auth-required", () => window.dispatchEvent(new Event("rss:unauthorized")));
+    events.addEventListener("auth-unavailable", () => window.dispatchEvent(new Event("rss:auth-unavailable")));
     events.onmessage = (message) => {
       try {
         const event = JSON.parse(message.data) as BackendEvent;

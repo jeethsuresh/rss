@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { App } from "./App";
 import { createWebBackend, installWebDesktopShim } from "./lib/webBackend";
 import { appReturnPath, automaticSignInURL } from "./lib/automaticSignIn";
+import { createSessionMonitor } from "./lib/sessionMonitor";
 
 type User = { id: string; username: string; displayName?: string };
 type Config = { registrationEnabled: boolean; federated?: boolean; autoSignIn?: boolean; version: string };
@@ -29,22 +30,45 @@ export function WebApp() {
   const [checking, setChecking] = useState(true);
   const [startupError, setStartupError] = useState(false);
   const automaticAttempted = useRef(false);
+  const userRef = useRef<User | null>(null);
+  const monitorRef = useRef<ReturnType<typeof createSessionMonitor<User>> | null>(null);
+  const [automaticAllowed, setAutomaticAllowed] = useState(false);
+  const [temporarilyUnavailable, setTemporarilyUnavailable] = useState(false);
 
   useEffect(() => {
+    let cancelled = false, initialized = false;
     void Promise.all([
-      api<Config>("/v1/web/config"),
+      api<Config>("/v1/web/config").then(value => { if (!cancelled) { setConfig(value); setAutomaticAllowed(value.autoSignIn === true); } return value; }),
       loadSession(),
     ]).then(([nextConfig, session]) => {
+      if (cancelled) return;
       setConfig(nextConfig);
+      userRef.current = session?.user ?? null;
       setUser(session?.user ?? null);
-    }).catch(() => setStartupError(true)).finally(() => setChecking(false));
-    const unauthorized = () => setUser(null);
+    }).catch(() => { if (!cancelled) setStartupError(true); }).finally(() => { if (!cancelled) { initialized = true; setChecking(false); } });
+    const monitor = createSessionMonitor<User>({
+      sessionURL: "/v1/web/session", configURL: "/v1/web/config", logoutURL: "/v1/web/logout", csrfHeader: "X-RSS-CSRF",
+      isAuthenticated: () => userRef.current !== null,
+      onSession: value => { userRef.current = value; setUser(value); setStartupError(false); },
+      onRevoked: () => { userRef.current = null; setUser(null); },
+      onAutoHint: setAutomaticAllowed, onUnavailable: setTemporarilyUnavailable,
+    });
+    monitorRef.current = monitor;
+    const unauthorized = () => { void monitor.unauthorized(); };
+    const resume = () => { if (initialized) void monitor.check(); };
+    const visibility = () => { if (document.visibilityState === "visible") resume(); };
+    const unavailable = () => setTemporarilyUnavailable(true);
+    const interval = setInterval(resume, 15_000);
     window.addEventListener("rss:unauthorized", unauthorized);
-    return () => window.removeEventListener("rss:unauthorized", unauthorized);
+    window.addEventListener("rss:auth-unavailable", unavailable);
+    window.addEventListener("focus", resume);
+    window.addEventListener("pageshow", resume);
+    document.addEventListener("visibilitychange", visibility);
+    return () => { cancelled = true; monitor.dispose(); clearInterval(interval); window.removeEventListener("rss:unauthorized", unauthorized); window.removeEventListener("rss:auth-unavailable", unavailable); window.removeEventListener("focus", resume); window.removeEventListener("pageshow", resume); document.removeEventListener("visibilitychange", visibility); };
   }, []);
 
   const automaticURL = automaticSignInURL({
-    enabled: !!config?.federated && !!config.autoSignIn && !startupError,
+    enabled: !!config?.federated && automaticAllowed && !startupError,
     hasSession: !!user, attempted: automaticAttempted.current, location,
   });
   useEffect(() => {
@@ -55,7 +79,7 @@ export function WebApp() {
 
   if (checking || automaticURL) return <div className="web-auth-shell"><p>Connecting to Gravitas…</p></div>;
   if (startupError) return <main className="web-auth-shell"><section className="web-auth-card"><p>Unable to connect. Please try again.</p><button className="btn" onClick={() => window.location.reload()}>Try again</button></section></main>;
-  if (!user) return <Login config={config} onAuthenticated={setUser} />;
+  if (!user) return <Login config={config} onAuthenticated={value => { userRef.current = value; setUser(value); }} />;
 
   const logout = async () => {
     await api("/v1/web/logout", {
@@ -64,16 +88,18 @@ export function WebApp() {
       body: "{}",
     });
     history.replaceState(null, "", config?.federated ? "/login?auto=off" : "/login");
-    setUser(null);
+    monitorRef.current?.localSignedOut();
+    userRef.current = null; setUser(null);
   };
 
   return (
     <div className="web-app-shell">
       <div className="web-session-bar">
         <span>{user.displayName || user.username}</span>
+        {temporarilyUnavailable && <span role="status">Sign-in is temporarily unavailable. Please try again shortly.</span>}
         <button className="btn" onClick={() => void logout()}>{config?.federated ? "Sign out of News" : "Log out"}</button>
       </div>
-      <App backend={backend} serverAuthoritative />
+      <App key={user.id} backend={backend} serverAuthoritative />
     </div>
   );
 }

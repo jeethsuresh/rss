@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"github.com/jeeth/rss-reader/backend/internal/gravitas"
 	"net/http"
 	"net/url"
@@ -20,14 +21,25 @@ func (a *API) webApp() http.Handler {
 		if path != "login" && path != "index.html" && !strings.Contains(filepath.Base(path), ".") {
 			path = "index.html"
 		}
-		if path == "index.html" && r.URL.Path != "/login" && !a.hasWebSession(r) {
-			next := gravitas.SafeNext(r.URL.RequestURI())
-			destination := "/login"
-			if next != "/" {
-				destination += "?next=" + url.QueryEscape(next)
+		if path == "index.html" && r.URL.Path != "/login" {
+			authenticated, authErr := a.hasWebSession(r)
+			if errors.Is(authErr, gravitas.ErrUnavailable) {
+				w.Header().Set("Cache-Control", "no-store")
+				http.Error(w, "Sign-in is temporarily unavailable. Please try again.", http.StatusServiceUnavailable)
+				return
 			}
-			http.Redirect(w, r, destination, http.StatusSeeOther)
-			return
+			if !authenticated {
+				if a.cfg.Federation != nil {
+					a.clearSessionCookie(w)
+				}
+				next := gravitas.SafeNext(r.URL.RequestURI())
+				destination := "/login"
+				if next != "/" {
+					destination += "?next=" + url.QueryEscape(next)
+				}
+				http.Redirect(w, r, destination, http.StatusSeeOther)
+				return
+			}
 		}
 		candidate := filepath.Join(root, path)
 		relative, err := filepath.Rel(root, candidate)
@@ -54,11 +66,11 @@ func (a *API) webApp() http.Handler {
 	})
 }
 
-func (a *API) hasWebSession(r *http.Request) bool {
+func (a *API) hasWebSession(r *http.Request) (bool, error) {
 	cookie, err := r.Cookie(a.sessionCookieName())
 	if err != nil || cookie.Value == "" {
-		return false
+		return false, nil
 	}
 	_, err = a.authenticate(r, cookie.Value)
-	return err == nil
+	return err == nil, err
 }

@@ -89,7 +89,7 @@
                 },
                 "startupProbe": {
                   "httpGet": {
-                    "path": "/auth/gravitas/ready.json",
+                    "path": "/auth/gravitas/session-ready.json",
                     "port": "http"
                   },
                   "timeoutSeconds": 3,
@@ -98,7 +98,7 @@
                 },
                 "readinessProbe": {
                   "httpGet": {
-                    "path": "/auth/gravitas/ready.json",
+                    "path": "/auth/gravitas/session-ready.json",
                     "port": "http"
                   },
                   "timeoutSeconds": 3,
