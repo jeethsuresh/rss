@@ -22,10 +22,18 @@ import (
 
 const FlowCookie = "__Host-gravitas_flow"
 const SessionCookie = "__Host-gravitas_session"
+
+// SharedSignInCookie is an untrusted navigation hint, never authentication.
+const SharedSignInCookie = "__Secure-gravitas_signed_in"
 const SessionLifetime = 8 * time.Hour
 
 var ErrLoginRequired = errors.New("login required")
 var ErrConsentRequired = errors.New("consent required")
+
+func HasSharedSignInHint(r *http.Request) bool {
+	marker, err := r.Cookie(SharedSignInCookie)
+	return err == nil && marker.Value == "1"
+}
 
 type Identity struct {
 	Issuer   string `json:"issuer"`
@@ -46,6 +54,7 @@ type flow struct {
 	Verifier string
 	Next     string
 	Expires  int64
+	Silent   bool
 }
 type session struct {
 	Identity Identity
@@ -147,13 +156,17 @@ func SafeNext(raw string) string {
 		return "/"
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.IsAbs() || u.Host != "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n") || strings.HasPrefix(u.Path, "//") || strings.ContainsAny(u.Path, "\\\r\n") {
+	if err != nil || u.IsAbs() || u.Host != "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n") || strings.HasPrefix(u.Path, "//") || strings.ContainsAny(u.Path, "\\\r\n") || strings.ContainsAny(u.Fragment, "\\\r\n") {
 		return "/"
 	}
 	if strings.HasPrefix(u.Path, "/auth/") || u.Path == "/login" {
 		return "/"
 	}
-	return u.RequestURI()
+	next := u.RequestURI()
+	if u.Fragment != "" {
+		next += "#" + u.EscapedFragment()
+	}
+	return next
 }
 func (c *Client) seal(purpose string, value any) (string, error) {
 	raw, err := json.Marshal(value)
@@ -187,7 +200,7 @@ func (c *Client) Start(w http.ResponseWriter, r *http.Request, register bool) er
 	if err != nil {
 		return err
 	}
-	f := flow{State: random(), Verifier: random(), Next: SafeNext(r.URL.Query().Get("next")), Expires: time.Now().Add(10 * time.Minute).Unix()}
+	f := flow{State: random(), Verifier: random(), Next: SafeNext(r.URL.Query().Get("next")), Expires: time.Now().Add(10 * time.Minute).Unix(), Silent: r.URL.Query().Get("prompt") == "none"}
 	encoded, err := c.seal("flow", f)
 	if err != nil {
 		return err
@@ -197,7 +210,7 @@ func (c *Client) Start(w http.ResponseWriter, r *http.Request, register bool) er
 	if register {
 		q.Set("screen", "register")
 	}
-	if r.URL.Query().Get("prompt") == "none" {
+	if f.Silent {
 		q.Set("prompt", "none")
 	}
 	// A hint is cosmetic; the issuer and every discovered endpoint stay pinned.
@@ -227,7 +240,7 @@ func (c *Client) Callback(w http.ResponseWriter, r *http.Request) (Identity, str
 		if failure == "login_required" {
 			return identity, f.Next, ErrLoginRequired
 		}
-		if failure == "consent_required" {
+		if failure == "consent_required" && f.Silent {
 			return identity, f.Next, ErrConsentRequired
 		}
 		return identity, f.Next, errors.New("IAM sign-in was not completed")

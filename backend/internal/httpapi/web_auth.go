@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jeeth/rss-reader/backend/internal/gravitas"
 	"github.com/jeeth/rss-reader/backend/internal/serverstore"
 )
 
@@ -19,11 +20,12 @@ func (a *API) sessionCookieName() string {
 }
 func (a *API) secureSessionCookie() bool { return a.cfg.CookieSecure || a.cfg.Federation != nil }
 
-func (a *API) webConfig(w http.ResponseWriter, _ *http.Request) {
+func (a *API) webConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"registrationEnabled": a.registrationEnabled(),
 		"federated":           a.cfg.Federation != nil,
+		"autoSignIn":          a.cfg.Federation != nil && gravitas.HasSharedSignInHint(r),
 		"version":             a.cfg.Version,
 	})
 }
