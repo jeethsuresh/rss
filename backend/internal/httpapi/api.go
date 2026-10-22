@@ -67,17 +67,21 @@ func New(store *serverstore.Store, svc *application.Service, log *slog.Logger, c
 	mux.HandleFunc("GET /auth/gravitas/start", a.federationStart)
 	mux.HandleFunc("GET /auth/gravitas/register", a.federationRegister)
 	mux.HandleFunc("GET /auth/gravitas/callback", a.federationCallback)
-	mux.HandleFunc("GET /auth/gravitas/ready.json", func(w http.ResponseWriter, r *http.Request) {
+	sessionReady := func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.Federation == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]bool{"ok": false})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auth": "gravitas"})
-	})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "auth": "gravitas", "sessionRevocation": true})
+	}
+	mux.HandleFunc("GET /auth/gravitas/ready.json", sessionReady)
+	mux.HandleFunc("GET /auth/gravitas/session-ready.json", sessionReady)
 
 	mux.Handle("GET /v1/me", a.auth(http.HandlerFunc(a.me)))
 	mux.Handle("GET /v1/web/session", a.auth(http.HandlerFunc(a.webSession)))
-	mux.Handle("POST /v1/web/logout", a.auth(a.requireCSRF(http.HandlerFunc(a.webLogout))))
+	// Local logout only revokes the supplied app token and clears its cookie;
+	// it remains available while IAM is unavailable or the family is revoked.
+	mux.Handle("POST /v1/web/logout", a.requireCSRF(http.HandlerFunc(a.webLogout)))
 	mux.Handle("POST /v1/rpc", a.auth(a.requireCSRF(http.HandlerFunc(a.rpc))))
 	mux.Handle("GET /v1/events", a.auth(http.HandlerFunc(a.eventStream)))
 	mux.Handle("POST /v1/sync/feeds", a.auth(http.HandlerFunc(a.syncFeeds)))
@@ -220,6 +224,13 @@ func (a *API) auth(next http.Handler) http.Handler {
 		}
 		user, err := a.authenticate(r, token)
 		if err != nil {
+			if errors.Is(err, gravitas.ErrUnavailable) {
+				writeError(w, http.StatusServiceUnavailable, "IAM_UNAVAILABLE", gravitas.ErrUnavailable)
+				return
+			}
+			if a.cfg.Federation != nil && usingCookie {
+				a.clearSessionCookie(w)
+			}
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", err)
 			return
 		}

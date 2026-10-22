@@ -43,11 +43,12 @@ type Identity struct {
 	UserID   string `json:"user_id"`
 }
 type metadata struct {
-	Issuer  string `json:"issuer"`
-	Domain  string `json:"identity_domain"`
-	Browser string `json:"browser_initiation_endpoint"`
-	Token   string `json:"token_endpoint"`
-	Profile string `json:"userinfo_endpoint"`
+	Issuer       string `json:"issuer"`
+	Domain       string `json:"identity_domain"`
+	Browser      string `json:"browser_initiation_endpoint"`
+	Token        string `json:"token_endpoint"`
+	Profile      string `json:"userinfo_endpoint"`
+	SessionCheck string `json:"session_check_endpoint"`
 }
 type flow struct {
 	State    string
@@ -57,8 +58,12 @@ type flow struct {
 	Silent   bool
 }
 type session struct {
-	Identity Identity
-	Expires  int64
+	Identity     Identity
+	Expires      int64
+	CheckToken   string
+	SessionID    string
+	CheckExpires int64
+	LocalToken   string
 }
 
 type Client struct {
@@ -108,7 +113,7 @@ func (c *Client) discovery() (metadata, error) {
 	if m.Issuer != c.Issuer || m.Domain != origin.Hostname() {
 		return m, errors.New("IAM discovery issuer/domain mismatch")
 	}
-	for _, raw := range []string{m.Browser, m.Token, m.Profile} {
+	for _, raw := range []string{m.Browser, m.Token, m.Profile, m.SessionCheck} {
 		u, err := url.Parse(raw)
 		if err != nil || u.Scheme != origin.Scheme || u.Host != origin.Host || u.User != nil || u.Fragment != "" || u.RawQuery != "" {
 			return m, errors.New("IAM discovery endpoint must belong to the configured issuer")
@@ -221,8 +226,8 @@ func (c *Client) Start(w http.ResponseWriter, r *http.Request, register bool) er
 	http.Redirect(w, r, m.Browser+"?"+q.Encode(), http.StatusSeeOther)
 	return nil
 }
-func (c *Client) Callback(w http.ResponseWriter, r *http.Request) (Identity, string, error) {
-	var identity Identity
+func (c *Client) Callback(w http.ResponseWriter, r *http.Request) (Authorization, string, error) {
+	var identity Authorization
 	got, err := r.Cookie(FlowCookie)
 	cookie(w, FlowCookie, "", -1)
 	if err != nil {
@@ -265,6 +270,9 @@ func (c *Client) Callback(w http.ResponseWriter, r *http.Request) (Identity, str
 	var tokens struct {
 		AccessToken string `json:"access_token"`
 		TokenType   string `json:"token_type"`
+		CheckToken  string `json:"session_check_token"`
+		CheckTTL    int64  `json:"session_check_expires_in"`
+		SessionID   string `json:"session_id"`
 	}
 	if err = readJSON(resp, &tokens); err != nil {
 		return identity, "", err
@@ -272,40 +280,24 @@ func (c *Client) Callback(w http.ResponseWriter, r *http.Request) (Identity, str
 	if tokens.AccessToken == "" || !strings.EqualFold(tokens.TokenType, "Bearer") {
 		return identity, "", errors.New("invalid IAM token response")
 	}
-	if err = c.getJSON(m.Profile, tokens.AccessToken, &identity); err != nil {
+	if err = c.getJSON(m.Profile, tokens.AccessToken, &identity.Identity); err != nil {
 		return identity, "", err
 	}
 	if identity.Subject == "" || len(identity.Subject) > 256 || identity.Username == "" || identity.Domain != m.Domain || identity.UserID != "@"+identity.Username+":"+m.Domain {
-		return Identity{}, "", errors.New("invalid IAM identity")
+		return Authorization{}, "", errors.New("invalid IAM identity")
 	}
 	identity.Issuer = c.Issuer
+	if tokens.CheckTTL <= 0 || tokens.CheckTTL > int64(MaxFamilyLifetime/time.Second) {
+		return Authorization{}, "", errors.New("invalid IAM session binding")
+	}
+	identity.CheckToken = tokens.CheckToken
+	identity.SessionID = tokens.SessionID
+	identity.CheckExpires = time.Now().Unix() + tokens.CheckTTL
+	bound := AppSession{Authorization: identity, ExpiresAt: time.Now().Add(SessionLifetime)}
+	if err = c.Revalidate(r.Context(), bound); err != nil {
+		return Authorization{}, "", err
+	}
 	return identity, SafeNext(f.Next), nil
-}
-func (c *Client) SetSession(w http.ResponseWriter, identity Identity) error {
-	value, err := c.seal("session", session{Identity: identity, Expires: time.Now().Add(SessionLifetime).Unix()})
-	if err != nil {
-		return err
-	}
-	cookie(w, SessionCookie, value, int(SessionLifetime.Seconds()))
-	return nil
-}
-func (c *Client) Session(r *http.Request) (Identity, error) {
-	identity, _, err := c.SessionInfo(r)
-	return identity, err
-}
-func (c *Client) SessionInfo(r *http.Request) (Identity, time.Time, error) {
-	got, err := r.Cookie(SessionCookie)
-	if err != nil {
-		return Identity{}, time.Time{}, ErrLoginRequired
-	}
-	var s session
-	if err = c.open("session", got.Value, &s); err != nil {
-		return Identity{}, time.Time{}, ErrLoginRequired
-	}
-	if s.Expires <= time.Now().Unix() || s.Expires > time.Now().Add(SessionLifetime+time.Minute).Unix() || s.Identity.Issuer != c.Issuer || s.Identity.Subject == "" {
-		return Identity{}, time.Time{}, ErrLoginRequired
-	}
-	return s.Identity, time.Unix(s.Expires, 0), nil
 }
 func (c *Client) ClearSession(w http.ResponseWriter) { cookie(w, SessionCookie, "", -1) }
 func (c *Client) ValidMutation(r *http.Request) bool {

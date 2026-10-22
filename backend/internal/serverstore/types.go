@@ -6,6 +6,7 @@ import (
 )
 
 type User struct {
+	FederatedSubject string    `json:"-"`
 	SessionExpiresAt time.Time `json:"-"`
 	ID               string    `json:"id"`
 	DisplayName      string    `json:"displayName,omitempty"`

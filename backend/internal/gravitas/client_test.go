@@ -17,10 +17,12 @@ func fixture(t *testing.T) (*Client, *atomic.Int32) {
 	t.Helper()
 	calls := &atomic.Int32{}
 	var issuer string
+	familyExpiry := time.Now().Add(time.Hour).Unix()
+	checkToken := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/iam-configuration", func(w http.ResponseWriter, r *http.Request) {
 		u, _ := url.Parse(issuer)
-		_ = json.NewEncoder(w).Encode(metadata{Issuer: issuer, Domain: u.Hostname(), Browser: issuer + "/oauth/start", Token: issuer + "/oauth/token", Profile: issuer + "/app/v1/me"})
+		_ = json.NewEncoder(w).Encode(metadata{Issuer: issuer, Domain: u.Hostname(), Browser: issuer + "/oauth/start", Token: issuer + "/oauth/token", Profile: issuer + "/app/v1/me", SessionCheck: issuer + "/oauth/session"})
 	})
 	mux.HandleFunc("POST /oauth/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
@@ -29,7 +31,7 @@ func fixture(t *testing.T) (*Client, *atomic.Int32) {
 			w.WriteHeader(400)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "private-opaque-token", "token_type": "Bearer"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "private-opaque-token", "token_type": "Bearer", "session_check_token": checkToken, "session_check_expires_in": familyExpiry - time.Now().Unix(), "session_id": "11111111-1111-4111-8111-111111111111"})
 	})
 	mux.HandleFunc("GET /app/v1/me", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer private-opaque-token" {
@@ -38,6 +40,13 @@ func fixture(t *testing.T) (*Client, *atomic.Int32) {
 		}
 		u, _ := url.Parse(issuer)
 		_ = json.NewEncoder(w).Encode(Identity{Subject: "stable-subject", Username: "alice", Domain: u.Hostname(), UserID: "@alice:" + u.Hostname()})
+	})
+	mux.HandleFunc("GET /oauth/session", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+checkToken {
+			w.WriteHeader(401)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "iss": issuer, "sub": "stable-subject", "app_origin": "https://app.example", "session_id": "11111111-1111-4111-8111-111111111111", "exp": familyExpiry})
 	})
 	iam := httptest.NewTLSServer(mux)
 	t.Cleanup(iam.Close)
@@ -191,7 +200,7 @@ func TestPinnedIssuerAndSafeReturns(t *testing.T) {
 	c.cachedUntil = time.Time{}
 	fake := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, _ := url.Parse(c.Issuer)
-		_ = json.NewEncoder(w).Encode(metadata{Issuer: c.Issuer, Domain: u.Hostname(), Browser: "https://evil.example/start", Token: c.Issuer + "/oauth/token", Profile: c.Issuer + "/app/v1/me"})
+		_ = json.NewEncoder(w).Encode(metadata{Issuer: c.Issuer, Domain: u.Hostname(), Browser: "https://evil.example/start", Token: c.Issuer + "/oauth/token", Profile: c.Issuer + "/app/v1/me", SessionCheck: c.Issuer + "/oauth/session"})
 	}))
 	defer fake.Close()
 	c.HTTP.Transport = fake.Client().Transport

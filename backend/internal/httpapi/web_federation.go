@@ -10,7 +10,18 @@ import (
 
 func (a *API) authenticate(r *http.Request, token string) (*serverstore.User, error) {
 	if a.cfg.Federation != nil {
-		return a.store.AuthenticateFederated(r.Context(), token, a.cfg.Federation.Issuer)
+		bound, err := a.cfg.Federation.AuthenticateValue(r.Context(), token)
+		if err != nil {
+			return nil, err
+		}
+		user, err := a.store.AuthenticateFederated(r.Context(), bound.LocalToken, a.cfg.Federation.Issuer)
+		if err != nil || user.FederatedSubject != bound.Authorization.Subject {
+			return nil, gravitas.ErrLoginRequired
+		}
+		if bound.ExpiresAt.Before(user.SessionExpiresAt) {
+			user.SessionExpiresAt = bound.ExpiresAt
+		}
+		return user, nil
 	}
 	return a.store.Authenticate(r.Context(), token)
 }
@@ -58,6 +69,10 @@ func (a *API) federationCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "SESSION_ERROR", errors.New("Unable to create the RSS session"))
 		return
 	}
-	a.setSessionCookie(w, result)
+	if err = a.cfg.Federation.SetAppSession(w, a.sessionCookieName(), identity, result.Token, result.ExpiresAt); err != nil {
+		_ = a.store.RevokeSession(r.Context(), result.Token)
+		writeError(w, http.StatusInternalServerError, "SESSION_ERROR", errors.New("Unable to create the RSS session"))
+		return
+	}
 	http.Redirect(w, r, gravitas.SafeNext(next), http.StatusSeeOther)
 }

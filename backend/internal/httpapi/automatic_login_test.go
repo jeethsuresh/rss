@@ -66,7 +66,7 @@ func automaticLoginClient(t *testing.T, app string) *gravitas.Client {
 		if r.URL.String() != "https://gravitas.cool/.well-known/iam-configuration" {
 			t.Fatalf("unexpected IAM request: %s", r.URL.Path)
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"issuer":"https://gravitas.cool","identity_domain":"gravitas.cool","browser_initiation_endpoint":"https://gravitas.cool/oauth/start","token_endpoint":"https://gravitas.cool/oauth/token","userinfo_endpoint":"https://gravitas.cool/app/v1/me"}`)), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"issuer":"https://gravitas.cool","identity_domain":"gravitas.cool","browser_initiation_endpoint":"https://gravitas.cool/oauth/start","token_endpoint":"https://gravitas.cool/oauth/token","userinfo_endpoint":"https://gravitas.cool/app/v1/me","session_check_endpoint":"https://gravitas.cool/oauth/session"}`)), Header: make(http.Header)}, nil
 	})
 	return c
 }

@@ -8,3 +8,5 @@ python3 render.py "$1" | kubectl apply --server-side --field-manager=gravitas-de
 kubectl -n rss rollout status deployment/rss --timeout=300s
 # Certificate validation stays enabled. An untrusted certificate fails release verification.
 curl --fail --silent --show-error --retry 5 --retry-delay 5 https://news.gravitas.cool/healthz
+
+curl --fail --silent --show-error --retry 5 --retry-delay 2 https://news.gravitas.cool/auth/gravitas/session-ready.json

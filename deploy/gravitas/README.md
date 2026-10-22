@@ -106,7 +106,7 @@ credential remains host-only at IAM; apps receive no refresh token.
 
 `GRAVITAS_ISSUER`, `GRAVITAS_APP_URL` and `GRAVITAS_REQUIRED=true` select the hosted
 mode. `GRAVITAS_SESSION_KEY` is a base64url 32-byte secret in `rss-runtime` used
-to encrypt short-lived PKCE transaction cookies. It must persist across rollouts;
+to encrypt PKCE transaction and app session cookies. It must persist across rollouts;
 no issuer cookie, password, access token or refresh token is shared with the app
 browser. Discovery and token/profile requests stay pinned to the configured HTTPS
 issuer, and the callback checks encrypted browser state and a one-use PKCE code.
@@ -116,10 +116,9 @@ mode. Each `(issuer, sub)` receives a separate tenant account; usernames never
 link an existing local account. Existing local users/data remain in the database.
 The app session uses a host-only Secure/HttpOnly `__Host-rss_session` cookie and
 expires after eight hours. Cookie-authenticated writes require the CSRF header.
-Local app logout revokes its RSS session; it does not log out of IAM. An existing
-app session has its own lifetime, independent of IAM logout/grant revocation.
+Local app logout revokes its RSS session; it does not log out of IAM. Each app session is bound to the IAM browser family that created it.
 
-Readiness uses `/auth/gravitas/ready.json` to reject a server without the IAM
+Readiness uses `/auth/gravitas/session-ready.json` to reject a server without the IAM
 guard; old images cannot become ready under this manifest. Take an online SQLite
 backup or quiesced snapshot before applying the new identity migration. Rollback
 must retain the authentication-aware readiness check and an IAM-capable image.
@@ -127,3 +126,27 @@ must retain the authentication-aware readiness check and an IAM-capable image.
 Egress permits the shared Traefik HTTPS backend so IAM discovery and token
 exchange continue working after ingress service translation. Other private
 application endpoints remain blocked by the network policy.
+
+## Central logout
+
+The token exchange supplies a confidential status-only proof bound to the IAM
+browser family, principal and app grant. Only the encrypted host-only app cookie
+retains it. Every protected HTTP request checks the pinned, discovered
+`session_check_endpoint`, requiring matching issuer, subject, app origin and family
+plus a future expiry. There is no positive status cache. Central logout or grant
+revocation returns 401 and denies the next request; network failures, non-401
+errors and malformed or mismatched 200 responses return 503 without clearing the
+app cookie. Legacy cookies without a family proof require a fresh handshake.
+
+Open tabs check their app session every 15 seconds and on focus/resume. A confirmed
+revocation clears the authenticated UI and refreshes the navigation hint before
+considering passive sign-in. An IAM outage retains local session state. Own app
+logout stays local and works during an IAM outage. Independent browser families
+remain signed in, and consent grants are retained after ordinary central logout.
+
+Readiness requires this revocation-aware server. Rollback must use a digest that
+implements these checks; do not relax the readiness path to an older image.
+
+RSS binds the encrypted proof to the same immutable subject as its database
+session. Event streams revalidate periodically and before each event, stopping
+with an auth-required/auth-unavailable notification instead of leaking events.

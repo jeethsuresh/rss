@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jeeth/rss-reader/backend/internal/gravitas"
 	"net/http"
 	"sync"
 	"time"
@@ -76,6 +78,29 @@ func (a *API) eventStream(w http.ResponseWriter, r *http.Request) {
 	defer unsubscribe()
 	heartbeat := time.NewTicker(20 * time.Second)
 	defer heartbeat.Stop()
+	check := time.NewTicker(gravitas.RecheckInterval)
+	defer check.Stop()
+	validate := func() bool {
+		if a.cfg.Federation == nil {
+			return true
+		}
+		token := bearerToken(r)
+		if token == "" {
+			if c, err := r.Cookie(a.sessionCookieName()); err == nil {
+				token = c.Value
+			}
+		}
+		if _, err := a.authenticate(r, token); err != nil {
+			name := "auth-required"
+			if errors.Is(err, gravitas.ErrUnavailable) {
+				name = "auth-unavailable"
+			}
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: {}\n\n", name)
+			flusher.Flush()
+			return false
+		}
+		return true
+	}
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -83,6 +108,9 @@ func (a *API) eventStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case event := <-events:
+			if !validate() {
+				return
+			}
 			encoded, err := json.Marshal(event)
 			if err != nil {
 				continue
@@ -92,6 +120,10 @@ func (a *API) eventStream(w http.ResponseWriter, r *http.Request) {
 		case <-heartbeat.C:
 			_, _ = fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
+		case <-check.C:
+			if !validate() {
+				return
+			}
 		}
 	}
 }
