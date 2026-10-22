@@ -94,6 +94,16 @@ preserving the app callback. An existing IAM session is reused; first-time app
 consent may still be required. Central signup retains its invite and approval
 rules. This is the IAM server's protocol, not OIDC.
 
+IAM's shared `__Secure-gravitas_signed_in=1` cookie is only a navigation hint.
+It is Secure/HttpOnly with Domain `gravitas.cool`, Path `/` and SameSite=Lax;
+IAM manages its remaining refresh-family lifetime (at most 30 days). The public
+web config exposes only an `autoSignIn` boolean. When no app session exists,
+the hosted client attempts `prompt=none` once. A validated `consent_required`
+callback starts a fresh interactive consent flow; `login_required` and local
+logout return to `auto=off` to prevent loops. Safe local document fragments are
+preserved. A forged marker never authenticates an API request. The IAM refresh
+credential remains host-only at IAM; apps receive no refresh token.
+
 `GRAVITAS_ISSUER`, `GRAVITAS_APP_URL` and `GRAVITAS_REQUIRED=true` select the hosted
 mode. `GRAVITAS_SESSION_KEY` is a base64url 32-byte secret in `rss-runtime` used
 to encrypt short-lived PKCE transaction cookies. It must persist across rollouts;

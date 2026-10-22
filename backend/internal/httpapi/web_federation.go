@@ -41,8 +41,12 @@ func (a *API) federationCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	identity, next, err := a.cfg.Federation.Callback(w, r)
 	if err != nil {
-		if errors.Is(err, gravitas.ErrLoginRequired) || errors.Is(err, gravitas.ErrConsentRequired) {
-			http.Redirect(w, r, "/login?next="+url.QueryEscape(gravitas.SafeNext(next)), http.StatusSeeOther)
+		if errors.Is(err, gravitas.ErrLoginRequired) {
+			http.Redirect(w, r, "/login?auto=off&next="+url.QueryEscape(gravitas.SafeNext(next)), http.StatusSeeOther)
+			return
+		}
+		if errors.Is(err, gravitas.ErrConsentRequired) {
+			http.Redirect(w, r, "/auth/gravitas/start?next="+url.QueryEscape(gravitas.SafeNext(next)), http.StatusSeeOther)
 			return
 		}
 		writeError(w, http.StatusBadRequest, "INVALID_LOGIN", errors.New("Sign-in could not be completed; start again from the RSS login page"))

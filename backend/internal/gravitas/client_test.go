@@ -172,13 +172,16 @@ func TestSilentFailuresAndRegistrationKeepValidatedReturn(t *testing.T) {
 	}
 }
 func TestPinnedIssuerAndSafeReturns(t *testing.T) {
-	for _, raw := range []string{"https://evil.example", "//evil.example", "/%2f%2fevil.example", "/%5cevil.example", "/auth/gravitas/start", "/login"} {
+	for _, raw := range []string{"https://evil.example", "//evil.example", "/%2f%2fevil.example", "/%5cevil.example", "/auth/gravitas/start", "/login", "/#%0d%0aLocation:evil", "/#%5cevil"} {
 		if SafeNext(raw) != "/" {
 			t.Fatalf("unsafe return %s", raw)
 		}
 	}
 	if SafeNext("/documents/123?view=grid") != "/documents/123?view=grid" {
 		t.Fatal("legitimate return lost")
+	}
+	if SafeNext("/?view=grid#document=123") != "/?view=grid#document=123" {
+		t.Fatal("document fragment lost")
 	}
 	if _, err := New("http://iam.example", "https://app.example", base64.RawURLEncoding.EncodeToString(make([]byte, 32))); err == nil {
 		t.Fatal("insecure issuer accepted")
@@ -197,5 +200,29 @@ func TestPinnedIssuerAndSafeReturns(t *testing.T) {
 	w := httptest.NewRecorder()
 	if err := c.Start(w, httptest.NewRequest("GET", c.AppURL+"/auth/gravitas/start", nil), false); err == nil {
 		t.Fatal("foreign discovery endpoint accepted")
+	}
+}
+
+func TestConsentRequiredOnlyRestartsAnAuthenticatedSilentFlow(t *testing.T) {
+	for _, silent := range []bool{false, true} {
+		c, calls := fixture(t)
+		path := c.AppURL + "/auth/gravitas/start?next=%2F%23document%3D123"
+		if silent {
+			path += "&prompt=none"
+		}
+		w := httptest.NewRecorder()
+		if err := c.Start(w, httptest.NewRequest("GET", path, nil), false); err != nil {
+			t.Fatal(err)
+		}
+		u, _ := url.Parse(w.Header().Get("Location"))
+		r := httptest.NewRequest("GET", c.AppURL+"/auth/gravitas/callback?error=consent_required&state="+u.Query().Get("state"), nil)
+		r.AddCookie(w.Result().Cookies()[0])
+		_, next, err := c.Callback(httptest.NewRecorder(), r)
+		if err == nil || (err == ErrConsentRequired) != silent || next != "/#document=123" {
+			t.Fatalf("unexpected consent fallback: silent=%v next=%q err=%v", silent, next, err)
+		}
+		if calls.Load() != 0 {
+			t.Fatal("consent fallback exchanged a token")
+		}
 	}
 }
