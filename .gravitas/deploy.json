@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "app": "rss",
+  "namespace": "rss",
+  "host": "news.gravitas.cool",
+  "health_path": "/healthz",
+  "image_repository": "ghcr.io/jeethsuresh/rss",
+  "release": {
+    "command": [
+      "bash",
+      "deploy/gravitas/deploy.sh"
+    ]
+  },
+  "verify": [
+    {
+      "path": "/auth/gravitas/session-ready.json"
+    }
+  ]
+}

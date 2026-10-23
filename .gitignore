@@ -16,3 +16,4 @@ backend/rss-backend
 *.exe
 .turbo/
 .vite/
+.gravitas-runtime/
