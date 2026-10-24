@@ -3654,3 +3654,5 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
   text-align: center;
   color: var(--muted);
 }
+
+.gravitas-login{display:grid;gap:8px}.gravitas-login-row{display:flex;gap:8px}.gravitas-login-row input{min-width:0;flex:1}.gravitas-login-row button{flex-shrink:0;min-width:48px;min-height:48px;font-size:24px}.gravitas-login small{line-height:1.4;opacity:.75}

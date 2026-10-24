@@ -45,7 +45,7 @@ func (c *Client) SetSession(w http.ResponseWriter, auth Authorization) error {
 	return c.SetAppSession(w, SessionCookie, auth, "", time.Now().Add(SessionLifetime))
 }
 func (c *Client) SetAppSession(w http.ResponseWriter, name string, auth Authorization, localToken string, expires time.Time) error {
-	if auth.Issuer != c.Issuer || auth.Subject == "" || !validBinding(auth) {
+	if !c.acceptsIssuer(auth.Issuer) || auth.Subject == "" || !validBinding(auth) {
 		return ErrLoginRequired
 	}
 	for _, limit := range []time.Time{time.Now().Add(SessionLifetime), time.Unix(auth.CheckExpires, 0)} {
@@ -76,7 +76,7 @@ func (c *Client) DecodeAppSession(value string) (AppSession, error) {
 		return AppSession{}, ErrLoginRequired
 	}
 	got := AppSession{Authorization: Authorization{Identity: s.Identity, CheckToken: s.CheckToken, SessionID: s.SessionID, CheckExpires: s.CheckExpires}, LocalToken: s.LocalToken, ExpiresAt: time.Unix(s.Expires, 0)}
-	if s.Expires <= time.Now().Unix() || s.Expires > time.Now().Add(SessionLifetime+time.Minute).Unix() || s.Identity.Issuer != c.Issuer || s.Identity.Subject == "" || !validBinding(got.Authorization) {
+	if s.Expires <= time.Now().Unix() || s.Expires > time.Now().Add(SessionLifetime+time.Minute).Unix() || !c.acceptsIssuer(s.Identity.Issuer) || s.Identity.Subject == "" || !validBinding(got.Authorization) {
 		return got, ErrLoginRequired
 	}
 	return got, nil
@@ -108,6 +108,11 @@ func (c *Client) SessionInfo(r *http.Request) (Identity, time.Time, error) {
 // without turning an IAM outage into a logout or deleting the app cookie.
 func (c *Client) Revalidate(ctx context.Context, got AppSession) error {
 	a := got.Authorization
+	selected, selectErr := c.ForIssuer(a.Issuer)
+	if selectErr != nil {
+		return ErrLoginRequired
+	}
+	c = selected
 	if a.Issuer != c.Issuer || a.Subject == "" || !got.ExpiresAt.After(time.Now()) || !validBinding(a) {
 		return ErrLoginRequired
 	}

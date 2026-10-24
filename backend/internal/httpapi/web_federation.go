@@ -14,7 +14,7 @@ func (a *API) authenticate(r *http.Request, token string) (*serverstore.User, er
 		if err != nil {
 			return nil, err
 		}
-		user, err := a.store.AuthenticateFederated(r.Context(), bound.LocalToken, a.cfg.Federation.Issuer)
+		user, err := a.store.AuthenticateFederated(r.Context(), bound.LocalToken, bound.Authorization.Issuer)
 		if err != nil || user.FederatedSubject != bound.Authorization.Subject {
 			return nil, gravitas.ErrLoginRequired
 		}
@@ -42,6 +42,10 @@ func (a *API) startFederation(w http.ResponseWriter, r *http.Request, register b
 		return
 	}
 	if err := a.cfg.Federation.Start(w, r, register); err != nil {
+		if errors.Is(err, gravitas.ErrInvalidUsername) {
+			writeError(w, 400, "INVALID_USERNAME", err)
+			return
+		}
 		writeError(w, http.StatusServiceUnavailable, "IAM_UNAVAILABLE", errors.New("Gravitas sign-in is temporarily unavailable; please try again"))
 	}
 }
