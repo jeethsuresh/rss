@@ -156,3 +156,13 @@ TODO.md           Phase checklist
 ## Phase plan
 
 See [docs/superpowers/specs/2026-08-20-rss-reader-phases-design.md](docs/superpowers/specs/2026-08-20-rss-reader-phases-design.md).
+
+### Username sign-in
+
+Sign in by entering your username and pressing **🔥** (or Enter). A bare name
+such as `alice` uses the identity server configured by `GRAVITAS_ISSUER`, which
+also owns the registration button. The Gravitas deployment uses `gravitas.cool`.
+`alice@example.org`, `alice:example.org` and `@alice:example.org` select that
+public domain's compatible IAM service over HTTPS. Registration always stays on
+the configured default server. Login transactions and app sessions retain the
+selected issuer, including subsequent session-revocation checks.
