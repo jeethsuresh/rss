@@ -5,7 +5,7 @@ import { appReturnPath, automaticSignInURL } from "./lib/automaticSignIn";
 import { createSessionMonitor } from "./lib/sessionMonitor";
 
 type User = { id: string; username: string; displayName?: string };
-type Config = { registrationEnabled: boolean; federated?: boolean; autoSignIn?: boolean; version: string };
+type Config = { registrationEnabled: boolean; federated?: boolean; defaultDomain?: string; autoSignIn?: boolean; version: string };
 
 if (!window.rss) installWebDesktopShim();
 
@@ -137,8 +137,14 @@ function Login({ config, onAuthenticated }: { config: Config | null; onAuthentic
     return <main className="web-auth-shell"><section className="web-auth-card">
       <p className="web-auth-kicker">RSS Reader</p><h1>Welcome to News</h1>
       <p>Use your Gravitas account to read and save your feeds.</p>
-      <a className="btn primary" href={"/auth/gravitas/start?" + query}>Sign in with Gravitas</a>
-      <a className="web-auth-switch" href={"/auth/gravitas/register?" + query}>Register at gravitas.cool</a>
+      <form className="gravitas-login" action="/auth/gravitas/start" method="get">
+        <input type="hidden" name="next" value={next} />
+        <label htmlFor="gravitas-username">Username</label>
+        <div className="gravitas-login-row"><input id="gravitas-username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder={`username@${config.defaultDomain}`} maxLength={256} required />
+        <button className="btn primary" type="submit" aria-label="Sign in" title="Sign in">🔥</button></div>
+        <small>Without a domain, sign in at {config.defaultDomain}.</small>
+      </form>
+      <a className="web-auth-switch" href={"/auth/gravitas/register?" + query}>Register at {config.defaultDomain}</a>
     </section></main>;
   }
 
