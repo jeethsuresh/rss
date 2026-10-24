@@ -2,8 +2,7 @@
 
 The existing Go server and hosted React client run at `https://news.gravitas.cool`.
 The GitHub `Gravitas` workflow tests both container build stages, publishes an
-AMD64 image to GHCR, and deploys a digest-pinned release from `main` when the
-repository variable `GRAVITAS_DEPLOY_ENABLED=true`. Deployment uses the
+AMD64 image to GHCR, and automatically deploys a digest-pinned release after successful pushes to `main`. Deployment uses the
 `gravitas` environment's `GRAVITAS_KUBECONFIG`, scoped to namespace `rss`.
 
 `bootstrap.json` is administrator-only namespace/RBAC setup. `resources.json`
