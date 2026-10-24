@@ -24,6 +24,7 @@ func (a *API) webConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"registrationEnabled": a.registrationEnabled(),
+		"defaultDomain":       federationDomain(a.cfg.Federation),
 		"federated":           a.cfg.Federation != nil,
 		"autoSignIn":          a.cfg.Federation != nil && gravitas.HasSharedSignInHint(r),
 		"version":             a.cfg.Version,
@@ -142,4 +143,11 @@ func (a *API) requireCSRF(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func federationDomain(c *gravitas.Client) string {
+	if c == nil {
+		return ""
+	}
+	return c.DefaultDomain()
 }
