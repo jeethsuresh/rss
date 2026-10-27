@@ -174,11 +174,38 @@ async function readyWorker() {
       );
   });
 }
+const mainNavigation = page.getByRole("navigation", { name: "Main navigation", exact: true });
+async function navigateTo(label) {
+  if (await mainNavigation.isVisible()) {
+    await mainNavigation.getByRole("button", { name: label, exact: true }).click();
+  } else if (label === "Settings") {
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+  } else {
+    await page.getByRole("tab", { name: new RegExp(label === "RSS" ? "RSS Reader" : label) }).click();
+  }
+}
+async function checkBottomNavigation(active, height) {
+  await page.waitForFunction(() => {
+    const bar = document.querySelector('.mobile-bottom-navigation')?.getBoundingClientRect();
+    return bar && Math.abs(bar.bottom - innerHeight) <= 1;
+  });
+  const bar = await mainNavigation.boundingBox();
+  assert(bar && Math.abs(bar.y + bar.height - height) <= 1, "Bottom navigation stays at the viewport edge");
+  assert.equal(await mainNavigation.locator('[aria-current="page"]').textContent(), active);
+  for (const button of await mainNavigation.getByRole("button").all()) {
+    const box = await button.boundingBox();
+    assert(box.width >= 44 && box.height >= 44, "Navigation has touch-sized targets");
+  }
+  const content = await page.locator('.app > .layout, .app > .settings-page').boundingBox();
+  assert(content && content.y + content.height <= bar.y + 1, "Content fits above the bottom bar");
+}
 try {
   for (const [width, height] of [
+    [320, 568],
     [320, 900],
     [393, 852],
     [540, 960],
+    [852, 393],
     [768, 1024],
     [1024, 768],
     [1280, 400],
@@ -187,6 +214,14 @@ try {
     await page.setViewportSize({ width, height });
     await page.goto(baseURL);
     await page.locator(".article-row").first().waitFor();
+    const mobile = width <= 680 || (width <= 1100 && height <= 500);
+    assert.equal(await mainNavigation.isVisible(), mobile);
+    if (mobile) {
+      assert.deepEqual(await mainNavigation.getByRole("button").allTextContents(), ["RSS", "Read Later", "Sports", "Settings"]);
+      assert.equal(await page.getByRole("tablist", { name: "App mode" }).isVisible(), false);
+      await checkBottomNavigation("RSS", height);
+      await page.screenshot({ path: `${output}/rss-list-${width}x${height}.png` });
+    }
     await page.locator(".article-row").first().click();
     await page.locator(".reader-pane .reader h1").waitFor();
     assert.equal(
@@ -201,16 +236,31 @@ try {
       `Usable reader at ${width}x${height}`,
     );
     await page.screenshot({ path: `${output}/rss-${width}x${height}.png` });
+    if (mobile) {
+      await checkBottomNavigation("RSS", height);
+      await page.getByRole("button", { name: "Article list", exact: true }).click();
+      await page.locator(".article-row").first().waitFor();
+    }
     if (width <= 1100) {
       await page.getByRole("button", { name: "Feeds", exact: true }).click();
       await page.getByRole("button", { name: /Offline test feed/ }).waitFor();
-      await page
-        .getByRole("button", { name: "Article list", exact: true })
-        .click();
+      if (mobile) {
+        await checkBottomNavigation("RSS", height);
+        await page.screenshot({ path: `${output}/rss-sidebar-${width}x${height}.png` });
+        await page.getByRole("button", { name: /Offline test feed/ }).click();
+        await page.locator(".article-row").first().waitFor();
+        assert.equal(await page.locator(".rss-sidebar").isVisible(), false);
+      } else {
+        await page.getByRole("button", { name: "Article list", exact: true }).click();
+      }
     }
-    await page.getByRole("tab", { name: /Read Later/ }).click();
+    await navigateTo("Read Later");
     await page.locator(".article-row").first().click();
     await page.locator(".reader-pane .reader-body").waitFor();
+    if (mobile) {
+      await checkBottomNavigation("Read Later", height);
+      await page.getByRole("button", { name: "Article list", exact: true }).click();
+    }
     if (width <= 1100) {
       await page.getByRole("button", { name: "Filters", exact: true }).click();
       await page
@@ -220,8 +270,9 @@ try {
         .getByRole("button", { name: "Article list", exact: true })
         .click();
     }
-    await page.getByRole("tab", { name: "Sports", exact: true }).click();
+    await navigateTo("Sports");
     await page.locator(".sports-layout").waitFor();
+    if (mobile) await checkBottomNavigation("Sports", height);
     if (width <= 1100) {
       await page
         .getByRole("button", { name: "Leagues & teams", exact: true })
@@ -237,8 +288,17 @@ try {
       ),
       true,
     );
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await navigateTo("Settings");
     await page.getByRole("button", { name: "General", exact: true }).waitFor();
+    if (mobile) {
+      await checkBottomNavigation("Settings", height);
+      await page.locator(".settings-body").evaluate(element => element.scrollTop = element.scrollHeight);
+      await checkBottomNavigation("Settings", height);
+      await page.screenshot({ path: `${output}/rss-settings-${width}x${height}.png` });
+      await navigateTo("RSS");
+      await page.locator(".article-row").first().waitFor();
+      await checkBottomNavigation("RSS", height);
+    }
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -262,6 +322,7 @@ try {
     await page.locator(".reader-pane .reader h1").textContent(),
     "alice's saved article",
   );
+  await checkBottomNavigation("RSS", 852);
   await page
     .locator(".reader-actions")
     .getByRole("button", { name: "Mark read", exact: true })

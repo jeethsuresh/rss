@@ -1,5 +1,12 @@
 # Responsive web app and offline support
 
+On phones, the bottom bar switches between RSS, Read Later, Sports, and Settings.
+Within RSS, **Feeds** opens the sidebar, choosing a feed opens its article list,
+and choosing an article opens its detail. The header returns to the previous
+pane. The bottom bar stays visible in every section, including Settings, and
+accounts for the device's bottom safe area. Phone landscape uses the same flow;
+tablets retain the two-pane reader and desktops retain all three panes.
+
 News caches visited RPC reads in IndexedDB, scoped to the account ID. Open an
 article or saved link online before relying on it offline. Visited lists, stories,
 settings, and sports responses are cached too. A search/filter that has not been
@@ -69,6 +76,8 @@ Run `bun test`, the Docker `backend-test` and `frontend-test` targets, and
 `bun run --filter @rss-reader/desktop build:renderer`.
 Install Playwright Chromium (`bunx playwright install chromium`) and run
 `bun run test:pwa`. `PWA_BROWSER_PATH` can point to an existing Chromium binary.
-The browser suite starts a loopback fixture server and tests seven touch viewport
+The browser suite starts a loopback fixture server and tests nine touch viewport
 shapes, offline navigation, a second reload, durable read-state replay, confirmed
-revocation, and account switching. Screenshots go to `.cache/pwa/`.
+revocation, and account switching. Mobile checks cover all four bottom destinations,
+sidebar/list/detail transitions, touch target sizes, and content staying above the
+bar, including while Settings scrolls. Screenshots go to `.cache/pwa/`.
