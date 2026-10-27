@@ -50,6 +50,7 @@ import { SportsView } from "./views/SportsView";
 import { PageFrame } from "./components/PageFrame";
 import { ReaderBody } from "./components/ReaderBody";
 import { BrowserPane } from "./components/BrowserPane";
+import { MobileNavigation, type AppDestination } from "./components/MobileNavigation";
 import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
 import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
 import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
@@ -1467,9 +1468,29 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
     </div>
   ) : null;
 
+  const navigateTo = (destination: AppDestination) => {
+    if (destination === "settings") {
+      setSettingsSection("general");
+      setView("settings");
+    } else {
+      setAppMode(destination);
+      setView("reader");
+    }
+  };
+  const mobileNavigation = <MobileNavigation active={view === "settings" ? "settings" : appMode} onNavigate={navigateTo} />;
+  const sidebarLabel = appMode === "sports" ? "Leagues & teams" : appMode === "readLater" ? "Filters" : "Feeds";
+  const listLabel = appMode === "sports" ? "Dashboard" : "Article list";
+  const mobilePaneTitle = compactPane === "navigation" ? sidebarLabel
+    : compactPane === "reader" ? "Article"
+    : appMode === "sports" ? "Sports"
+    : appMode === "readLater" ? "Read Later"
+    : selected.type === "stories" ? "Stories"
+    : selected.type === "feed" ? feeds.find(feed => feed.id === selected.id)?.title || "Articles"
+    : selected.type === "folder" ? selectedFolder?.name || "Articles" : "Items";
+
   if (view === "settings" && settings) {
     return (
-      <>
+      <div className={`app ${densityClass}`} data-view="settings">
         <SettingsPage
           backend={backend}
           settings={settings}
@@ -1482,9 +1503,10 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           applyTheme={applyTheme}
           initialSection={settingsSection}
         />
+        {mobileNavigation}
         {dropFixModal}
         {saveToast}
-      </>
+      </div>
     );
   }
   return (
@@ -1568,7 +1590,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           </form>
         ) : null}
         <button
-          className="btn"
+          className="btn toolbar-settings"
           onClick={() => {
             setSettingsSection("general");
             setView("settings");
@@ -1582,6 +1604,13 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         <button type="button" aria-pressed={compactPane === "navigation"} onClick={() => setCompactPane("navigation")}>{appMode === "sports" ? "Leagues & teams" : appMode === "readLater" ? "Filters" : "Feeds"}</button>
         <button type="button" aria-pressed={compactPane === "list"} onClick={() => setCompactPane("list")}>{appMode === "sports" ? "Dashboard" : "Article list"}</button>
         {appMode !== "sports" && <button type="button" aria-pressed={compactPane === "reader"} onClick={() => setCompactPane("reader")}>Reader</button>}
+      </nav>
+      <nav className="mobile-pane-navigation" aria-label="Reader panes">
+        <button type="button" onClick={() => setCompactPane(compactPane === "list" ? "navigation" : "list")}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
+          {compactPane === "list" ? sidebarLabel : listLabel}
+        </button>
+        <strong>{mobilePaneTitle}</strong>
       </nav>
       {error && <p className="error toolbar-error">{error}</p>}
 
@@ -2013,6 +2042,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
       </div>
       )}
 
+      {mobileNavigation}
       {showAdd && (
         <div className="modal-backdrop" onClick={() => setShowAdd(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
