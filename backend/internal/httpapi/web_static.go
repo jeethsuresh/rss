@@ -59,7 +59,19 @@ func (a *API) webApp() http.Handler {
 			http.ServeFile(w, r, filepath.Join(root, "index.html"))
 			return
 		}
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		if path == "sw.js" || path == "manifest.webmanifest" {
+			w.Header().Set("Cache-Control", "no-cache")
+		} else if strings.HasPrefix(path, "assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		if path == "sw.js" {
+			w.Header().Set("Service-Worker-Allowed", "/")
+		}
+		if path == "manifest.webmanifest" {
+			w.Header().Set("Content-Type", "application/manifest+json")
+		}
 		clone := r.Clone(r.Context())
 		clone.URL.Path = "/" + filepath.ToSlash(path)
 		files.ServeHTTP(w, clone)

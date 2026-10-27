@@ -16,10 +16,12 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/application"
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 	"github.com/jeeth/rss-reader/backend/internal/gravitas"
+	"github.com/jeeth/rss-reader/backend/internal/push"
 	"github.com/jeeth/rss-reader/backend/internal/serverstore"
 )
 
 type Config struct {
+	Push                *push.Service
 	RegistrationEnabled bool
 	RegistrationKey     string
 	Federation          *gravitas.Client
@@ -58,6 +60,7 @@ func New(store *serverstore.Store, svc *application.Service, log *slog.Logger, c
 	}
 	a := &API{store: store, svc: svc, log: log, cfg: cfg, ctx: cfg.Context, events: cfg.Events, start: time.Now().UTC(), attempts: map[string]authAttempts{}}
 	mux := http.NewServeMux()
+	a.pushRoutes(mux)
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("POST /v1/auth/register", a.register)
 	mux.HandleFunc("POST /v1/auth/login", a.login)

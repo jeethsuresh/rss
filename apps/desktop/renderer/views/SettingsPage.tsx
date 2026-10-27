@@ -510,14 +510,14 @@ export function SettingsPage({
                 />
                 Mark read on open
               </label>
-              <label className="check">
+              {!backend.sync ? <p className="muted">Use App in the account bar to manage notifications on this device.</p> : <label className="check">
                 <input
                   type="checkbox"
                   checked={settings.notificationsEnabled}
                   onChange={(e) => void patch({ notificationsEnabled: e.target.checked })}
                 />
                 Desktop notifications
-              </label>
+              </label>}
             </section>
           )}
 

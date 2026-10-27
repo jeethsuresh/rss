@@ -23,6 +23,7 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/mlb"
 	"github.com/jeeth/rss-reader/backend/internal/netguard"
 	"github.com/jeeth/rss-reader/backend/internal/openf1"
+	"github.com/jeeth/rss-reader/backend/internal/push"
 	"github.com/jeeth/rss-reader/backend/internal/rss"
 	"github.com/jeeth/rss-reader/backend/internal/serverfetch"
 	"github.com/jeeth/rss-reader/backend/internal/serverstore"
@@ -109,11 +110,39 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	events := httpapi.NewEventHub()
-	svc.Emit = events.Emit
+	store := serverstore.New(db)
+	publisher, err := push.Open(filepath.Join(filepath.Dir(*dbPath), "news-push.json"))
+	if err != nil {
+		log.Error("open push storage", "err", err)
+		os.Exit(1)
+	}
+	svc.Emit = func(name string, payload any) {
+		events.Emit(name, payload)
+		if name != "articles.added" {
+			return
+		}
+		value, ok := payload.(map[string]any)
+		if !ok {
+			return
+		}
+		feedID, _ := value["feedId"].(string)
+		count, _ := value["count"].(int)
+		later, _ := value["readLater"].(bool)
+		if feedID == "" || count < 1 || later {
+			return
+		}
+		owners, e := store.PushFeedOwners(ctx, feedID)
+		if e != nil {
+			log.Warn("push membership lookup failed")
+			return
+		}
+		if e = publisher.Notify("news", "", owners, push.Notification{Title: "New articles", Body: "New articles are ready in your feeds.", URL: "/", Tag: "news-new-articles"}); e != nil {
+			log.Warn("push outbox could not be saved")
+		}
+	}
 	crawlSvc.Emit = events.Emit
 	clusterSvc.Emit = events.Emit
 	sportsSvc.Emit = events.Emit
-	store := serverstore.New(db)
 	crawlSvc.Shared = store
 	crawlSvc.SharedOwner = "rss-server-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	feedScheduler := &serverfetch.FeedScheduler{Service: svc, Store: store, Log: log, Workers: 4}
@@ -131,6 +160,7 @@ func main() {
 	}
 	handler := httpapi.New(store, svc, log, httpapi.Config{
 		RegistrationEnabled: *registration,
+		Push:                publisher,
 		RegistrationKey:     registrationKey,
 		Federation:          federation,
 		Version:             version,
@@ -139,6 +169,7 @@ func main() {
 		CookieSecure:        envBool("RSS_SERVER_COOKIE_SECURE", false),
 		Events:              events,
 	})
+	go publisher.Run(ctx)
 	httpServer := &http.Server{
 		Addr:              *addr,
 		Handler:           handler,

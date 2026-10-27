@@ -166,3 +166,9 @@ also owns the registration button. The Gravitas deployment uses `gravitas.cool`.
 public domain's compatible IAM service over HTTPS. Registration always stays on
 the configured default server. Login transactions and app sessions retain the
 selected issuer, including subsequent session-revocation checks.
+
+## Responsive web and offline use
+
+The production website is installable and supports saved data offline. See
+[the PWA guide](docs/pwa.md) for offline behavior, notification limits, installation,
+and repeatable browser checks.

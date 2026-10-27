@@ -17,3 +17,5 @@ backend/rss-backend
 .turbo/
 .vite/
 .gravitas-runtime/
+
+.cache/

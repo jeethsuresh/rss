@@ -1,0 +1,56 @@
+.pwa-controls {
+  position: relative;
+  flex: none;
+  font:
+    13px system-ui,
+    sans-serif;
+}
+.pwa-controls summary {
+  cursor: pointer;
+  list-style: none;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 6px 10px;
+  min-height: 32px;
+}
+.pwa-controls summary::-webkit-details-marker {
+  display: none;
+}
+.pwa-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 100;
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100dvh - 70px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #a3a99c;
+  border-radius: 12px;
+  background: #f8f7f2;
+  color: #29332d;
+  box-shadow: 0 8px 35px #0003;
+  display: grid;
+  gap: 10px;
+}
+.pwa-panel p {
+  margin: 0;
+  line-height: 1.5;
+}
+.pwa-panel small {
+  line-height: 1.4;
+}
+.pwa-panel button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #a3a99c;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.pwa-panel :focus-visible {
+  outline: 2px solid #315b43;
+  outline-offset: 2px;
+}

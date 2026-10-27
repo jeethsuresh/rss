@@ -1,3 +1,7 @@
+import { disconnectPush } from "./lib/push";
+import { DeviceFeatures } from "./lib/pwa";
+import { clearOffline } from "./lib/offline";
+import { readOfflineSession, rememberSession, forgetSession, networkFailure } from "./lib/offlineSession";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { App } from "./App";
 import { createWebBackend, installWebDesktopShim } from "./lib/webBackend";
@@ -10,22 +14,22 @@ type Config = { registrationEnabled: boolean; federated?: boolean; defaultDomain
 if (!window.rss) installWebDesktopShim();
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { credentials: "same-origin", ...init });
+  const response = await fetch(path, { credentials: "same-origin", ...init, signal: AbortSignal.timeout(10_000) });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body?.error?.message || "Request failed");
   return body as T;
 }
 
 async function loadSession(): Promise<{ user: User } | null> {
-  const response = await fetch("/v1/web/session", { credentials: "same-origin", cache: "no-store" });
+  const response = await fetch("/v1/web/session", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(10_000) });
   if (response.status === 401) return null;
   if (!response.ok) throw new Error("Unable to check your session");
   return response.json();
 }
 
 export function WebApp() {
-  const backend = useMemo(() => createWebBackend(), []);
   const [user, setUser] = useState<User | null>(null);
+  const backend = useMemo(() => createWebBackend(user?.id), [user?.id]);
   const [config, setConfig] = useState<Config | null>(null);
   const [checking, setChecking] = useState(true);
   const [startupError, setStartupError] = useState(false);
@@ -37,20 +41,29 @@ export function WebApp() {
 
   useEffect(() => {
     let cancelled = false, initialized = false;
-    void Promise.all([
-      api<Config>("/v1/web/config").then(value => { if (!cancelled) { setConfig(value); setAutomaticAllowed(value.autoSignIn === true); } return value; }),
-      loadSession(),
-    ]).then(([nextConfig, session]) => {
+    void (async () => {
+      const saved = readOfflineSession<{ user: User; config: Config }>();
+      let session: { user: User } | null;
+      try { session = await loadSession(); }
+      catch (error) {
+        if (!networkFailure(error) || !saved) throw error;
+        if (cancelled) return;
+        userRef.current = saved.user; setUser(saved.user); setConfig(saved.config);
+        setTemporarilyUnavailable(true); return;
+      }
       if (cancelled) return;
-      setConfig(nextConfig);
-      userRef.current = session?.user ?? null;
-      setUser(session?.user ?? null);
-    }).catch(() => { if (!cancelled) setStartupError(true); }).finally(() => { if (!cancelled) { initialized = true; setChecking(false); } });
+      if (!session) { void disconnectPush(); forgetSession(); if (saved) void clearOffline(saved.user.id).catch(() => {}); }
+      const nextConfig = await api<Config>("/v1/web/config").catch(error => { if (session && saved) return saved.config; throw error; });
+      if (cancelled) return;
+      setConfig(nextConfig); setAutomaticAllowed(nextConfig.autoSignIn === true);
+      if (session) rememberSession({ user: session.user, config: nextConfig });
+      userRef.current = session?.user ?? null; setUser(session?.user ?? null);
+    })().catch(() => { if (!cancelled) setStartupError(true); }).finally(() => { if (!cancelled) { initialized = true; setChecking(false); } });
     const monitor = createSessionMonitor<User>({
       sessionURL: "/v1/web/session", configURL: "/v1/web/config", logoutURL: "/v1/web/logout", csrfHeader: "X-RSS-CSRF",
       isAuthenticated: () => userRef.current !== null,
-      onSession: value => { userRef.current = value; setUser(value); setStartupError(false); },
-      onRevoked: () => { userRef.current = null; setUser(null); },
+      onSession: value => { userRef.current = value; setUser(value); setStartupError(false); const saved = readOfflineSession<{config: Config}>(); if (saved) rememberSession({ user: value, config: saved.config }); },
+      onRevoked: () => { void disconnectPush(); const id = userRef.current?.id; forgetSession(); if (id) void clearOffline(id).catch(() => {}); userRef.current = null; setUser(null); },
       onAutoHint: setAutomaticAllowed, onUnavailable: setTemporarilyUnavailable,
     });
     monitorRef.current = monitor;
@@ -62,9 +75,10 @@ export function WebApp() {
     window.addEventListener("rss:unauthorized", unauthorized);
     window.addEventListener("rss:auth-unavailable", unavailable);
     window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
     window.addEventListener("pageshow", resume);
     document.addEventListener("visibilitychange", visibility);
-    return () => { cancelled = true; monitor.dispose(); clearInterval(interval); window.removeEventListener("rss:unauthorized", unauthorized); window.removeEventListener("rss:auth-unavailable", unavailable); window.removeEventListener("focus", resume); window.removeEventListener("pageshow", resume); document.removeEventListener("visibilitychange", visibility); };
+    return () => { cancelled = true; monitor.dispose(); clearInterval(interval); window.removeEventListener("rss:unauthorized", unauthorized); window.removeEventListener("rss:auth-unavailable", unavailable); window.removeEventListener("focus", resume); window.removeEventListener("online", resume); window.removeEventListener("pageshow", resume); document.removeEventListener("visibilitychange", visibility); };
   }, []);
 
   const automaticURL = automaticSignInURL({
@@ -79,9 +93,10 @@ export function WebApp() {
 
   if (checking || automaticURL) return <div className="web-auth-shell"><p>Connecting to Gravitas…</p></div>;
   if (startupError) return <main className="web-auth-shell"><section className="web-auth-card"><p>Unable to connect. Please try again.</p><button className="btn" onClick={() => window.location.reload()}>Try again</button></section></main>;
-  if (!user) return <Login config={config} onAuthenticated={value => { userRef.current = value; setUser(value); }} />;
+  if (!user) return <Login config={config} onAuthenticated={value => { userRef.current = value; setUser(value); if (config) rememberSession({user: value, config}); }} />;
 
   const logout = async () => {
+    await disconnectPush();
     await api("/v1/web/logout", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-RSS-CSRF": "1" },
@@ -96,8 +111,9 @@ export function WebApp() {
     <div className="web-app-shell">
       <div className="web-session-bar">
         <span>{user.displayName || user.username}</span>
-        {temporarilyUnavailable && <span role="status">Sign-in is temporarily unavailable. Please try again shortly.</span>}
-        <button className="btn" onClick={() => void logout()}>{config?.federated ? "Sign out of News" : "Log out"}</button>
+        {temporarilyUnavailable && <span role="status">Connection unavailable. Saved content is available on this device.</span>}
+        <DeviceFeatures />
+        <button className="btn" onClick={() => void logout().catch(() => setTemporarilyUnavailable(true))}>{config?.federated ? "Sign out of News" : "Log out"}</button>
       </div>
       <App key={user.id} backend={backend} serverAuthoritative />
     </div>

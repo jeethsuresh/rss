@@ -37,7 +37,7 @@ COPY packages/shared/package.json packages/shared/package.json
 RUN bun install --frozen-lockfile --ignore-scripts
 COPY apps/desktop/ apps/desktop/
 COPY packages/shared/ packages/shared/
-RUN bun test
+RUN bun run typecheck && bun test
 
 FROM alpine:3.22
 
