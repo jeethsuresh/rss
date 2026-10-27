@@ -1,7 +1,10 @@
 {
   "name": "rss-reader",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bun run scripts/dev.ts",
     "build": "bun run backend:build && bun run --filter @rss-reader/desktop build",
@@ -13,9 +16,14 @@
     "server:dev": "bun run --filter @rss-reader/desktop build:renderer && cd backend && go run ./cmd/server",
     "backend:test": "cd backend && go test ./...",
     "backend:all": "bash scripts/build-backend-all.sh",
-    "backend:stage": "bash scripts/stage-backend.sh"
+    "backend:stage": "bash scripts/stage-backend.sh",
+    "test:pwa": "bun scripts/test-pwa.mjs",
+    "typecheck": "tsc -p apps/desktop/tsconfig.json"
   },
   "devDependencies": {
+    "@types/bun": "1.4.2",
+    "@types/node": "22.20.5",
+    "playwright": "1.64.0",
     "typescript": "^5.9.2"
   }
 }

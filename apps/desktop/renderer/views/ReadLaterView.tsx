@@ -15,6 +15,8 @@ type Props = {
   unreadCount: number;
   focusArticleId?: string | null;
   onFocusConsumed?: () => void;
+  onOpenReader?: () => void;
+  onSelectFilter?: () => void;
 };
 
 function hostOf(url: string): string {
@@ -39,6 +41,8 @@ export function ReadLaterView({
   unreadCount,
   focusArticleId,
   onFocusConsumed,
+  onOpenReader,
+  onSelectFilter,
 }: Props) {
   const [filter, setFilter] = useState<ReadLaterFilter>("all");
   const [articles, setArticles] = useState<Article[]>([]);
@@ -221,7 +225,7 @@ export function ReadLaterView({
             key={f.id}
             type="button"
             className={`nav-item ${filter === f.id ? "active" : ""}`}
-            onClick={() => setFilter(f.id)}
+            onClick={() => { setFilter(f.id); onSelectFilter?.(); }}
           >
             <span>{f.label}</span>
             {f.id === "unread" ? <span className="count">{unreadCount}</span> : null}
@@ -243,7 +247,7 @@ export function ReadLaterView({
               data-list-row-key={`read-later:${a.id}`}
               type="button"
               className={`article-row ${a.id === activeId ? "active" : ""} ${a.isRead ? "" : "unread"}`}
-              onClick={() => setActiveId(a.id)}
+              onClick={() => { setActiveId(a.id); onOpenReader?.(); }}
             >
               <div className="article-meta">
                 <span>{hostOf(a.url)}</span>

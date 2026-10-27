@@ -3656,3 +3656,86 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
 }
 
 .gravitas-login{display:grid;gap:8px}.gravitas-login-row{display:flex;gap:8px}.gravitas-login-row input{min-width:0;flex:1}.gravitas-login-row button{flex-shrink:0;min-width:48px;min-height:48px;font-size:24px}.gravitas-login small{line-height:1.4;opacity:.75}
+
+/* Adaptive panes use the available viewport, including browser chrome and keyboards. */
+html, body, #root { min-width: 0; width: 100%; height: 100%; }
+.web-app-shell { height: 100dvh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.web-session-bar { min-width: 0; flex-wrap: wrap; }
+.web-session-bar > span { min-width: 0; overflow-wrap: anywhere; }
+.web-session-bar > span:first-child { margin-right: auto; }
+.web-auth-shell { height: 100dvh; min-height: 0; overflow: auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.web-auth-card { margin: auto; }
+.layout { min-width: 0; grid-template-columns: clamp(180px, 17vw, 240px) minmax(240px, 28vw) minmax(0, 1fr); }
+.pane { min-width: 0; overscroll-behavior: contain; }
+.toolbar { min-width: 0; flex-wrap: wrap; gap: 8px; }
+.toolbar .search { min-width: 0; flex: 1 1 160px; }
+.mode-tabs { max-width: 100%; overflow-x: auto; flex-shrink: 0; }
+.mode-tab { white-space: nowrap; }
+.compact-navigation { display: none; flex-shrink: 0; }
+.reader { overflow: auto; min-width: 0; }
+.reader h1, .reader-body { overflow-wrap: anywhere; }
+.reader-body :is(img, video, iframe, svg) { max-width: 100%; }
+.reader-body :is(pre, table) { display: block; max-width: 100%; overflow: auto; }
+.reader-actions, .reader-toolbar { flex-wrap: wrap; }
+.modal-backdrop { padding: 12px; overflow: auto; }
+.modal { max-height: calc(100dvh - 24px); overflow: auto; margin: auto; }
+.settings-page { height: 100%; min-height: 0; }
+.settings-layout { min-height: 0; min-width: 0; grid-template-columns: 200px minmax(0, 1fr); }
+.settings-body { min-width: 0; min-height: 0; overflow-wrap: anywhere; }
+.settings-nav { overflow: auto; }
+@media (max-width: 1100px) {
+  .compact-navigation { display: flex; gap: 4px; padding: 4px 8px; background: var(--bg1); border-bottom: 1px solid var(--border); }
+  .compact-navigation button { flex: 1; min-height: 40px; padding: 6px; border-radius: 6px; color: var(--muted); }
+  .compact-navigation button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); }
+  .app .layout { position: relative; grid-template-columns: minmax(220px, .8fr) minmax(0, 1.3fr); }
+  .app .layout > .sidebar { display: none; }
+  .app .layout > .reader-pane { display: flex; position: static; }
+  .app[data-pane="navigation"] .layout { display: flex; }
+  .app[data-pane="navigation"] .layout > :not(.sidebar) { display: none; }
+  .app[data-pane="navigation"] .layout > .sidebar { display: flex; flex-direction: column; width: 100%; }
+  .app .sports-layout { display: flex; }
+  .app .sports-layout > :not(.sidebar) { min-width: 0; flex: 1; }
+  .app .sports-layout .f1-dashboard { grid-template-columns: minmax(190px,.65fr) minmax(0,1fr); }
+}
+@media (max-width: 680px) {
+  .app .layout { display: flex; }
+  .app .layout > :not(.sidebar) { flex: 1; width: 100%; }
+  .app[data-pane="list"] .layout > .reader-pane { display: none; }
+  .app[data-pane="reader"] .layout > .article-list { display: none; }
+  .toolbar { padding: 8px; }
+  .toolbar-spacer, .toolbar .status-dot { display: none; }
+  .mode-tabs { flex: 1 0 100%; justify-content: space-between; }
+  .mode-tab { flex: 1; padding: 8px 6px; font-size: .82rem; }
+  .toolbar .search { width: 100%; flex-basis: 100%; }
+  .rl-add-toolbar { width: 100%; }
+  .rl-add-toolbar .search { flex: 1; width: 0; }
+  .toolbar > .btn { flex: 1; }
+  .reader, .density-comfortable .reader { padding: 16px; }
+  .reader h1 { font-size: clamp(1.5rem, 7vw, 2rem); }
+  .article-list-toolbar { gap: 4px; flex-wrap: wrap; padding: 8px; }
+  .settings-layout { display: flex; flex-direction: column; }
+  .settings-nav { display: flex; flex: 0 0 auto; gap: 4px; padding: 6px; }
+  .settings-nav .nav-item { width: auto; flex-shrink: 0; }
+  .settings-body { min-width: 0; min-height: 0; overflow: auto; padding: 16px; }
+  .web-session-bar { font-size: 11px; gap: 6px; padding: 4px 8px; }
+  .web-session-bar > span[role="status"] { flex-basis: 100%; order: 2; }
+  .app .sports-layout .f1-dashboard { display: flex; flex-direction: column; overflow: auto; }
+  .f1-dashboard > * { min-height: 180px; flex-shrink: 0; }
+  .sports-layout > .pane { overflow: auto; }
+  .web-auth-card { padding: 20px; }
+}
+@media (pointer: coarse) {
+  .btn, .nav-item, .feed-item, .mode-tab, .content-tab, .article-list-filter button { min-height: 44px; }
+  input, textarea, select { font-size: max(16px, 1rem); }
+}
+@media (max-height: 500px) {
+  .toolbar { padding-block: 4px; gap: 4px; }
+  .compact-navigation { padding-block: 2px; }
+  .compact-navigation button { min-height: 32px; }
+  .mode-tab { padding-block: 4px; }
+  .reader { padding: 12px; }
+  .web-session-bar { padding-block: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

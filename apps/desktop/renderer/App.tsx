@@ -145,6 +145,7 @@ export function App({
 }
 
 function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; serverAuthoritative: boolean }) {
+  const [compactPane, setCompactPane] = useState<"navigation" | "list" | "reader">("list");
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
@@ -154,6 +155,8 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
   const [loadingMore, setLoadingMore] = useState(false);
   const [articleListRevision, setArticleListRevision] = useState(0);
   const [selected, setSelected] = useState<Selection>({ type: "items" });
+  useEffect(() => { setCompactPane("list"); }, [selected]);
+  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") setCompactPane("list"); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, []);
   const [rssListFilter, setRssListFilter] = useState<RssListFilter>("unread");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
@@ -186,6 +189,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
   const [appMode, setAppMode] = useState<AppMode>(() =>
     mlbTeamRouteFromHash(window.location.hash) ? "sports" : "rss",
   );
+  useEffect(() => { setCompactPane("list"); }, [appMode]);
   const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
   const [storyMemberId, setStoryMemberId] = useState<string | null>(null);
   const [contentTab, setContentTab] = useState<ContentTab>("primary");
@@ -349,13 +353,19 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
   const reloadContent = useCallback(
     (append = false) => {
       if (selected.type === "stories") {
-        void loadStories();
+        void loadStories().catch(() => setError(GENERIC_ERROR_MESSAGE));
       } else {
-        void loadArticles(append);
+        void loadArticles(append).catch(() => setError(GENERIC_ERROR_MESSAGE));
       }
     },
     [selected.type, loadStories, loadArticles],
   );
+
+  useEffect(() => {
+    const online = () => { void loadFeeds().catch(() => {}); reloadContent(false); };
+    window.addEventListener("online", online);
+    return () => window.removeEventListener("online", online);
+  }, [loadFeeds, reloadContent]);
 
   const refreshAll = useCallback(async () => {
     setBusy(true);
@@ -392,13 +402,13 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
       void loadStories(rssListFilter === "unread");
     } else {
       setUnreadStorySnapshot(null);
-      void loadArticles(false);
+      void loadArticles(false).catch(() => setError(GENERIC_ERROR_MESSAGE));
     }
   }, [selected, rssListFilter]);
 
   useEffect(() => {
     if (selected.type !== "stories") {
-      void loadArticles(false);
+      void loadArticles(false).catch(() => setError(GENERIC_ERROR_MESSAGE));
     }
   }, [search]);
 
@@ -424,7 +434,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         if (!full || !isListableStory(full)) {
           setActiveStory(null);
           setStoryMemberId(null);
-          void loadStories();
+          void loadStories().catch(() => setError(GENERIC_ERROR_MESSAGE));
           return;
         }
         setActiveStory(full);
@@ -456,7 +466,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
             crawlStatus?: string;
           };
           if (payload.isRead !== undefined || payload.all) {
-            void loadStories();
+            void loadStories().catch(() => setError(GENERIC_ERROR_MESSAGE));
           }
           if (payload.articleId) {
             if (payload.extractStatus === "js" && !serverAuthoritative) {
@@ -515,18 +525,19 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         case "story.updated": {
           const payload = event.payload as { storyId?: string };
           if (!payload.storyId) {
-            void loadStories();
+            void loadStories().catch(() => setError(GENERIC_ERROR_MESSAGE));
             break;
           }
           void backend.stories
             .get(payload.storyId)
             .then((full) => {
+              if (!full) { void loadStories().catch(() => setError(GENERIC_ERROR_MESSAGE)); return; }
               setStories((prev) => upsertStoryInPlace(prev, full));
               if (!isListableStory(full)) {
                 if (payload.storyId === activeStoryId) {
                   setActiveStory(null);
                   setStoryMemberId(null);
-                  void loadStories();
+                  void loadStories().catch(() => setError(GENERIC_ERROR_MESSAGE));
                 }
                 return;
               }
@@ -539,7 +550,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
               }
             })
             .catch(() => {
-              void loadStories();
+              void loadStories().catch(() => setError(GENERIC_ERROR_MESSAGE));
             });
           break;
         }
@@ -1477,7 +1488,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
     );
   }
   return (
-    <div className={`app ${densityClass}`}>
+    <div className={`app ${densityClass}`} data-pane={compactPane} data-mode={appMode}>
       <header className="toolbar">
         <div className="mode-tabs" role="tablist" aria-label="App mode">
           <button
@@ -1567,6 +1578,11 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
         </button>
       </header>
 
+      <nav className="compact-navigation" aria-label="Reader panes">
+        <button type="button" aria-pressed={compactPane === "navigation"} onClick={() => setCompactPane("navigation")}>{appMode === "sports" ? "Leagues & teams" : appMode === "readLater" ? "Filters" : "Feeds"}</button>
+        <button type="button" aria-pressed={compactPane === "list"} onClick={() => setCompactPane("list")}>{appMode === "sports" ? "Dashboard" : "Article list"}</button>
+        {appMode !== "sports" && <button type="button" aria-pressed={compactPane === "reader"} onClick={() => setCompactPane("reader")}>Reader</button>}
+      </nav>
       {error && <p className="error toolbar-error">{error}</p>}
 
       {appMode === "readLater" ? (
@@ -1575,6 +1591,8 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           serverAuthoritative={serverAuthoritative}
           search={rlSearch}
           unreadCount={readLaterUnread}
+          onOpenReader={() => setCompactPane("reader")}
+          onSelectFilter={() => setCompactPane("list")}
           focusArticleId={readLaterFocusId}
           onFocusConsumed={() => setReadLaterFocusId(null)}
         />
@@ -1776,7 +1794,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
                         key={storyListRowKey(row)}
                         data-list-row-key={storyListRowKey(row)}
                         className={`article-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
-                        onClick={() => void selectStory(story)}
+                        onClick={() => { setCompactPane("reader"); void selectStory(story); }}
                       >
                         <div className="article-meta">
                           <span>
@@ -1802,7 +1820,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
                         <button
                           type="button"
                           className="story-member-main"
-                          onClick={() => void selectStoryMember(member)}
+                          onClick={() => { setCompactPane("reader"); void selectStoryMember(member); }}
                         >
                           <div className="article-meta">
                             <span>{member.feedTitle}</span>
@@ -1859,7 +1877,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
                 key={article.id}
                 data-list-row-key={`article:${article.id}`}
                 className={`article-row ${article.id === activeId ? "active" : ""} ${article.isRead ? "" : "unread"}`}
-                onClick={() => void selectArticle(article)}
+                onClick={() => { setCompactPane("reader"); void selectArticle(article); }}
               >
                 <div className="article-meta">
                   <span>{article.feedTitle}</span>

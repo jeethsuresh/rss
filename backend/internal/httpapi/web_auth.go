@@ -84,6 +84,10 @@ func (a *API) webSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) webLogout(w http.ResponseWriter, r *http.Request) {
+	if a.cfg.Push != nil {
+		_ = a.cfg.Push.Revoke(a.pushBinding(r))
+	}
+
 	token := ""
 	if cookie, err := r.Cookie(a.sessionCookieName()); err == nil {
 		token = cookie.Value
