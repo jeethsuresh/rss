@@ -41,3 +41,7 @@ Production web CI is [.github/workflows/gravitas.yml](.github/workflows/gravitas
 ## Automatic backend deployment
 
 Every successful push to `main` automatically builds and deploys the verified backend/web image to https://news.gravitas.cool. Publishing an image alone is not release completion. Preserve the deployment job's dependency on all test/build prerequisites, its main-branch restriction, immutable image digest, namespace-scoped `gravitas` environment, rollout checks, and public HTTPS verification in [.github/workflows/gravitas.yml](.github/workflows/gravitas.yml). Do not make normal releases require a separate opt-in variable or manual deployment step. Only pause automatic deployment when the user explicitly requests it.
+
+## Automatic desktop publishing
+
+Preserve native desktop build and smoke checks in `.github/workflows/gravitas.yml`, deployment's dependency on `desktop-verify`, and main-only publication after verified deployment. New desktop releases increase version/versionCode and update changes in `desktop-release.config.json`; never overwrite published packages. See [DESKTOP_RELEASES.md](DESKTOP_RELEASES.md).

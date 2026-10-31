@@ -19,3 +19,7 @@ backend/rss-backend
 .gravitas-runtime/
 
 .cache/
+
+desktop-dist/
+
+__pycache__/

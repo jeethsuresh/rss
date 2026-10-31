@@ -172,3 +172,5 @@ selected issuer, including subsequent session-revocation checks.
 The production website is installable and supports saved data offline. See
 [the PWA guide](docs/pwa.md) for offline behavior, notification limits, installation,
 and repeatable browser checks.
+
+Native desktop builds, automatic publishing and Private Store updates: [DESKTOP_RELEASES.md](DESKTOP_RELEASES.md).

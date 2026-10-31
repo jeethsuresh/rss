@@ -228,6 +228,18 @@ try {
     }
     await page.locator(".article-row").first().click();
     await page.locator(".reader-pane .reader h1").waitFor();
+    if (width === 320 && height === 568) {
+      const finish = page.getByRole("button", {name: "Mark read and continue", exact: true});
+      await finish.waitFor();
+      assert.equal(articles.alice.isRead, false, "Opening Reader does not mark it read");
+      await finish.click();
+      await page.getByText("End of list", {exact: true}).waitFor();
+      assert.equal(articles.alice.isRead, true, "Deliberate reader completion persists read state");
+      await page.locator(".reader-actions").getByRole("button", {name: "Mark unread", exact: true}).click();
+      await page.locator(".reader-actions").getByRole("button", {name: "Mark read", exact: true}).waitFor();
+      assert.equal(articles.alice.isRead, false);
+      console.log("PASS default Reader, explicit completion and persisted read state");
+    }
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

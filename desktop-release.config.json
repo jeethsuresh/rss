@@ -1,0 +1,21 @@
+{
+  "name": "RSS Reader",
+  "directory": "apps/desktop",
+  "engine": "electron",
+  "version": "0.1.5",
+  "versionCode": 1005,
+  "bunVersion": "1.4.0",
+  "changes": [
+    "RSS Reader native Electron releases now publish automatically for macOS, Windows and Linux and update through Private Store.",
+    "This release reconciles missing Forge reader work with current GitHub authentication and navigation: Reader mode by default, deliberate read-and-advance controls, corrected grouped-story splitting, and native new-tab link actions.",
+    "Your feeds, folders and reading state remain in local SQLite storage across app updates."
+  ],
+  "schemaVersion": 1,
+  "slug": "rss",
+  "repository": "jeethsuresh/rss",
+  "entries": {
+    "macos": "RSS Reader.app",
+    "windows": "rss-reader.exe",
+    "linux": "rss-reader"
+  }
+}

@@ -19,6 +19,11 @@ import { BackendBridge } from "./backend-bridge.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// A separate profile permits native packaging checks without touching real feeds.
+if (process.env.RSS_PROFILE) {
+  fs.mkdirSync(process.env.RSS_PROFILE, { recursive: true });
+  app.setPath("userData", process.env.RSS_PROFILE);
+}
 const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 let backend: BackendBridge | null = null;

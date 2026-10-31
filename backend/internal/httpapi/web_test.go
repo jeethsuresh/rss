@@ -176,7 +176,7 @@ func TestWebStorySplit(t *testing.T) {
 			stories := sqlite.NewStoryRepo(db)
 			log := slog.New(slog.NewTextHandler(io.Discard, nil))
 			svc := &application.Service{Articles: articles, Stories: stories, Cluster: cluster.New(articles, stories, log)}
-			handler := New(store, svc, log, Config{RegistrationEnabled: true})
+			handler := New(store, svc, log, Config{RegistrationEnabled: true, RegistrationKey: "test-invite"})
 			register := httptest.NewRecorder()
 			handler.ServeHTTP(register, jsonRequest(http.MethodPost, "/v1/web/register", `{"username":"reader","password":"correct horse battery staple","inviteKey":"test-invite"}`))
 			if register.Code != http.StatusCreated {
