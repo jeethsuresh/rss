@@ -3555,29 +3555,53 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
   height: 100vh;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .web-app-shell > .app {
   min-height: 0;
 }
 
-.web-session-bar {
-  min-height: 34px;
-  padding: 4px 10px;
+.sidebar-account {
+  margin-top: 8px;
+}
+
+.sidebar-account-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg1);
+  gap: 4px;
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
 }
 
-.web-session-bar .btn {
-  min-height: 26px;
-  padding: 3px 9px;
+.sidebar-account-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-account-action.btn {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+}
+
+.sidebar-account-action svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-account-status {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .web-auth-shell {
@@ -3660,9 +3684,6 @@ button.f1-standing-row:hover { background: color-mix(in srgb, var(--accent) 10%,
 /* Adaptive panes use the available viewport, including browser chrome and keyboards. */
 html, body, #root { min-width: 0; width: 100%; height: 100%; }
 .web-app-shell { height: 100dvh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.web-session-bar { min-width: 0; flex-wrap: wrap; }
-.web-session-bar > span { min-width: 0; overflow-wrap: anywhere; }
-.web-session-bar > span:first-child { margin-right: auto; }
 .web-auth-shell { height: 100dvh; min-height: 0; overflow: auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 .web-auth-card { margin: auto; }
 .layout { min-width: 0; grid-template-columns: clamp(180px, 17vw, 240px) minmax(240px, 28vw) minmax(0, 1fr); }
@@ -3731,8 +3752,6 @@ html, body, #root { min-width: 0; width: 100%; height: 100%; }
   .settings-nav { display: flex; flex: 0 0 auto; gap: 4px; padding: 6px; }
   .settings-nav .nav-item { width: auto; flex-shrink: 0; }
   .settings-body { min-width: 0; min-height: 0; overflow: auto; padding: 16px; }
-  .web-session-bar { font-size: 11px; gap: 6px; padding: 4px 8px; }
-  .web-session-bar > span[role="status"] { flex-basis: 100%; order: 2; }
   .app .sports-layout .f1-dashboard { display: flex; flex-direction: column; overflow: auto; }
   .f1-dashboard > * { min-height: 180px; flex-shrink: 0; }
   .sports-layout > .pane { overflow: auto; }
@@ -3748,7 +3767,6 @@ html, body, #root { min-width: 0; width: 100%; height: 100%; }
   .compact-navigation button { min-height: 32px; }
   .mode-tab { padding-block: 4px; }
   .reader { padding: 12px; }
-  .web-session-bar { padding-block: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

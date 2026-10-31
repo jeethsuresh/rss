@@ -1,5 +1,5 @@
 import { connectPush, disconnectPush, cleanupPush } from "./push";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import "./pwa.css";
 type InstallEvent = Event & {
   prompt(): Promise<void>;
@@ -43,7 +43,18 @@ export function registerPWA() {
       .catch(() => window.dispatchEvent(new Event("pwa:change")));
   });
 }
-export function DeviceFeatures() {
+const DeviceFeaturesContext = createContext<{
+  online: boolean;
+  message: string;
+  enabled: boolean;
+  canInstall: boolean;
+  updateAvailable: boolean;
+  refresh: () => void;
+  setMessage: (message: string) => void;
+  enableNotifications: () => Promise<void>;
+} | null>(null);
+
+export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   const [, render] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
   const [message, setMessage] = useState("");
@@ -127,13 +138,20 @@ export function DeviceFeatures() {
       );
     }
   }
+  return <DeviceFeaturesContext.Provider value={{
+    online, message, enabled, canInstall: !!installPrompt,
+    updateAvailable: !!registration?.waiting,
+    refresh: () => render((n) => n + 1), setMessage, enableNotifications,
+  }}>{children}</DeviceFeaturesContext.Provider>;
+}
+
+export function DeviceFeatures() {
+  const features = useContext(DeviceFeaturesContext);
+  if (!features) return null;
+  const { online, message, enabled, canInstall, updateAvailable, refresh, setMessage, enableNotifications } = features;
   return (
-    <details className="pwa-controls">
-      <summary aria-label="App and offline settings">
-        {online ? "App" : "Offline"}
-      </summary>
       <div className="pwa-panel">
-        <strong>News on this device</strong>
+        <h3>App</h3>
         <p role="status">
           {online ? "Connected" : "Offline — using saved data"}
         </p>
@@ -141,26 +159,45 @@ export function DeviceFeatures() {
           Visited feeds, articles, stories, and sports data are saved for
           offline use. Read status syncs when you reconnect.
         </p>
-        {installPrompt ? (
+        {canInstall && (
           <button
             type="button"
             onClick={async () => {
               const prompt = installPrompt;
               if (!prompt) return;
-              await prompt.prompt();
-              await prompt.userChoice;
-              installPrompt = null;
-              render((n) => n + 1);
+              try {
+                await prompt.prompt();
+                await prompt.userChoice;
+              } catch {
+                setMessage("Installation could not be started. Use the steps below to add News to your Home Screen.");
+              } finally {
+                installPrompt = null;
+                refresh();
+              }
             }}
           >
             Install app
           </button>
-        ) : (
-          <p>
-            Install from your browser menu, or use Share → Add to Home Screen on
-            iPhone and iPad.
-          </p>
         )}
+        <div className="pwa-install-instructions">
+          <h3>Add News to your Home Screen</h3>
+          <p>Install News as an app for quick access from your phone or tablet.</p>
+          <h4>iPhone and iPad · Safari</h4>
+          <ol>
+            <li>Open News in Safari, then tap Share. In the compact toolbar, tap More (…) first.</li>
+            <li>Choose Add to Home Screen. If it is missing, scroll down and use Edit Actions to add it.</li>
+            <li>Leave Open as Web App turned on if shown, then tap Add.</li>
+            <li>Open News from the new Home Screen icon. To receive notifications, enable them below from the installed app.</li>
+          </ol>
+          <h4>Android · Chrome</h4>
+          <ol>
+            <li>Open News in Chrome and tap the More (⋮) menu.</li>
+            <li>Choose Install and create shortcut → Install. Some versions show Install app or Add to Home screen instead.</li>
+            <li>Follow the prompts, then open News from your Home Screen or app launcher.</li>
+          </ol>
+          <p className="muted">On a computer, use Install app above when available, or the install option in your browser menu.</p>
+        </div>
+        <h3>Notifications</h3>
         <button type="button" onClick={() => void enableNotifications()}>
           {enabled ? "Turn off notifications" : "Enable notifications"}
         </button>
@@ -168,6 +205,7 @@ export function DeviceFeatures() {
           New articles after all feeds refresh, at most once per day. Works when
           the app is closed.
         </small>
+        <h3>Device storage</h3>
         <button
           type="button"
           onClick={async () => {
@@ -185,7 +223,7 @@ export function DeviceFeatures() {
         >
           Keep data on this device
         </button>
-        {registration?.waiting && (
+        {updateAvailable && (
           <button
             type="button"
             onClick={() => {
@@ -198,6 +236,5 @@ export function DeviceFeatures() {
         )}
         {message && <p role="status">{message}</p>}
       </div>
-    </details>
   );
 }

@@ -52,6 +52,8 @@ const articles = Object.fromEntries(
   ]),
 );
 let rejectSession = false;
+let rejectLogout = false;
+let federated = false;
 const server = createServer(async (request, response) => {
   const path = new URL(request.url, "http://localhost").pathname;
   const account = request.headers.cookie?.match(/account=(alice|bob)/)?.[1];
@@ -64,7 +66,7 @@ const server = createServer(async (request, response) => {
   };
   if (path === "/v1/web/config")
     return json({
-      federated: false,
+      federated,
       registrationEnabled: false,
       version: "test",
     });
@@ -73,6 +75,7 @@ const server = createServer(async (request, response) => {
       ? json({ user: { id: account, username: account } })
       : json({}, 401);
   if (path === "/v1/web/logout") {
+    if (rejectLogout) return json({ error: { message: "Unavailable" } }, 503);
     response.setHeader("Set-Cookie", "account=; Max-Age=0; Path=/");
     return json({});
   }
@@ -214,6 +217,7 @@ try {
     await page.setViewportSize({ width, height });
     await page.goto(baseURL);
     await page.locator(".article-row").first().waitFor();
+    assert.equal(await page.locator(".web-session-bar").count(), 0);
     const mobile = width <= 680 || (width <= 1100 && height <= 500);
     assert.equal(await mainNavigation.isVisible(), mobile);
     if (mobile) {
@@ -250,9 +254,36 @@ try {
         await page.getByRole("button", { name: /Offline test feed/ }).click();
         await page.locator(".article-row").first().waitFor();
         assert.equal(await page.locator(".rss-sidebar").isVisible(), false);
-      } else {
-        await page.getByRole("button", { name: "Article list", exact: true }).click();
       }
+    }
+    // Account controls share the sidebar footer with Add feed, including on phones.
+    if (width <= 1100 && mobile) {
+      await page.getByRole("button", { name: "Feeds", exact: true }).click();
+    }
+    const footer = page.locator(".rss-sidebar-footer");
+    assert.equal(await footer.locator(".sidebar-account-name").textContent(), "alice");
+    const addFeed = await footer.getByRole("button", { name: "Add feed", exact: true }).boundingBox();
+    const account = await footer.locator(".sidebar-account-row").boundingBox();
+    assert(account.y >= addFeed.y + addFeed.height && account.y + account.height <= height,
+      `Account row fits below Add feed at ${width}x${height}`);
+    for (const button of await footer.locator(".sidebar-account-action").all()) {
+      const box = await button.boundingBox();
+      assert(box.width >= 44 && box.height >= 44, "Account icons have touch-sized targets");
+      assert.equal((await button.textContent()).trim(), "", "Account actions are icon-only");
+    }
+    await footer.getByRole("button", { name: "App permissions and installation", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("heading", { name: "Permissions", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "App", exact: true }).waitFor();
+    assert.equal(await page.getByRole("heading", { name: "iPhone and iPad · Safari", exact: true }).count(), 1);
+    assert.equal(await page.getByRole("heading", { name: "Android · Chrome", exact: true }).count(), 1);
+    assert((await page.locator(".pwa-panel").textContent()).includes("Open as Web App"));
+    await page.screenshot({ path: `${output}/rss-permissions-${width}x${height}.png` });
+    if (mobile) await checkBottomNavigation("Settings", height);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.getByRole("button", { name: "← Back", exact: true }).click();
+    if (width <= 1100) {
+      await page.getByRole("button", { name: "Article list", exact: true }).click();
     }
     await navigateTo("Read Later");
     await page.locator(".article-row").first().click();
@@ -290,6 +321,8 @@ try {
     );
     await navigateTo("Settings");
     await page.getByRole("button", { name: "General", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await page.getByRole("heading", { name: "App", exact: true }).waitFor();
     if (mobile) {
       await checkBottomNavigation("Settings", height);
       await page.locator(".settings-body").evaluate(element => element.scrollTop = element.scrollHeight);
@@ -385,6 +418,56 @@ try {
   console.log(
     "PASS revoked session and account switch do not reveal previous account",
   );
+  // Device state stays mounted when Permissions is closed.
+  await page.evaluate(() => window.dispatchEvent(new Event("rss:storage-unavailable")));
+  await navigateTo("Settings");
+  await page.getByRole("button", { name: "Permissions", exact: true }).click();
+  await page.getByText("Device storage is unavailable or full. New data may not be available offline.", { exact: true }).waitFor();
+  await page.evaluate(() => {
+    Notification.requestPermission = async () => "denied";
+    navigator.storage.persist = async () => false;
+  });
+  await page.getByRole("button", { name: "Enable notifications", exact: true }).click();
+  await page.getByText("Notifications are off. You can change permission in your browser settings.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Keep data on this device", exact: true }).click();
+  await page.getByText("This browser manages storage. Keep a separate backup of important data.", { exact: true }).waitFor();
+  for (const failed of [false, true]) {
+    await page.evaluate(failed => {
+      const event = new Event("beforeinstallprompt", { cancelable: true });
+      event.prompt = async () => {
+        if (failed) throw new Error("Install unavailable");
+        window.installPromptUsed = true;
+      };
+      event.userChoice = Promise.resolve({ outcome: "dismissed" });
+      window.dispatchEvent(event);
+    }, failed);
+    await page.getByRole("button", { name: "Install app", exact: true }).click();
+    await page.getByRole("button", { name: "Install app", exact: true }).waitFor({ state: "hidden" });
+    if (failed) {
+      await page.getByText("Installation could not be started. Use the steps below to add News to your Home Screen.", { exact: true }).waitFor();
+    } else {
+      assert.equal(await page.evaluate(() => window.installPromptUsed), true);
+    }
+  }
+  await page.getByRole("button", { name: "← Back", exact: true }).click();
+  await page.getByRole("button", { name: "Feeds", exact: true }).click();
+  rejectLogout = true;
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByText("Connection unavailable. Saved content is available on this device.", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Sign out", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Sign out", exact: true }).isEnabled(), true);
+  rejectLogout = false;
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByRole("heading", { name: "Sign in", exact: true }).waitFor();
+  federated = true;
+  await context.addCookies([{ name: "account", value: "alice", url: baseURL }]);
+  await page.goto(baseURL);
+  await page.locator(".article-row").first().waitFor();
+  await page.getByRole("button", { name: "Feeds", exact: true }).click();
+  await page.getByRole("button", { name: "Sign out of News", exact: true }).click();
+  await page.getByRole("heading", { name: "Welcome to News", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname + new URL(page.url()).search, "/login?auto=off");
+  console.log("PASS persistent device controls, denied permissions, install prompts, failed sign out and local/federated icon sign out");
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();
