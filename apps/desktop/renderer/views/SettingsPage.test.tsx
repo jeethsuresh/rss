@@ -16,7 +16,7 @@ const settings: Settings = {
   aiModel: "",
 };
 
-function render(backend: Partial<ReaderBackend>, initialSection: "server" | "general" | "ai") {
+function render(backend: Partial<ReaderBackend>, initialSection: "server" | "general" | "ai" | "permissions") {
   return renderToStaticMarkup(createElement(SettingsPage, {
     backend: backend as ReaderBackend,
     settings,
@@ -42,6 +42,13 @@ describe("desktop server settings", () => {
   test("does not offer a second server login inside the hosted web app", () => {
     const html = render({}, "general");
     expect(html).not.toContain("Server sync");
+  });
+
+  test("keeps desktop notification controls in Permissions", () => {
+    const backend = { sync: {} as NonNullable<ReaderBackend["sync"]> };
+    expect(render(backend, "permissions")).toContain("Desktop notifications");
+    expect(render(backend, "general")).not.toContain("Desktop notifications");
+    expect(render({}, "general")).not.toContain("account bar");
   });
 
   test("lets the desktop edit local AI settings", () => {

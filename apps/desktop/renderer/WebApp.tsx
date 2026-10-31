@@ -1,5 +1,5 @@
 import { disconnectPush } from "./lib/push";
-import { DeviceFeatures } from "./lib/pwa";
+import { DeviceFeaturesProvider } from "./lib/pwa";
 import { clearOffline } from "./lib/offline";
 import { readOfflineSession, rememberSession, forgetSession, networkFailure } from "./lib/offlineSession";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -38,6 +38,7 @@ export function WebApp() {
   const monitorRef = useRef<ReturnType<typeof createSessionMonitor<User>> | null>(null);
   const [automaticAllowed, setAutomaticAllowed] = useState(false);
   const [temporarilyUnavailable, setTemporarilyUnavailable] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false, initialized = false;
@@ -109,13 +110,18 @@ export function WebApp() {
 
   return (
     <div className="web-app-shell">
-      <div className="web-session-bar">
-        <span>{user.displayName || user.username}</span>
-        {temporarilyUnavailable && <span role="status">Connection unavailable. Saved content is available on this device.</span>}
-        <DeviceFeatures />
-        <button className="btn" onClick={() => void logout().catch(() => setTemporarilyUnavailable(true))}>{config?.federated ? "Sign out of News" : "Log out"}</button>
-      </div>
-      <App key={user.id} backend={backend} serverAuthoritative />
+      <DeviceFeaturesProvider key={user.id}>
+        <App backend={backend} serverAuthoritative account={{
+          name: user.displayName || user.username,
+          signOutLabel: config?.federated ? "Sign out of News" : "Sign out",
+          signingOut,
+          connectionUnavailable: temporarilyUnavailable,
+          onSignOut: () => {
+            setSigningOut(true);
+            void logout().catch(() => setTemporarilyUnavailable(true)).finally(() => setSigningOut(false));
+          },
+        }} />
+      </DeviceFeaturesProvider>
     </div>
   );
 }

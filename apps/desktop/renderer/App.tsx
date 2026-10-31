@@ -51,6 +51,7 @@ import { PageFrame } from "./components/PageFrame";
 import { ReaderBody } from "./components/ReaderBody";
 import { BrowserPane } from "./components/BrowserPane";
 import { MobileNavigation, type AppDestination } from "./components/MobileNavigation";
+import { SidebarAccount, type SidebarAccountProps } from "./components/SidebarAccount";
 import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
 import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
 import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
@@ -67,7 +68,7 @@ type Selection =
 
 type AppMode = "rss" | "readLater" | "sports";
 type View = "reader" | "settings";
-type SettingsSection = "server" | "general" | "feeds" | "ai" | "sports" | "errors";
+type SettingsSection = "server" | "general" | "permissions" | "feeds" | "ai" | "sports" | "errors";
 type RssListFilter = "all" | "unread";
 
 function priorityBadgeLabel(priority: Priority): string | null {
@@ -98,9 +99,11 @@ function PriorityBadge({ priority }: { priority: Priority }) {
 export function App({
   backend: providedBackend,
   serverAuthoritative = false,
+  account,
 }: {
   backend?: ReaderBackend;
   serverAuthoritative?: boolean;
+  account?: SidebarAccountProps;
 } = {}) {
   const backend = useMemo(() => {
     if (providedBackend) return providedBackend;
@@ -142,10 +145,10 @@ export function App({
     );
   }
 
-  return <AppMain backend={backend} serverAuthoritative={serverAuthoritative || connectedAuthority} />;
+  return <AppMain backend={backend} serverAuthoritative={serverAuthoritative || connectedAuthority} account={account} />;
 }
 
-function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; serverAuthoritative: boolean }) {
+function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBackend; serverAuthoritative: boolean; account?: SidebarAccountProps }) {
   const [compactPane, setCompactPane] = useState<"navigation" | "list" | "reader">("list");
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -1502,6 +1505,7 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
           onOpenArticle={openArticleFromSettings}
           applyTheme={applyTheme}
           initialSection={settingsSection}
+          webApp={!!account}
         />
         {mobileNavigation}
         {dropFixModal}
@@ -1769,6 +1773,10 @@ function AppMain({ backend, serverAuthoritative }: { backend: ReaderBackend; ser
             <button type="button" className="btn primary rss-sidebar-add-feed" onClick={() => setShowAdd(true)}>
               Add feed
             </button>
+            {account && <SidebarAccount account={account} onOpenPermissions={() => {
+              setSettingsSection("permissions");
+              setView("settings");
+            }} />}
           </div>
         </aside>
 

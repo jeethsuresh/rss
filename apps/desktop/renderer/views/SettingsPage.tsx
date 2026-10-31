@@ -14,6 +14,7 @@ import type {
 } from "@rss-reader/shared";
 import { GENERIC_ERROR_MESSAGE } from "../lib/errors";
 import { SportsLogo } from "../components/SportsSpinner";
+import { DeviceFeatures } from "../lib/pwa";
 
 type Props = {
   backend: ReaderBackend;
@@ -22,10 +23,11 @@ type Props = {
   onClose: () => void;
   onOpenArticle: (articleId: string) => Promise<void>;
   applyTheme: (theme: Settings["theme"]) => void;
-  initialSection?: "server" | "general" | "feeds" | "ai" | "sports" | "errors";
+  initialSection?: SettingsSection;
+  webApp?: boolean;
 };
 
-type SettingsSection = "server" | "general" | "feeds" | "ai" | "sports" | "errors";
+type SettingsSection = "server" | "general" | "permissions" | "feeds" | "ai" | "sports" | "errors";
 
 export function SettingsPage({
   backend,
@@ -35,6 +37,7 @@ export function SettingsPage({
   onOpenArticle,
   applyTheme,
   initialSection = "general",
+  webApp = false,
 }: Props) {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [feedFilter, setFeedFilter] = useState("");
@@ -318,6 +321,7 @@ export function SettingsPage({
             [
               ...(backend.sync ? [["server", "Server"]] : []),
               ["general", "General"],
+              ["permissions", "Permissions"],
               ["feeds", "Feeds"],
               ["sports", "Sports"],
               ["ai", "AI"],
@@ -510,7 +514,13 @@ export function SettingsPage({
                 />
                 Mark read on open
               </label>
-              {!backend.sync ? <p className="muted">Use App in the account bar to manage notifications on this device.</p> : <label className="check">
+            </section>
+          )}
+
+          {section === "permissions" && (
+            <section className="settings-section">
+              <h2>Permissions</h2>
+              {webApp ? <DeviceFeatures /> : <label className="check">
                 <input
                   type="checkbox"
                   checked={settings.notificationsEnabled}
