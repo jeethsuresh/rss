@@ -98,9 +98,9 @@ def build(platform, arch, smoke=True):
             import plistlib
             executable = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleExecutable']
             target_arch = 'arm64' if arch == 'arm64' else 'x86_64'
-            run(['/usr/bin/lipo', '-verify_arch', target_arch, str(app / 'Contents/MacOS' / executable)])
+            run(['/usr/bin/lipo', str(app / 'Contents/MacOS' / executable), '-verify_arch', target_arch])
             backend = 'office-server' if config['slug'] == 'office' else 'rss-backend'
-            run(['/usr/bin/lipo', '-verify_arch', target_arch, str(app / 'Contents/Resources/bin' / backend)])
+            run(['/usr/bin/lipo', str(app / 'Contents/Resources/bin' / backend), '-verify_arch', target_arch])
         if smoke:
             run(['node', 'scripts/desktop-smoke.mjs', str(output / config['entries'][platform])])
     entry = output / config['entries'][platform]
