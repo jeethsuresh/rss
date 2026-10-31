@@ -92,7 +92,15 @@ def build(platform, arch, smoke=True):
                          'release/win-unpacked' if platform == 'windows' else 'release/linux-unpacked')
         if platform == 'macos':
             # electron-builder skips PR signing; ad-hoc sign only, without publisher keys.
-            run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(output / config['entries'][platform])])
+            app = output / config['entries'][platform]
+            run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(app)])
+            run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)])
+            import plistlib
+            executable = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleExecutable']
+            target_arch = 'arm64' if arch == 'arm64' else 'x86_64'
+            run(['/usr/bin/lipo', '-verify_arch', target_arch, str(app / 'Contents/MacOS' / executable)])
+            backend = 'office-server' if config['slug'] == 'office' else 'rss-backend'
+            run(['/usr/bin/lipo', '-verify_arch', target_arch, str(app / 'Contents/Resources/bin' / backend)])
         if smoke:
             run(['node', 'scripts/desktop-smoke.mjs', str(output / config['entries'][platform])])
     entry = output / config['entries'][platform]

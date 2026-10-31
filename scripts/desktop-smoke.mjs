@@ -34,7 +34,7 @@ const launch = async () => {
   let browser;
   try {
     for (let attempt = 0; attempt < 120; attempt++) {
-      if (launchError || child.exitCode !== null) throw launchError ?? new Error('Native process exited: ' + logs);
+      if (launchError || child.exitCode !== null || child.signalCode !== null) throw launchError ?? new Error(`Native process exited (${child.exitCode ?? child.signalCode}): ${logs}`);
       try {
         const response = await fetch(`http://127.0.0.1:${port}/json/version`);
         if (response.ok) { browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`); break; }
