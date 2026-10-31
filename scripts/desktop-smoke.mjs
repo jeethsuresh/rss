@@ -78,6 +78,7 @@ let app;
 try {
   app = await launch();
   let page = await app.firstWindow();
+  page.on('pageerror', error => console.error('Native renderer:', error));
   assert.equal(await page.evaluate(() => typeof require), 'undefined', 'renderer has no Node integration');
   if (config.slug === 'office') {
     await page.getByText('All changes saved', { exact: true }).waitFor();
@@ -87,6 +88,7 @@ try {
     // Wait behind IndexedDB and Go journal writes before a clean shutdown.
     await page.waitForTimeout(750);
   } else {
+    await page.getByRole('tab', { name: /^RSS Reader/ }).waitFor();
     await page.waitForFunction(() => !!window.rss);
     const folders = await page.evaluate(async () => {
       await window.rss.folders.create('Native desktop smoke');

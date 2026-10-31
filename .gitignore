@@ -23,3 +23,5 @@ backend/rss-backend
 desktop-dist/
 
 __pycache__/
+
+apps/desktop/release/
