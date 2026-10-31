@@ -1,3 +1,4 @@
+import { shouldOpenLinkInPane } from "../lib/linkNavigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Article, ReadLaterFilter, ReaderBackend } from "@rss-reader/shared";
 import { PageFrame } from "../components/PageFrame";
@@ -194,7 +195,7 @@ export function ReadLaterView({
           className="reader-body"
           onClick={(event) => {
             const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
-            if (!anchor) return;
+            if (!anchor || !shouldOpenLinkInPane(event, anchor)) return;
             const url = new URL(anchor.getAttribute("href") || "", article.url).href;
             if (!/^https?:\/\//i.test(url)) return;
             event.preventDefault();

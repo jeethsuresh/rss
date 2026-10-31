@@ -128,8 +128,8 @@ export function BrowserPane({ initialUrl, onClose, onSave }: Props) {
           : (
               <div className="browser-web-fallback">
                 <p>For security, websites open in a separate browser tab in the web app.</p>
-                <a className="btn primary" href={url} target="_blank" rel="noreferrer">
-                  Open article
+                <a className="btn primary" href={url} target="_blank" rel="noopener noreferrer">
+                  Open in new tab
                 </a>
               </div>
             )}

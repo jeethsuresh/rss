@@ -4,6 +4,10 @@ import { sanitizeArticleHtml, stripHtml } from "./html";
 
 export type ContentTab = "primary" | "reader" | "secondary";
 
+export function defaultContentTab(isReadLater: boolean): ContentTab {
+  return isReadLater ? "primary" : "reader";
+}
+
 export function isFullBleedTab(tab: ContentTab, isReadLater: boolean): boolean {
   switch (tab) {
     case "reader":

@@ -3771,3 +3771,58 @@ html, body, #root { min-width: 0; width: 100%; height: 100%; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Deliberate read-and-advance gesture from the Forge reader. */
+.reader-end {
+  flex-shrink: 0;
+  max-width: 46rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  text-align: center;
+  transition: transform 140ms ease-out;
+}
+
+.reader-end-pulling {
+  transition: none;
+}
+
+.reader-end-arrow {
+  color: var(--accent);
+  font-size: 1.3rem;
+}
+
+.reader-end-track {
+  width: 120px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg2);
+}
+
+.reader-end-track > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+}
+
+.reader-end-next {
+  color: var(--accent);
+  background: transparent;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.reader-end-next:disabled {
+  visibility: hidden;
+}
+
+.reader-fullbleed .reader-body { flex: 1; min-height: 0; overflow: auto; }
+.meta-story-row { border-left: 3px solid var(--accent); }
+.story-member-row { padding-left: 28px; }

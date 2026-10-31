@@ -53,9 +53,10 @@ import { BrowserPane } from "./components/BrowserPane";
 import { MobileNavigation, type AppDestination } from "./components/MobileNavigation";
 import { SidebarAccount, type SidebarAccountProps } from "./components/SidebarAccount";
 import { drainPendingExtracts, runFrontendExtract } from "./lib/extractQueue";
-import { isFullBleedTab, type ContentTab } from "./lib/readerMode";
+import { edgeSwipeDestination } from "./lib/paneNavigation";
+import { defaultContentTab, isFullBleedTab, type ContentTab } from "./lib/readerMode";
 import { mlbTeamRouteFromHash } from "./lib/sportsDeepLinks";
-import { browserPaneUrl, isFileLink } from "./lib/linkNavigation";
+import { browserPaneUrl, isFileLink, shouldOpenLinkInPane } from "./lib/linkNavigation";
 import { GENERIC_ERROR_MESSAGE } from "./lib/errors";
 import { scrollListRowToTop } from "./lib/listScroll";
 import { shouldReloadArticleListInBackground } from "./lib/listRefresh";
@@ -196,7 +197,11 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   useEffect(() => { setCompactPane("list"); }, [appMode]);
   const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
   const [storyMemberId, setStoryMemberId] = useState<string | null>(null);
-  const [contentTab, setContentTab] = useState<ContentTab>("primary");
+  const readerSelectionKeyRef = useRef("");
+  const [splittingStory, setSplittingStory] = useState(false);
+  const paneGesture = useRef<{x: number; y: number} | null>(null);
+  const [splitFeedback, setSplitFeedback] = useState<string | null>(null);
+  const [contentTab, setContentTab] = useState<ContentTab>("reader");
   const [contentBusy, setContentBusy] = useState(false);
   const [markAllBusy, setMarkAllBusy] = useState(false);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
@@ -215,6 +220,8 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   const effectiveRssListFilter = rssListFilter;
   const storyMember = isStoriesMode ? memberArticle(activeStory, storyMemberId) : null;
   const active = isStoriesMode ? storyMember : (articles.find((a) => a.id === activeId) ?? null);
+  readerSelectionKeyRef.current = JSON.stringify([appMode, view, selected.type,
+    "id" in selected ? selected.id : "", rssListFilter, search, activeStoryId, active?.id, contentTab, browserUrl, compactPane]);
   const storyUnread = unreadStoryCount(stories);
   const visibleStories =
     isStoriesMode && effectiveRssListFilter === "unread"
@@ -352,6 +359,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
       if (id && list.some((s) => s.id === id)) return id;
       return list[0]?.id ?? null;
     });
+    return list;
   }, [backend]);
 
   const reloadContent = useCallback(
@@ -432,9 +440,11 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
       }
       return;
     }
+    let canceled = false;
     void backend.stories
       .get(activeStoryId)
       .then((full) => {
+        if (canceled) return;
         if (!full || !isListableStory(full)) {
           setActiveStory(null);
           setStoryMemberId(null);
@@ -443,7 +453,8 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
         }
         setActiveStory(full);
       })
-      .catch(() => setActiveStory(null));
+      .catch(() => { if (!canceled) setActiveStory(null); });
+    return () => { canceled = true; };
   }, [backend, isStoriesMode, activeStoryId, loadStories]);
 
   useEffect(() => {
@@ -680,21 +691,37 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   );
 
   const splitActiveStory = useCallback(async () => {
-    if (!activeStory) return;
+    if (!activeStory || splittingStory) return;
+    setSplittingStory(true);
+    setSplitFeedback(null);
     try {
       const { storyIds } = await backend.stories.split(activeStory.id);
-      await loadStories();
-      if (storyIds?.[0]) {
-        setActiveStoryId(storyIds[0]);
-        setStoryMemberId(null);
+      // A split replaces story IDs, so the frozen unread list must be rebuilt too.
+      const list = await loadStories(true);
+      const visible = effectiveRssListFilter === "unread" ? list.filter((story) => !story.isRead) : list;
+      const next = visible.find((story) => storyIds?.includes(story.id)) ?? visible[0] ?? null;
+      setActiveStoryId(next?.id ?? null);
+      setActiveStory(next);
+      setStoryMemberId(null);
+      setActiveId(null);
+      setCompactPane("list");
+      if (next?.id === activeStory.id) {
+        // A tighter grouping threshold can leave strongly related coverage together.
+        setActiveStory(await backend.stories.get(next.id));
+        setSplitFeedback("These articles still belong together. Split again to separate them further.");
+      } else {
+        setSplitFeedback("Story split. Any ungrouped articles are available in All Items.");
       }
-    } catch (e) {
+    } catch {
       setError(GENERIC_ERROR_MESSAGE);
+    } finally {
+      setSplittingStory(false);
     }
-  }, [backend, activeStory, loadStories]);
+  }, [backend, activeStory, splittingStory, loadStories, effectiveRssListFilter]);
 
   const selectArticle = useCallback(
     (article: Article) => {
+      setCompactPane("reader");
       setActiveId(article.id);
       if (settings?.markReadOnOpen && !article.isRead) {
         patchArticle({ ...article, isRead: true });
@@ -715,26 +742,18 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
 
   const selectStory = useCallback(
     (story: Story) => {
+      setCompactPane("list");
       setActiveStoryId(story.id);
       setStoryMemberId(null);
       setActiveId(null);
       setActiveStory((current) => (current?.id === story.id ? current : story));
-      if (settings?.markReadOnOpen && !story.isRead) {
-        patchStory({ ...story, isRead: true });
-        void backend.stories
-          .markRead(story.id)
-          .then(patchStory)
-          .catch(() => {
-            patchStory(story);
-            setError(GENERIC_ERROR_MESSAGE);
-          });
-      }
     },
-    [backend, settings?.markReadOnOpen, patchStory],
+    [],
   );
 
   const selectStoryMember = useCallback(
     (article: Article) => {
+      setCompactPane("reader");
       setStoryMemberId(article.id);
       setActiveId(article.id);
       if (settings?.markReadOnOpen && !article.isRead) {
@@ -852,7 +871,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   }, [isStoriesMode, activeStoryId, storyMemberId, activeId, storyRows]);
 
   useEffect(() => {
-    setContentTab("primary");
+    setContentTab(defaultContentTab(!!active?.isReadLater));
     setBrowserUrl(null);
   }, [activeId]);
 
@@ -861,7 +880,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   useEffect(() => {
     const openLinksInPane = (event: MouseEvent) => {
       const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor) return;
+      if (!anchor || !shouldOpenLinkInPane(event, anchor)) return;
       // Firefox blocks https pages from following file: URLs. Hash routes that
       // contain "?" can resolve to file:/// when a <base> points at the local filesystem.
       if (isFileLink(anchor.href)) {
@@ -869,6 +888,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
         event.stopPropagation();
         return;
       }
+      if (!shouldOpenLinkInPane(event, anchor)) return;
       const raw = anchor.getAttribute("href")?.trim() ?? "";
       if (!raw || raw.startsWith("#")) return;
       const url = browserPaneUrl(raw, active?.url || window.location.href);
@@ -1084,6 +1104,63 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
     );
   };
 
+  const finishActiveArticle = useCallback(async (): Promise<boolean> => {
+    if (!active || active.isReadLater || contentTab !== "reader") return false;
+    const article = active;
+    const selectionKey = readerSelectionKeyRef.current;
+    const stillSelected = () => readerSelectionKeyRef.current === selectionKey;
+    try {
+      if (!article.isRead) patchArticle(await backend.articles.markRead(article.id));
+      void loadFeeds();
+      if (!stillSelected()) return false;
+      if (isStoriesMode && activeStory) {
+        const members = storyArticles(activeStory);
+        const next = members[members.findIndex((member) => member.id === article.id) + 1];
+        if (next && next.id !== article.id) {
+          selectStoryMember(next);
+          return false;
+        }
+        const storyIndex = visibleStories.findIndex((story) => story.id === activeStory.id);
+        const remainingStories = visibleStories.slice(storyIndex + 1).filter((story) =>
+          effectiveRssListFilter === "all" || !story.isRead,
+        );
+        for (const nextStory of remainingStories) {
+          const full = await backend.stories.get(nextStory.id);
+          if (!stillSelected()) return false;
+          if (!full) continue;
+          const nextMember = storyArticles(full).find((member) =>
+            effectiveRssListFilter === "all" || !member.isRead,
+          );
+          if (!nextMember) continue;
+          setActiveStoryId(full.id);
+          setActiveStory(full);
+          selectStoryMember(nextMember);
+          return false;
+        }
+        return true;
+      }
+      let next = articles[articles.findIndex((item) => item.id === article.id) + 1];
+      if (!next && nextCursor) {
+        const generation = articleListGenerationRef.current;
+        const page = await backend.articles.list({ ...articleScopeQuery, limit: 50, cursor: nextCursor });
+        if (!stillSelected() || generation !== articleListGenerationRef.current) return false;
+        const more = page.articles ?? [];
+        setArticles((prev) => [...prev, ...more.filter((item) => !prev.some((existing) => existing.id === item.id))]);
+        setNextCursor(page.nextCursor);
+        next = more[0];
+      }
+      if (next && next.id !== article.id && stillSelected()) {
+        selectArticle(next);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      setError(GENERIC_ERROR_MESSAGE);
+      throw error;
+    }
+  }, [active, contentTab, backend, patchArticle, loadFeeds, isStoriesMode, activeStory,
+    visibleStories, effectiveRssListFilter, selectStoryMember, articles, nextCursor, articleScopeQuery, selectArticle]);
+
   const renderContentBody = (article: Article) => {
     if (contentTab === "reader") {
       return (
@@ -1092,6 +1169,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
           contentBusy={contentBusy}
           onRecrawl={() => void recrawlActive()}
           onNavigate={setBrowserUrl}
+          onFinish={!article.isReadLater ? finishActiveArticle : undefined}
         />
       );
     }
@@ -1144,7 +1222,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
         className="reader-body"
         onClick={(event) => {
           const anchor = (event.target as Element).closest("a[href]") as HTMLAnchorElement | null;
-          if (!anchor) return;
+          if (!anchor || !shouldOpenLinkInPane(event, anchor)) return;
           const url = browserPaneUrl(anchor.getAttribute("href"), article.url);
           if (!url) return;
           event.preventDefault();
@@ -1514,7 +1592,22 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
     );
   }
   return (
-    <div className={`app ${densityClass}`} data-pane={compactPane} data-mode={appMode}>
+    <div className={`app ${densityClass}`} data-pane={compactPane} data-mode={appMode}
+      onPointerDown={(event) => {
+        if (window.innerWidth > 980 || event.pointerType === "mouse" || event.button !== 0) return;
+        paneGesture.current = {x: event.clientX, y: event.clientY};
+      }}
+      onPointerCancel={() => { paneGesture.current = null; }}
+      onPointerUp={(event) => {
+        const start = paneGesture.current; paneGesture.current = null;
+        if (!start) return;
+        const map = {navigation: "sidebar", list: "list", reader: "detail"} as const;
+        const next = edgeSwipeDestination({pane: map[compactPane], width: window.innerWidth,
+          startX: start.x, startY: start.y, endX: event.clientX, endY: event.clientY,
+          detailAvailable: appMode !== "sports" && !!active});
+        if (next) setCompactPane(next === "sidebar" ? "navigation" : next === "detail" ? "reader" : "list");
+      }}>
+      {splitFeedback && <p role="status" className="story-split-feedback">{splitFeedback}</p>}
       <header className="toolbar">
         <div className="mode-tabs" role="tablist" aria-label="App mode">
           <button
@@ -1830,8 +1923,9 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
                       <button
                         key={storyListRowKey(row)}
                         data-list-row-key={storyListRowKey(row)}
-                        className={`article-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
-                        onClick={() => { setCompactPane("reader"); void selectStory(story); }}
+                        aria-expanded={activeStory?.id === story.id}
+                        className={`article-row meta-story-row ${isActive ? "active" : ""} ${story.isRead ? "" : "unread"}`}
+                        onClick={() => void selectStory(story)}
                       >
                         <div className="article-meta">
                           <span>
@@ -1971,8 +2065,8 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
                   >
                     {activeStory.isRead ? "Mark unread" : "Mark read"}
                   </button>
-                  <button type="button" className="btn" onClick={() => void splitActiveStory()}>
-                    Split
+                  <button type="button" className="btn" disabled={splittingStory} onClick={() => void splitActiveStory()}>
+                    {splittingStory ? "Splitting…" : "Split"}
                   </button>
                   <button
                     type="button"

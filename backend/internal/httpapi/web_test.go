@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jeeth/rss-reader/backend/internal/application"
+	"github.com/jeeth/rss-reader/backend/internal/cluster"
 	"github.com/jeeth/rss-reader/backend/internal/domain"
 	"github.com/jeeth/rss-reader/backend/internal/serverstore"
 	"github.com/jeeth/rss-reader/backend/internal/storage/sqlite"
@@ -152,4 +154,125 @@ func jsonRequest(method, target, body string) *http.Request {
 	request := httptest.NewRequest(method, target, bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
 	return request
+}
+
+// Exercise the same authenticated RPC path the hosted reader uses, including
+// splits that replace an umbrella with new groups or only individual articles.
+func TestWebStorySplit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		pairs      bool
+		wantGroups int
+	}{{"replacement groups", true, 2}, {"individual articles", false, 0}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			db, err := sqlite.Open(filepath.Join(t.TempDir(), "server.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			store := serverstore.New(db)
+			articles := sqlite.NewArticleRepo(db)
+			stories := sqlite.NewStoryRepo(db)
+			log := slog.New(slog.NewTextHandler(io.Discard, nil))
+			svc := &application.Service{Articles: articles, Stories: stories, Cluster: cluster.New(articles, stories, log)}
+			handler := New(store, svc, log, Config{RegistrationEnabled: true})
+			register := httptest.NewRecorder()
+			handler.ServeHTTP(register, jsonRequest(http.MethodPost, "/v1/web/register", `{"username":"reader","password":"correct horse battery staple","inviteKey":"test-invite"}`))
+			if register.Code != http.StatusCreated {
+				t.Fatalf("register: %s", register.Body.String())
+			}
+			var session struct {
+				User serverstore.User `json:"user"`
+			}
+			if err := json.Unmarshal(register.Body.Bytes(), &session); err != nil {
+				t.Fatal(err)
+			}
+			feed, err := store.SetFeedMembership(ctx, session.User.ID, "https://example.com/feed", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			members := []domain.Article{
+				{ID: "kyiv-a", Title: "Biden in Kyiv", Summary: "President Biden meets Zelensky in Kyiv after the strike."},
+				{ID: "apple-a", Title: "Apple visor", Summary: "Apple unveils a new headset in Cupertino today."},
+			}
+			if tc.pairs {
+				members = append(members,
+					domain.Article{ID: "kyiv-b", Title: members[0].Title, Summary: members[0].Summary},
+					domain.Article{ID: "apple-b", Title: members[1].Title, Summary: members[1].Summary})
+			}
+			ids := make([]string, 0, len(members))
+			for i := range members {
+				members[i].FeedID = feed.ID
+				members[i].URL = "https://example.com/" + members[i].ID
+				members[i].ExternalID = members[i].ID
+				members[i].RSSContent = members[i].Summary
+				members[i].DiscoveredAt = now
+				ids = append(ids, members[i].ID)
+			}
+			if _, err := articles.UpsertMany(ctx, members); err != nil {
+				t.Fatal(err)
+			}
+			if err := stories.Create(ctx, &domain.Story{ID: "umbrella", Title: "Mixed coverage", CreatedAt: now, UpdatedAt: now}); err != nil {
+				t.Fatal(err)
+			}
+			if err := stories.SetMembers(ctx, "umbrella", ids); err != nil {
+				t.Fatal(err)
+			}
+			read := true
+			if _, err := store.SetArticleState(ctx, session.User.ID, ids[0], serverstore.ArticleStatePatch{IsRead: &read}); err != nil {
+				t.Fatal(err)
+			}
+			rpc := func(method string, params any) *httptest.ResponseRecorder {
+				t.Helper()
+				body, err := json.Marshal(map[string]any{"method": method, "params": params})
+				if err != nil {
+					t.Fatal(err)
+				}
+				request := jsonRequest(http.MethodPost, "/v1/rpc", string(body))
+				request.AddCookie(register.Result().Cookies()[0])
+				request.Header.Set("X-RSS-CSRF", "1")
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				if response.Code != http.StatusOK {
+					t.Fatalf("%s: %d %s", method, response.Code, response.Body.String())
+				}
+				return response
+			}
+			var split struct {
+				StoryIDs []string `json:"storyIds"`
+			}
+			if err := json.Unmarshal(rpc("stories.split", map[string]string{"id": "umbrella"}).Body.Bytes(), &split); err != nil {
+				t.Fatal(err)
+			}
+			if len(split.StoryIDs) != tc.wantGroups {
+				t.Fatalf("split IDs: %v", split.StoryIDs)
+			}
+			var list []domain.Story
+			if err := json.Unmarshal(rpc("stories.list", map[string]any{}).Body.Bytes(), &list); err != nil {
+				t.Fatal(err)
+			}
+			if len(list) != tc.wantGroups {
+				t.Fatalf("visible groups: %v", list)
+			}
+			for _, id := range split.StoryIDs {
+				var child domain.Story
+				if err := json.Unmarshal(rpc("stories.get", map[string]string{"id": id}).Body.Bytes(), &child); err != nil {
+					t.Fatal(err)
+				}
+				if child.MemberCount != 2 || len(child.Articles) != 2 {
+					t.Fatalf("child coverage: %+v", child)
+				}
+			}
+			old, err := stories.Get(ctx, "umbrella")
+			if err != nil || old.MemberCount != 0 {
+				t.Fatalf("old umbrella retained members: %+v %v", old, err)
+			}
+			original, err := store.GetArticle(ctx, session.User.ID, ids[0])
+			if err != nil || !original.IsRead {
+				t.Fatalf("split lost user read state: %+v %v", original, err)
+			}
+		})
+	}
 }
