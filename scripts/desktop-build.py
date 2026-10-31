@@ -82,6 +82,9 @@ def build(platform, arch, smoke=True):
         output = work / ('release/mac-arm64' if platform == 'macos' and arch == 'arm64' else
                          'release/mac' if platform == 'macos' else
                          'release/win-unpacked' if platform == 'windows' else 'release/linux-unpacked')
+        if platform == 'macos':
+            # electron-builder skips PR signing; ad-hoc sign only, without publisher keys.
+            run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(output / config['entries'][platform])])
         if smoke:
             run(['node', 'scripts/desktop-smoke.mjs', str(output / config['entries'][platform])])
     entry = output / config['entries'][platform]

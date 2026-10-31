@@ -49,7 +49,9 @@ const launch = async () => {
         return context.pages()[0] ?? await context.waitForEvent('page', {timeout: 30000});
       },
       close: async () => {
-        await browser.close();
+        const cdp = await browser.newBrowserCDPSession();
+        await cdp.send('Browser.close').catch(() => {});
+        await browser.close().catch(() => {});
         if (child.exitCode === null) {
           await Promise.race([once(child, 'exit'), new Promise(resolve => setTimeout(resolve, 3000))]);
           if (child.exitCode === null) child.kill();
@@ -106,5 +108,5 @@ try {
   console.log(config.name + ': packaged native UI, local backend and persistence across relaunch passed');
 } finally {
   await app?.close();
-  await rm(profile, { recursive: true, force: true });
+  await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }

@@ -881,7 +881,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   useEffect(() => {
     const openLinksInPane = (event: MouseEvent) => {
       const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!anchor || !shouldOpenLinkInPane(event, anchor)) return;
+      if (!anchor) return;
       // Firefox blocks https pages from following file: URLs. Hash routes that
       // contain "?" can resolve to file:/// when a <base> points at the local filesystem.
       if (isFileLink(anchor.href)) {
