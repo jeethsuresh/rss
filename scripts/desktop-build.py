@@ -71,8 +71,16 @@ def build(platform, arch, smoke=True):
                    'GOARCH': 'arm64' if arch == 'arm64' else 'amd64', 'CGO_ENABLED': '0'}
             run([bun, 'run', 'build'], env=env)
         else:
-            run(['bash', 'scripts/stage-backend.sh', {'macos': 'darwin', 'windows': 'windows', 'linux': 'linux'}[platform],
-                 'arm64' if arch == 'arm64' else 'amd64'])
+            # Native Windows Python can resolve bash.exe to WSL, which is absent
+            # on release runners. Stage the same Go sidecar without a shell.
+            binaries = work / 'resources/bin'
+            binaries.mkdir(parents=True, exist_ok=True)
+            for stale in ('rss-backend', 'rss-backend.exe'):
+                (binaries / stale).unlink(missing_ok=True)
+            binary = binaries / ('rss-backend.exe' if platform == 'windows' else 'rss-backend')
+            env = {**os.environ, 'GOOS': {'macos': 'darwin', 'windows': 'windows', 'linux': 'linux'}[platform],
+                   'GOARCH': 'arm64' if arch == 'arm64' else 'amd64', 'CGO_ENABLED': '0'}
+            run(['go', 'build', '-ldflags=-s -w', '-o', str(binary), './cmd/desktop'], ROOT / 'backend', env)
             run([bun, 'run', '--filter', '@rss-reader/desktop', 'build'])
         arguments = [bun, 'x', '--no-install', 'electron-builder', '--' + label, '--' + arch,
                      '--dir', '--publish', 'never']
