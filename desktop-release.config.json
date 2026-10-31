@@ -14,7 +14,7 @@
   "slug": "rss",
   "repository": "jeethsuresh/rss",
   "entries": {
-    "macos": "RSS Reader.app",
+    "macos": "rss-reader.app",
     "windows": "rss-reader.exe",
     "linux": "rss-reader"
   }

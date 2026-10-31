@@ -5,7 +5,6 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { once } from 'node:events';
 const config = JSON.parse(await readFile('desktop-release.config.json', 'utf8'));
 const { chromium } = await import(config.slug === 'office' ? '@playwright/test' : 'playwright');
 const profile = await mkdtemp(path.join(os.tmpdir(), config.slug + '-native-'));
@@ -49,13 +48,25 @@ const launch = async () => {
         return context.pages()[0] ?? await context.waitForEvent('page', {timeout: 30000});
       },
       close: async () => {
-        const cdp = await browser.newBrowserCDPSession();
-        await cdp.send('Browser.close').catch(() => {});
-        await browser.close().catch(() => {});
-        if (child.exitCode === null) {
-          await Promise.race([once(child, 'exit'), new Promise(resolve => setTimeout(resolve, 3000))]);
-          if (child.exitCode === null) child.kill();
+        // Electron may close the CDP transport before acknowledging Browser.close.
+        // Keep an explicit deadline alive and verify the real process has exited.
+        const deadline = async operation => {
+          let timer;
+          try { await Promise.race([operation, new Promise(resolve => { timer = setTimeout(resolve, 2000); })]); }
+          finally { clearTimeout(timer); }
+        };
+        await deadline((async () => {
+          const cdp = await browser.newBrowserCDPSession();
+          await cdp.send('Browser.close');
+        })().catch(() => {}));
+        for (let attempt = 0; attempt < 100 && child.exitCode === null && child.signalCode === null; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill();
+          throw new Error('Native application did not exit cleanly: ' + logs);
+        }
+        await deadline(browser.close().catch(() => {}));
       },
     };
   } catch (error) {
@@ -106,7 +117,10 @@ try {
     }
   }
   console.log(config.name + ': packaged native UI, local backend and persistence across relaunch passed');
+} catch (error) {
+  console.error(error);
+  throw error;
 } finally {
-  await app?.close();
+  await app?.close().catch(error => { console.error(error); process.exitCode = 1; });
   await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
