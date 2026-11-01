@@ -6,6 +6,7 @@ import (
 	"github.com/jeeth/rss-reader/backend/internal/serverstore"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 func (a *API) authenticate(r *http.Request, token string) (*serverstore.User, error) {
@@ -67,7 +68,11 @@ func (a *API) federationCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_LOGIN", errors.New("Sign-in could not be completed; start again from the RSS login page"))
 		return
 	}
-	result, err := a.store.LoginFederated(r.Context(), identity.Issuer, identity.Subject, identity.UserID)
+	displayName := strings.TrimSpace(identity.Name)
+	if displayName == "" {
+		displayName = "Gravitas account"
+	}
+	result, err := a.store.LoginFederated(r.Context(), identity.Issuer, identity.Subject, displayName)
 	if err != nil {
 		a.log.Error("create federated RSS session", "err", err)
 		writeError(w, http.StatusInternalServerError, "SESSION_ERROR", errors.New("Unable to create the RSS session"))

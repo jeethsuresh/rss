@@ -39,6 +39,7 @@ type Identity struct {
 	Issuer   string `json:"issuer"`
 	Subject  string `json:"sub"`
 	Username string `json:"username"`
+	Name     string `json:"name"`
 	Domain   string `json:"domain"`
 	UserID   string `json:"user_id"`
 }
@@ -301,10 +302,10 @@ func (c *Client) Callback(w http.ResponseWriter, r *http.Request) (Authorization
 	if err = c.getJSON(m.Profile, tokens.AccessToken, &identity.Identity); err != nil {
 		return identity, "", err
 	}
-	if identity.Subject == "" || len(identity.Subject) > 256 || identity.Username == "" || identity.Domain != m.Domain || identity.UserID != "@"+identity.Username+":"+m.Domain {
+	if identity.Subject == "" || len(identity.Subject) > 256 || identity.Domain != m.Domain || (identity.UserID != "" && identity.UserID != "@"+identity.Username+":"+m.Domain) {
 		return Authorization{}, "", errors.New("invalid IAM identity")
 	}
-	if f.Username != "" && identity.UserID != f.Username {
+	if f.Username != "" && identity.UserID != "" && identity.UserID != f.Username {
 		return Authorization{}, "", ErrLoginRequired
 	}
 	identity.Issuer = c.Issuer
