@@ -13,7 +13,7 @@
     },
     "apps/desktop": {
       "name": "@rss-reader/desktop",
-      "version": "0.1.4",
+      "version": "0.1.6",
       "dependencies": {
         "@mozilla/readability": "^0.6.0",
         "@rss-reader/shared": "workspace:*",
