@@ -51,6 +51,7 @@ const articles = Object.fromEntries(
     },
   ]),
 );
+const rpcCalls = [];
 let rejectSession = false;
 let rejectLogout = false;
 let federated = false;
@@ -90,6 +91,7 @@ const server = createServer(async (request, response) => {
     for await (const chunk of request) body += chunk;
     const { method, params = {} } = JSON.parse(body),
       article = articles[account];
+    rpcCalls.push(method);
     const feed = {
       id: "test-feed",
       title: "Offline test feed",
@@ -430,6 +432,33 @@ try {
   console.log(
     "PASS revoked session and account switch do not reveal previous account",
   );
+  // Android shell navigation restores view state and never invokes selection commands.
+  await page.setViewportSize({ width: 393, height: 852 });
+  settings.markReadOnOpen = true;
+  articles.bob.isRead = false;
+  await page.goto(baseURL);
+  await page.locator(".article-row").first().click();
+  await page.waitForFunction(() => document.querySelector('.app')?.dataset.pane === 'reader');
+  await page.locator(".reader-actions").getByRole("button", { name: "Mark unread", exact: true }).click();
+  await page.locator(".reader-actions").getByRole("button", { name: "Mark read", exact: true }).waitFor();
+  const mutations = () => rpcCalls.filter(method => /markRead|markUnread|save|delete|vote|add|remove/.test(method)).length;
+  const beforeNavigation = mutations();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('gravitas:navigate', {cancelable:true, detail:{direction:'back'}})));
+  await page.waitForFunction(() => document.querySelector('.app')?.dataset.pane === 'list');
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('gravitas:navigate', {cancelable:true, detail:{direction:'forward'}})));
+  await page.waitForFunction(() => document.querySelector('.app')?.dataset.pane === 'reader');
+  await page.locator(".reader-actions").getByRole("button", { name: "Mark read", exact: true }).waitFor();
+  assert.equal(mutations(), beforeNavigation, 'Back/Forward must not repeat mark-on-open or other commands');
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('gravitas:navigate', {cancelable:true, detail:{direction:'back'}})));
+  await page.waitForFunction(() => document.querySelector('.app')?.dataset.pane === 'list');
+  await navigateTo('Settings');
+  await page.locator('.app[data-view="settings"]').waitFor();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('gravitas:navigate', {cancelable:true, detail:{direction:'forward'}})));
+  assert.equal(await page.locator('.app[data-view="settings"]').count(), 1, 'New destinations discard Forward');
+  settings.markReadOnOpen = false;
+  await page.goto(baseURL);
+  await page.locator(".article-row").first().waitFor();
+  console.log('PASS Android Back/Forward, branching and no action replay');
   // Device state stays mounted when Permissions is closed.
   await page.evaluate(() => window.dispatchEvent(new Event("rss:storage-unavailable")));
   await navigateTo("Settings");
