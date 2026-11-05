@@ -45,3 +45,7 @@ Every successful push to `main` automatically builds and deploys the verified ba
 ## Automatic desktop publishing
 
 Preserve native desktop build and smoke checks in `.github/workflows/gravitas.yml`, deployment's dependency on `desktop-verify`, and main-only publication after verified deployment. Before merging changes intended for desktop users, increase version/versionCode and update changes in `desktop-release.config.json`; never overwrite published packages. See [DESKTOP_RELEASES.md](DESKTOP_RELEASES.md).
+
+## Hosted Android navigation
+
+News runs inside the Private Store WebView shell. Preserve the bounded state destination history, native DOM navigation events, account isolation and action-free restoration described in [ANDROID_NAVIGATION.md](ANDROID_NAVIGATION.md). Add regression coverage for new reader destinations. Keep the real production frontend fixture in `scripts/test-pwa.mjs` checking Back/Forward, branching and no replay of mutations; native gestures are tested by the shell in `jeethsuresh/appstore`.

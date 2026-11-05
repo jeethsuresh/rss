@@ -61,6 +61,7 @@ import { browserPaneUrl, isFileLink, shouldOpenLinkInPane } from "./lib/linkNavi
 import { GENERIC_ERROR_MESSAGE } from "./lib/errors";
 import { scrollListRowToTop } from "./lib/listScroll";
 import { shouldReloadArticleListInBackground } from "./lib/listRefresh";
+import { useHostedNavigation } from "./lib/hostedNavigation";
 
 type Selection =
   | { type: "items" }
@@ -151,6 +152,8 @@ export function App({
 }
 
 function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBackend; serverAuthoritative: boolean; account?: SidebarAccountProps }) {
+  const restoringNavigation = useRef(false);
+  const navigationRevision = useRef(0);
   const [compactPane, setCompactPane] = useState<"navigation" | "list" | "reader">("list");
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -161,7 +164,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   const [loadingMore, setLoadingMore] = useState(false);
   const [articleListRevision, setArticleListRevision] = useState(0);
   const [selected, setSelected] = useState<Selection>({ type: "items" });
-  useEffect(() => { setCompactPane("list"); }, [selected]);
+  useEffect(() => { if (!restoringNavigation.current) setCompactPane("list"); }, [selected]);
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") setCompactPane("list"); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, []);
   const [rssListFilter, setRssListFilter] = useState<RssListFilter>("unread");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -195,7 +198,7 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   const [appMode, setAppMode] = useState<AppMode>(() =>
     mlbTeamRouteFromHash(window.location.hash) ? "sports" : "rss",
   );
-  useEffect(() => { setCompactPane("list"); }, [appMode]);
+  useEffect(() => { if (!restoringNavigation.current) setCompactPane("list"); }, [appMode]);
   const [readLaterFocusId, setReadLaterFocusId] = useState<string | null>(null);
   const [storyMemberId, setStoryMemberId] = useState<string | null>(null);
   const readerSelectionKeyRef = useRef("");
@@ -208,6 +211,31 @@ function AppMain({ backend, serverAuthoritative, account }: { backend: ReaderBac
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const foldersRef = useRef<Folder[]>([]);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
+
+  useHostedNavigation({ selected, compactPane, appMode, view, settingsSection, activeId, activeStoryId, storyMemberId, contentTab, browserUrl, search, rssListFilter }, next => {
+    const requested = next.selected;
+    const scope = requested.type === "feed" && !feeds.some(feed => feed.id === requested.id)
+      || requested.type === "folder" && !folders.some(folder => folder.id === requested.id)
+      ? { type: "items" } as Selection : requested;
+    setSelected(scope);
+    setCompactPane(next.compactPane); setAppMode(next.appMode); setView(next.view);
+    setSettingsSection(next.settingsSection); setActiveId(next.activeId);
+    setActiveStoryId(next.activeStoryId); setStoryMemberId(next.storyMemberId);
+    setContentTab(next.contentTab); setBrowserUrl(next.browserUrl);
+    setSearch(next.search); setRssListFilter(next.rssListFilter);
+    // Read-only retrieval validates a restored item, without markReadOnOpen or
+    // replaying the selection handler's commands. Ignore stale async restores.
+    if (next.activeId && next.compactPane === "reader" && scope.type !== "stories") {
+      const revision = navigationRevision.current;
+      void backend.articles.get(next.activeId).then(article => {
+        if (navigationRevision.current !== revision) return;
+        setArticles(current => current.some(item => item.id === article.id) ? current : [article, ...current]);
+        setActiveId(article.id);
+      }).catch(() => {
+        if (navigationRevision.current === revision) { setActiveId(null); setCompactPane("list"); }
+      });
+    }
+  }, !!account && serverAuthoritative, restoringNavigation, navigationRevision);
 
   useEffect(() => {
     const openSportsDeepLink = () => {
