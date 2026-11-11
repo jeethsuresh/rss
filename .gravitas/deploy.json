@@ -4,7 +4,7 @@
   "namespace": "rss",
   "host": "news.gravitas.cool",
   "health_path": "/healthz",
-  "image_repository": "ghcr.io/jeethsuresh/rss",
+  "image_repository": "ghcr.io/jeethsuresh/rss-private",
   "release": {
     "command": [
       "bash",

@@ -7,7 +7,7 @@ AMD64 image to GHCR, and automatically deploys a digest-pinned release after suc
 
 `bootstrap.json` is administrator-only namespace/RBAC setup. `resources.json`
 contains the private ClusterIP Service, Deployment, retained 20Gi PVC,
-NetworkPolicy and HTTPS Ingress. Run `deploy.sh ghcr.io/jeethsuresh/rss@sha256:...`
+NetworkPolicy and HTTPS Ingress. Run `deploy.sh ghcr.io/jeethsuresh/rss-private@sha256:...`
 with the intended kubeconfig; it rejects any other cluster endpoint and requires
 public HTTPS health to pass. No application or cloud credentials belong in Git.
 
