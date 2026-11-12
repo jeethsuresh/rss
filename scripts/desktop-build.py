@@ -11,6 +11,9 @@ import sys
 import time
 import re
 import zipfile
+from tempfile import TemporaryDirectory
+
+from electron_macos import package_macos, take_credentials, verify_application
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,8 +36,11 @@ def archive_tree(directory, destination):
                 archive.write(file, relative)
 
 
-def build(platform, arch, smoke=True):
+def build(platform, arch, smoke=True, notarize=False):
     config = json.loads((ROOT / 'desktop-release.config.json').read_text())
+    if notarize and (platform != 'macos' or config['engine'] != 'electron'):
+        raise ValueError('--notarize requires a macOS Electron release')
+    credentials = take_credentials() if notarize else None
     work = ROOT / config['directory']
     destination = ROOT / 'desktop-dist'
     destination.mkdir(exist_ok=True)
@@ -84,16 +90,20 @@ def build(platform, arch, smoke=True):
             run([bun, 'run', '--filter', '@rss-reader/desktop', 'build'])
         arguments = [bun, 'x', '--no-install', 'electron-builder', '--' + label, '--' + arch,
                      '--dir', '--publish', 'never']
-        if platform == 'macos':
-            arguments += ['-c.mac.identity=-']
-        run(arguments, work)
+        if notarize:
+            package_macos(arguments, work, credentials)
+        else:
+            if platform == 'macos':
+                arguments += ['-c.mac.identity=-']
+            run(arguments, work)
         output = work / ('release/mac-arm64' if platform == 'macos' and arch == 'arm64' else
                          'release/mac' if platform == 'macos' else
                          'release/win-unpacked' if platform == 'windows' else 'release/linux-unpacked')
         if platform == 'macos':
             # electron-builder skips PR signing; ad-hoc sign only, without publisher keys.
             app = output / config['entries'][platform]
-            run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(app)])
+            if not notarize:
+                run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', str(app)])
             run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)])
             import plistlib
             executable = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleExecutable']
@@ -116,7 +126,11 @@ def build(platform, arch, smoke=True):
         raise ValueError('Native bundle is missing its launch entry: ' + str(entry))
     if platform == 'macos':
         # Bundle directories may contain unrelated test executables; publish only the app.
-        run(['/usr/bin/ditto', '-c', '-k', '--keepParent', str(entry), str(archive)])
+        run(['/usr/bin/ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(entry), str(archive)])
+        if notarize:
+            with TemporaryDirectory(prefix='verify-signed-mac-') as temporary:
+                run(['/usr/bin/ditto', '-x', '-k', str(archive), temporary])
+                verify_application(Path(temporary) / entry.name, 'com.jeeth.rssreader')
         run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(entry)])
     else:
         archive_tree(output, archive)
@@ -146,5 +160,6 @@ if __name__ == '__main__':
     parser.add_argument('platform', choices=['macos', 'windows', 'linux'])
     parser.add_argument('arch', choices=['x64', 'arm64'])
     parser.add_argument('--no-smoke', action='store_true', help='Local packaging only; CI always runs native smoke checks')
+    parser.add_argument('--notarize', action='store_true', help='Sign and notarize a macOS release with Apple')
     args = parser.parse_args()
-    build(args.platform, args.arch, not args.no_smoke)
+    build(args.platform, args.arch, not args.no_smoke, args.notarize)
