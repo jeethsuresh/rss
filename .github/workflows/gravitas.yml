@@ -141,9 +141,66 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  desktop-publish:
+  desktop-plan:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [deploy, desktop-verify]
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Check for a new desktop release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/desktop-release.py plan
+
+  desktop-sign:
+    if: needs.desktop-plan.outputs.publish == 'true'
+    needs: desktop-plan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    environment: macos-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-15, arch: arm64}
+          - {os: macos-15-intel, arch: x64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - name: Build, sign, notarize, and verify the native Mac app
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_NOTARY_KEY_BASE64: ${{ secrets.MAC_NOTARY_KEY_BASE64 }}
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
+        run: python3 scripts/desktop-build.py macos '${{ matrix.arch }}' --notarize
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: signed-macos-${{ matrix.arch }}
+          path: desktop-dist/*-mac-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop-publish:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [deploy, desktop-verify, desktop-sign]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -155,6 +212,20 @@ jobs:
         with:
           name: verified-desktop-release
           path: desktop-dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: signed-macos-*
+          path: signed-macos
+          merge-multiple: true
+      - name: Replace both Mac ZIPs before generating release checksums
+        run: |
+          version="$(jq -r .version desktop-release.config.json)"
+          slug="$(jq -r .slug desktop-release.config.json)"
+          for arch in arm64 x64; do
+            file="$slug-$version-mac-$arch.zip"
+            test -s "signed-macos/$file"
+            cp "signed-macos/$file" "desktop-dist/$file"
+          done
       - name: Publish verified native apps, changelog and checksums for Private Store
         env:
           GH_TOKEN: ${{ github.token }}

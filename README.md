@@ -116,16 +116,9 @@ Stage the backend binary electron-builder expects for the current (or given) pla
 
 ### GitHub Releases (CI)
 
-Push a version tag to build and publish installers for macOS (Apple Silicon), Windows (x64), and Linux (`.deb` Ubuntu/Debian, `.rpm` Fedora/RHEL, `.pacman` Arch, plus AppImage):
+Increase the desktop version in `desktop-release.config.json` and `apps/desktop/package.json`, and update the lockfile and release notes in the same change. The Gravitas workflow publishes verified macOS (Apple Silicon and Intel), Windows, and Linux packages from `main` as `desktop-vX.Y.Z`. The macOS packages are Developer ID signed and notarized.
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Workflow: `.github/workflows/release.yml` (also runnable via **Actions → Release → Run workflow**).
-
-Targets: macOS arm64, Windows x64, Linux x64. Electron packaging uses `electron-builder`; see `apps/desktop/electron-builder.yml`.
+Use **Actions → Desktop installers (manual)** to build legacy installer formats for testing. That workflow uploads CI artifacts only.
 
 ## Where is the database?
 
