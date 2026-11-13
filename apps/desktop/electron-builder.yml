@@ -1,5 +1,6 @@
 appId: com.jeeth.rssreader
 productName: RSS Reader
+icon: renderer/public/icons/icon-512.png
 executableName: rss-reader
 directories:
   output: release
