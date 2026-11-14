@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"github.com/jeeth/rss-reader/backend/internal/storecatalog"
 	"log/slog"
 	"net/http"
 	"os"
@@ -109,6 +110,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	go storecatalog.Run(ctx)
 	events := httpapi.NewEventHub()
 	store := serverstore.New(db)
 	publisher, err := push.Open(filepath.Join(filepath.Dir(*dbPath), "news-push.json"))
