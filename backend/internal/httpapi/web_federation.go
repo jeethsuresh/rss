@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/jeeth/rss-reader/backend/internal/gravitas"
 	"github.com/jeeth/rss-reader/backend/internal/serverstore"
+	"github.com/jeeth/rss-reader/backend/internal/storecatalog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -83,5 +84,6 @@ func (a *API) federationCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "SESSION_ERROR", errors.New("Unable to create the RSS session"))
 		return
 	}
+	storecatalog.Register(r.Context(), identity.Issuer, identity.CheckToken)
 	http.Redirect(w, r, gravitas.SafeNext(next), http.StatusSeeOther)
 }

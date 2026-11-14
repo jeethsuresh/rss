@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "apps": [
+    {
+      "id": "rss",
+      "name": "RSS Reader",
+      "repository": "jeethsuresh/rss",
+      "desktop": true,
+      "description": "Follow the sites you care about in one reader. Organize RSS subscriptions, read articles and keep saved items close. The desktop app stores feeds locally and can sync with an optional hosted reader.",
+      "website": "https://news.gravitas.cool",
+      "macOSNotarizedFrom": 1007
+    },
+    {
+      "id": "news",
+      "name": "News",
+      "packageName": "cool.gravitas.news",
+      "repository": "jeethsuresh/appstore",
+      "assetName": "news-android.apk",
+      "certificateSha256": "e70b5b54a0d174f4ad8867889f6481a2b193dc9c130630f321563e12f3293793",
+      "description": "Read your hosted RSS subscriptions on Android. Browse feeds, catch up on unread articles and return to saved items with your Gravitas account. Full articles from external sites open in your browser.",
+      "releaseTagPrefix": "webview-v",
+      "website": "https://news.gravitas.cool"
+    }
+  ]
+}

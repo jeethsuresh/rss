@@ -167,3 +167,5 @@ The production website is installable and supports saved data offline. See
 and repeatable browser checks.
 
 Native desktop builds, automatic publishing and Private Store updates: [DESKTOP_RELEASES.md](DESKTOP_RELEASES.md).
+
+The hosted backend publishes its Private Store catalog when `STORE_CATALOG_KEY` is configured. The catalog and icons are bundled from `backend/internal/storecatalog/`. Increase the manifest revision when changing the listing. Successful Gravitas service sign-ins register that account with Private Store.
