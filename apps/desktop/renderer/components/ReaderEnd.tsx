@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { ReaderEndGesture, readerPullProgress } from "../lib/readerEndGesture";
 
 type Props = { articleId: string; onFinish: () => Promise<boolean> };
@@ -109,18 +109,31 @@ export function ReaderEnd({ articleId, onFinish }: Props) {
   const message = status === "busy" ? "Marking read…"
     : status === "finished" ? "End of list"
     : status === "error" ? "Couldn’t continue. Try again."
-    : progress >= 1 ? "Release to continue"
-    : progress > 0 ? "Keep going to continue"
-    : "End of article";
+    : "";
+  const pulling = progress > 0 && status !== "busy";
+  const label = pulling && progress >= 1 ? "Release to continue" : "Mark read and continue";
   return (
-    <div ref={footer} className={`reader-end ${progress > 0 ? "reader-end-pulling" : ""}`}
-      style={{ transform: `translateY(${-18 * Math.sqrt(progress)}px)` }}>
-      <span className="reader-end-arrow" aria-hidden="true">↑</span>
-      <strong role="status">{message}</strong>
-      <span className="muted">{status === "idle" ? "Scroll firmly or pull up to mark read and continue" : status === "finished" ? "Article marked read" : ""}</span>
-      <div className="reader-end-track" aria-hidden="true"><span style={{ transform: `scaleX(${progress})` }} /></div>
-      <button type="button" className="reader-end-next" disabled={status === "busy" || status === "finished"}
-        onClick={() => finishAction.current()}>Mark read and continue</button>
+    <div ref={footer} className="reader-end" data-state={status}
+      data-pulling={pulling || undefined}
+      style={{ "--pull": progress, "--tension": Math.sqrt(progress) } as CSSProperties}>
+      <button type="button" className="reader-end-next"
+        aria-label={status === "finished" ? "End of list" : "Mark read and continue"}
+        aria-disabled={status === "busy" || status === "finished"}
+        aria-describedby={status === "idle" && !pulling ? "reader-turn-hint" : undefined}
+        onClick={() => finishAction.current()}>
+        <span className="reader-end-label">
+          {status === "busy" || status === "finished" ? message : label}
+        </span>
+        <span className="reader-end-arrow" aria-hidden="true">
+          {status === "finished" ? "✓" : "↗"}
+        </span>
+      </button>
+      <span role="status" className={status === "error" ? "reader-end-error" : "reader-end-status"}>
+        {status === "finished" ? "Article marked read. End of list." : message}
+      </span>
+      <span className="reader-end-hint" id="reader-turn-hint" hidden={status !== "idle"}>
+        You can also pull up or scroll past the end.
+      </span>
     </div>
   );
 }
