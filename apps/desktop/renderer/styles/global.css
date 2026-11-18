@@ -83,7 +83,6 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: fade-in 420ms ease both;
 }
 
 @keyframes fade-in {
@@ -1986,7 +1985,6 @@ button {
 
 .reader {
   padding: 28px 36px 64px;
-  animation: reader-in 280ms ease both;
   height: 100%;
   box-sizing: border-box;
   display: flex;
@@ -2026,17 +2024,6 @@ button {
   margin-left: auto;
 }
 
-@keyframes reader-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 .reader-kicker {
   color: var(--muted);
   font-size: 0.85rem;
@@ -2046,8 +2033,10 @@ button {
 .reader h1 {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: clamp(1.6rem, 2.4vw, 2.2rem);
-  line-height: 1.15;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  max-width: 36ch;
+  line-height: 1.07;
+  text-wrap: balance;
   margin: 0 0 12px;
 }
 
@@ -2064,8 +2053,8 @@ button {
 
 .reader-body {
   font-size: 1.05rem;
-  line-height: 1.7;
-  max-width: 46rem;
+  line-height: 1.75;
+  max-width: 68ch;
 }
 
 .reader-fullbleed .reader-body {
@@ -3772,55 +3761,89 @@ html, body, #root { min-width: 0; width: 100%; height: 100%; }
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 
-/* Deliberate read-and-advance gesture from the Forge reader. */
+/* The page-turn control carries both the pull tension and the outcome. */
 .reader-end {
   flex-shrink: 0;
   max-width: 46rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: grid;
+  justify-items: start;
   gap: 8px;
-  margin-top: 40px;
-  padding-top: 24px;
+  margin-top: 36px;
+  padding-top: 22px;
   border-top: 1px solid var(--border);
-  font-size: 0.85rem;
-  text-align: center;
-  transition: transform 140ms ease-out;
-}
-
-.reader-end-pulling {
-  transition: none;
-}
-
-.reader-end-arrow {
-  color: var(--accent);
-  font-size: 1.3rem;
-}
-
-.reader-end-track {
-  width: 120px;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg2);
-}
-
-.reader-end-track > span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transform-origin: left;
+  font-size: .85rem;
 }
 
 .reader-end-next {
-  color: var(--accent);
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  width: min(100%, 25rem);
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 54px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ink);
   background: transparent;
-  min-height: 44px;
-  padding: 8px 12px;
+  font: 650 .95rem var(--font-body, system-ui);
+  text-align: left;
+  cursor: pointer;
 }
 
-.reader-end-next:disabled {
-  visibility: hidden;
+.reader-end-next::before,
+.reader-end-next::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.reader-end-next::before {
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  box-shadow: 0 3px 0 var(--border);
+  transform: translateY(calc(-5px * var(--tension)))
+    scale(calc(1 - .015 * var(--tension)), calc(1 + .07 * var(--tension)));
+  transition: transform 220ms cubic-bezier(.18,.9,.25,1.25), background-color 140ms;
+}
+
+.reader-end-next::after {
+  inset: auto 12px 3px;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(var(--pull));
+  transform-origin: left;
+}
+
+.reader-end[data-pulling] .reader-end-next::before {
+  transition: none;
+  border-color: var(--accent);
+}
+
+.reader-end-next:active:not([aria-disabled="true"])::before {
+  transform: translateY(2px) scale(1.018,.91);
+  transition-duration: 80ms;
+}
+
+.reader-end-next:hover::before,
+.reader-end[data-state="busy"] .reader-end-next::before {
+  border-color: var(--accent);
+}
+
+.reader-end-next[aria-disabled="true"] { cursor: default; }
+.reader-end[data-state="finished"] .reader-end-next::before { box-shadow: none; }
+.reader-end-arrow { font-size: 1.25rem; color: var(--accent); }
+.reader-end-hint, .reader-end-error { color: var(--muted); }
+.reader-end-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-end .reader-end-next::before { transform: none; }
+  .reader-end-next:active:not([aria-disabled="true"])::before { border-color: var(--accent); }
 }
 
 .reader-fullbleed .reader-body { flex: 1; min-height: 0; overflow: auto; }

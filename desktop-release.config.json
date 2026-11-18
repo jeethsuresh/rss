@@ -2,11 +2,12 @@
   "name": "RSS Reader",
   "directory": "apps/desktop",
   "engine": "electron",
-  "version": "0.1.8",
-  "versionCode": 1008,
+  "version": "0.1.9",
+  "versionCode": 1009,
   "bunVersion": "1.4.0",
   "changes": [
-    "RSS Reader now uses its own app icon on the desktop."
+    "The article finish control now responds to your pull and carries you into the next article.",
+    "Article pages have more comfortable reading width and a clearer stopping point at the end of your list."
   ],
   "schemaVersion": 1,
   "slug": "rss",
