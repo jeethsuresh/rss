@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   image:
-    runs-on: ubuntu-24.04
+    runs-on: gravitas-linux
     timeout-minutes: 30
     permissions:
       contents: read
@@ -45,7 +45,7 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [image, desktop-verify]
-    runs-on: ubuntu-24.04
+    runs-on: gravitas-linux
     timeout-minutes: 15
     environment:
       name: gravitas
@@ -75,7 +75,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-24.04, platform: linux, arch: x64}
+          - {os: gravitas-linux, platform: linux, arch: x64}
           - {os: windows-2022, platform: windows, arch: x64}
           - {os: macos-15, platform: macos, arch: arm64}
           - {os: macos-15-intel, platform: macos, arch: x64}
@@ -124,7 +124,7 @@ jobs:
 
   desktop-verify:
     needs: desktop
-    runs-on: ubuntu-24.04
+    runs-on: gravitas-linux
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -144,7 +144,7 @@ jobs:
   desktop-plan:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [deploy, desktop-verify]
-    runs-on: ubuntu-24.04
+    runs-on: gravitas-linux
     outputs:
       publish: ${{ steps.release.outputs.publish }}
     steps:
@@ -201,7 +201,7 @@ jobs:
   desktop-publish:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [deploy, desktop-verify, desktop-sign]
-    runs-on: ubuntu-24.04
+    runs-on: gravitas-linux
     permissions:
       contents: write
     steps:
