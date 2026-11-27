@@ -44,7 +44,7 @@ jobs:
 
           - name: linux-x64
             # Pin 22.04 for broader glibc compatibility of AppImage/deb/rpm.
-            runs-on: ubuntu-22.04
+            runs-on: gravitas-linux-22
             goos: linux
             goarch: amd64
             electron_args: --linux deb rpm pacman AppImage --x64
