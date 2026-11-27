@@ -8,7 +8,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/rss-server ./cmd/s
 
 FROM build AS backend-test
 
-RUN go test ./...
+# Bound package concurrency and keep transient SQLite fixtures off nested overlay I/O.
+RUN --mount=type=tmpfs,target=/tmp GOMAXPROCS=2 go test -p 2 ./...
 
 FROM oven/bun:1.4.0-alpine AS web
 
